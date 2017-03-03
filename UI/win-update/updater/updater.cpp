@@ -786,6 +786,16 @@ static bool UpdateFile(update_t &file)
 	return true;
 }
 
+static bool IsFileWritable(const wstring &file)
+{
+	WinHandle f = CreateFile(file.c_str(), GENERIC_WRITE, 0, nullptr,
+			OPEN_EXISTING, 0, nullptr);
+	if (!f.Valid())
+		return true;
+
+	return false;
+}
+
 static wchar_t tempPath[MAX_PATH] = {};
 
 #define PATCH_MANIFEST_URL \
@@ -800,8 +810,9 @@ static bool Update(wchar_t *cmdLine)
 	/* ------------------------------------- *
 	 * Check to make sure OBS isn't running  */
 
-	HANDLE hObsMutex = OpenMutexW(SYNCHRONIZE, false, L"OBSMutex");
-	if (hObsMutex) {
+	HANDLE hObsUpdateMutex = OpenMutexW(SYNCHRONIZE, false,
+			L"OBSStudioUpdateMutex");
+	if (hObsUpdateMutex) {
 		HANDLE hWait[2];
 		hWait[0] = hObsMutex;
 		hWait[1] = cancelRequested;

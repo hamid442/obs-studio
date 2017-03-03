@@ -19,10 +19,14 @@
 #include <strsafe.h>
 #include <zlib.h>
 #include <ctype.h>
+#include <blake2.h>
 
 #include <string>
 
 #include "../win-update-helpers.hpp"
+
+#define BLAKE2_HASH_LENGTH 20
+#define BLAKE2_HASH_STR_LENGTH ((BLAKE2_HASH_LENGTH * 2) + 1)
 
 #if defined _M_IX86
 #pragma comment(linker, \

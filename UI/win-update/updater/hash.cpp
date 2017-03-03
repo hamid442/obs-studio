@@ -1,24 +1,27 @@
 #include "updater.hpp"
 
 #include <util/windows/WinHandle.hpp>
+#include <vector>
 
-void HashToString(const BYTE *in, wchar_t *out)
+using namespace std;
+
+void HashToString(const uint8_t *in, wchar_t *out)
 {
-	const char alphabet[] = "0123456789abcdef";
+	const wchar_t alphabet[] = L"0123456789abcdef";
 
-	for (int i = 0; i != 20; i++) {
+	for (int i = 0; i != BLAKE2_HASH_LENGTH; ++i) {
 		out[2 * i]     = alphabet[in[i] / 16];
 		out[2 * i + 1] = alphabet[in[i] % 16];
 	}
 
-	out[40] = 0;
+	out[BLAKE2_HASH_LENGTH * 2] = 0;
 }
 
 void StringToHash(const wchar_t *in, BYTE *out)
 {
 	int temp;
 
-	for (int i = 0; i < 20; i++) {
+	for (int i = 0; i < BLAKE2_HASH_LENGTH; i++) {
 		swscanf_s(in + i * 2, L"%02x", &temp);
 		out[i] = (BYTE)temp;
 	}
@@ -26,39 +29,33 @@ void StringToHash(const wchar_t *in, BYTE *out)
 
 bool CalculateFileHash(const wchar_t *path, BYTE *hash)
 {
-	BYTE      buf[65536];
-	CryptHash hHash;
-	WinHandle hFile;
-
-	if (!CryptCreateHash(hProvider, CALG_SHA1, 0, 0, &hHash))
+	blake2b_state blake2;
+	if (blake2b_init(&blake2, BLAKE2_HASH_LENGTH) != 0)
 		return false;
 
-	hFile = CreateFile(path, GENERIC_READ, 0, NULL, OPEN_EXISTING, 0, NULL);
-	if (hFile == INVALID_HANDLE_VALUE) {
-		if (GetLastError() == ERROR_FILE_NOT_FOUND) {
-			/* A missing file is OK */
-			memset(hash, 0, 20);
-			return true;
-		}
-
+	WinHandle handle = CreateFileW(path, GENERIC_READ, FILE_SHARE_READ,
+			nullptr, OPEN_EXISTING, 0, nullptr);
+	if (handle == INVALID_HANDLE_VALUE)
 		return false;
-	}
+
+	vector<BYTE> buf;
+	buf.resize(65536);
 
 	for (;;) {
-		DWORD read;
-
-		if (!ReadFile(hFile, buf, sizeof(buf), &read, NULL))
+		DWORD read = 0;
+		if (!ReadFile(handle, buf.data(), (DWORD)buf.size(), &read,
+					nullptr))
 			return false;
+
 		if (!read)
 			break;
 
-		if (!CryptHashData(hHash, buf, read, 0))
+		if (blake2b_update(&blake2, buf.data(), read) != 0)
 			return false;
 	}
 
-	DWORD hashLength = 20;
-	if (!CryptGetHashParam(hHash, HP_HASHVAL, hash, &hashLength, 0))
+	if (blake2b_final(&blake2, hash, BLAKE2_HASH_LENGTH) != 0)
 		return false;
 
 	return true;
-}
+}	
