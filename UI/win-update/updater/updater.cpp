@@ -814,13 +814,6 @@ static bool UpdateFile(update_t &file)
 	return true;
 }
 
-static bool IsGameCaptureInUse()
-{
-	wstring file = L"data\\obs-plugins\\win-capture\\graphics-hook";
-	return IsFileLocked(file + L"32.dll") ||
-	       IsFileLocked(file + L"64.dll");
-}
-
 static wchar_t tempPath[MAX_PATH] = {};
 
 #define PATCH_MANIFEST_URL \
@@ -865,16 +858,6 @@ static bool Update(wchar_t *cmdLine)
 	}
 
 	::hProvider = hProvider;
-
-	/* ------------------------------------- *
-	 * Make sure game capture isn't locked   */
-
-	if (IsGameCaptureInUse()) {
-		Status(L"Update Failed: Game capture currently in use.  "
-				L"Close all other games/programs and "
-				L"try again.");
-		return false;
-	}
 
 	/* ------------------------------------- */
 
