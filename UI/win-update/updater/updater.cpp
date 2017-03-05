@@ -37,6 +37,7 @@ HCRYPTPROV hProvider       = 0;
 
 static bool bExiting     = false;
 static bool updateFailed = false;
+static bool is32bit      = false;
 
 static bool downloadThreadFailure = false;
 
@@ -195,25 +196,6 @@ static bool IsSafeFilename(const wchar_t *path)
 	return true;
 }
 
-static bool IsSafePath(const wchar_t *path)
-{
-	const wchar_t *p = path;
-
-	if (!*p)
-		return true;
-
-	if (!isalnum(*p))
-		return false;
-
-	while (*p) {
-		if (*p == '.' || *p == '\\')
-			return false;
-		p++;
-	}
-
-	return true;
-}
-
 static string QuickReadFile(const wchar_t *path)
 {
 	string data;
@@ -266,9 +248,9 @@ struct update_t {
 	string  packageName;
 
 	DWORD   fileSize = 0;
-	BYTE    hash[20];
-	BYTE    downloadhash[20];
-	BYTE    my_hash[20];
+	BYTE    hash[BLAKE2_HASH_LENGTH];
+	BYTE    downloadhash[BLAKE2_HASH_LENGTH];
+	BYTE    my_hash[BLAKE2_HASH_LENGTH];
 	state_t state     = STATE_INVALID;
 	bool    has_hash  = false;
 	bool    patchable = false;
@@ -368,7 +350,7 @@ bool DownloadWorkerThread(vector<update_t> &updates)
 				return false;
 			}
 
-			Status(L"Downloading %s", update.outputPath);
+			Status(L"Downloading %s", update.outputPath.c_str());
 
 			if (!HTTPGetFile(hConnect,
 			                 update.sourceURL.c_str(),
@@ -395,7 +377,7 @@ bool DownloadWorkerThread(vector<update_t> &updates)
 				return 1;
 			}
 
-			BYTE downloadHash[20];
+			BYTE downloadHash[BLAKE2_HASH_LENGTH];
 			if (!CalculateFileHash(update.tempPath.c_str(), downloadHash)) {
 				downloadThreadFailure = true;
 				DeleteFile(update.tempPath.c_str());
@@ -453,6 +435,16 @@ try {
 
 /* ----------------------------------------------------------------------- */
 
+static bool IsFileLocked(const wstring &file)
+{
+	WinHandle f = CreateFile(file.c_str(), GENERIC_WRITE, 0, nullptr,
+			OPEN_EXISTING, 0, nullptr);
+	if (!f.Valid())
+		return true;
+
+	return false;
+}
+
 static inline bool UTF8ToWide(wchar_t *wide, int wideSize, const char *utf8)
 {
 	return !!MultiByteToWideChar(CP_UTF8, 0, utf8, -1, wide, wideSize);
@@ -464,31 +456,56 @@ static inline bool WideToUTF8(char *utf8, int utf8Size, const wchar_t *wide)
 			nullptr, nullptr);
 }
 
+static inline bool FileExists(const wchar_t *path)
+{
+	WIN32_FIND_DATAW wfd;
+	HANDLE           hFind;
+
+	hFind = FindFirstFileW(path, &wfd);
+	if (hFind != INVALID_HANDLE_VALUE)
+		FindClose(hFind);
+
+	return hFind != INVALID_HANDLE_VALUE;
+}
+
+static bool NonCorePackageInstalled(const char *name)
+{
+	if (strcmp(name, "obs-browser") == 0) {
+		return FileExists(L"obs-plugins\\32bit\\obs-browser.dll");
+	} else if (strcmp(name, "realsense") == 0) {
+		return FileExists(L"obs-plugins\\32bit\\win-ivcam.dll");
+	}
+
+	return false;
+}
+
 #define UTF8ToWideBuf(wide, utf8) UTF8ToWide(wide, _countof(wide), utf8)
 #define WideToUTF8Buf(utf8, wide) WideToUTF8(utf8, _countof(utf8), wide)
+
+#define UPDATE_URL L"https://obsproject.com/update_studio"
 
 static bool AddPackageUpdateFiles(vector<update_t> &updates, json_t *root,
 		size_t idx, const wchar_t *tempPath)
 {
 	json_t *package = json_array_get(root, idx);
 	json_t *name    = json_object_get(package, "name");
-	json_t *source  = json_object_get(package, "source");
-	json_t *path    = json_object_get(package, "path");
 	json_t *files   = json_object_get(package, "files");
 
 	if (!json_is_array(files))
 		return true;
 	if (!json_is_string(name))
 		return true;
-	if (!json_is_string(path))
-		return true;
-	if (!json_is_string(source))
-		return true;
 
+	wchar_t wPackageName[512];
 	const char *packageName = json_string_value(name);
-	const char *pathUTF8 = json_string_value(path);
-
 	size_t fileCount = json_array_size(files);
+
+	if (!UTF8ToWideBuf(wPackageName, packageName))
+		return false;
+
+	if (strcmp(packageName, "core") != 0 &&
+	    !NonCorePackageInstalled(packageName))
+		return true;
 
 	for (size_t j = 0; j < fileCount; j++) {
 		json_t *file     = json_array_get(files, j);
@@ -503,60 +520,47 @@ static bool AddPackageUpdateFiles(vector<update_t> &updates, json_t *root,
 		if (!json_is_integer(size))
 			continue;
 
-		const char *fileUTF8   = json_string_value(fileName);
-		const char *hashUTF8   = json_string_value(hash);
-		const char *sourceUTF8 = json_string_value(source);
-		int fileSize           = (int)json_integer_value(size);
+		const char *fileUTF8 = json_string_value(fileName);
+		const char *hashUTF8 = json_string_value(hash);
+		int fileSize         = (int)json_integer_value(size);
 
-		if (strlen(hashUTF8) != 40)
-			continue;
-		if (strncmp(sourceUTF8, "https://obsproject.com/", 23))
+		if (strlen(hashUTF8) != BLAKE2_HASH_LENGTH * 2)
 			continue;
 
 		/* convert strings to wide */
 
 		wchar_t sourceURL[1024];
-		wchar_t fullPath[MAX_PATH];
 		wchar_t updateFileName[MAX_PATH];
-		wchar_t updateHashStr[41];
+		wchar_t updateHashStr[BLAKE2_HASH_STR_LENGTH];
 		wchar_t tempFilePath[MAX_PATH];
 
-		if (!UTF8ToWideBuf(fullPath, pathUTF8))
-			continue;
 		if (!UTF8ToWideBuf(updateFileName, fileUTF8))
 			continue;
 		if (!UTF8ToWideBuf(updateHashStr, hashUTF8))
 			continue;
-		if (!UTF8ToWideBuf(sourceURL, sourceUTF8))
-			continue;
 
 		/* make sure paths are safe */
 
-		if (!IsSafePath(fullPath)) {
-			Status(L"Update failed: Unsafe path '%s' found in "
-					L"manifest", fullPath);
-			return false;
-		}
 		if (!IsSafeFilename(updateFileName)) {
 			Status(L"Update failed: Unsafe path '%s' found in "
 					L"manifest", updateFileName);
 			return false;
 		}
 
-		StringCbCat(fullPath, sizeof(fullPath), updateFileName);
-		StringCbCat(sourceURL, sizeof(sourceURL), updateFileName);
+		StringCbPrintf(sourceURL, sizeof(sourceURL), L"%s/%s/%s",
+				UPDATE_URL, wPackageName, updateFileName);
 		StringCbPrintf(tempFilePath, sizeof(tempFilePath),
 				L"%s\\%s", tempPath, updateHashStr);
 
 		/* Check file hash */
 
-		BYTE    existingHash[20];
-		wchar_t fileHashStr[41];
+		BYTE    existingHash[BLAKE2_HASH_LENGTH];
+		wchar_t fileHashStr[BLAKE2_HASH_STR_LENGTH];
 		bool    has_hash;
 
 		/* We don't really care if this fails, it's just to avoid
 		 * wasting bandwidth by downloading unmodified files */
-		if (CalculateFileHash(fullPath, existingHash)) {
+		if (CalculateFileHash(updateFileName, existingHash)) {
 
 			HashToString(existingHash, fileHashStr);
 			if (wcscmp(fileHashStr, updateHashStr) == 0)
@@ -572,7 +576,7 @@ static bool AddPackageUpdateFiles(vector<update_t> &updates, json_t *root,
 		update_t update;
 		update.fileSize     = fileSize;
 		update.basename     = updateFileName;
-		update.outputPath   = fullPath;
+		update.outputPath   = updateFileName;
 		update.tempPath     = tempFilePath;
 		update.sourceURL    = sourceURL;
 		update.packageName  = packageName;
@@ -594,60 +598,49 @@ static bool AddPackageUpdateFiles(vector<update_t> &updates, json_t *root,
 	return true;
 }
 
-static void UpdateWithPatchIfAvailable(json_t *file, vector<update_t> &updates,
-		const char *patchpackageName)
+static void UpdateWithPatchIfAvailable(vector<update_t> &updates,
+		const char *name, const char *hash, const char *source,
+		int size)
 {
 	wchar_t widePatchableFilename[MAX_PATH];
 	wchar_t widePatchHash[MAX_PATH];
+	wchar_t sourceURL[1024];
+	wchar_t patchHashStr[BLAKE2_HASH_STR_LENGTH];
 
-	json_t *name   = json_object_get(file, "name");
-	json_t *hash   = json_object_get(file, "hash");
-	json_t *source = json_object_get(file, "source");
-	json_t *size   = json_object_get(file, "size");
-
-	if (!json_is_string(name))
-		return;
-	if (!json_is_string(hash))
-		return;
-	if (!json_is_string(source))
-		return;
-	if (!json_is_integer(size))
+	if (strncmp(source, "https://obsproject.com/", 23) != 0)
 		return;
 
-	const char *patchableFilename = json_string_value(hash);
-	const char *patchHash         = json_string_value(hash);
-	const char *sourceStr         = json_string_value(source);
-	int         patchSize         = (int)json_integer_value(size);
+	string patchPackageName = name;
 
-	if (strncmp(sourceStr, "https://obsproject.com/", 23) != 0)
+	const char *slash = strchr(name, '/');
+	if (!slash)
 		return;
 
-	if (!UTF8ToWideBuf(widePatchableFilename, patchableFilename))
+	patchPackageName.resize(slash - name);
+	name = slash + 1;
+
+	if (!UTF8ToWideBuf(widePatchableFilename, name))
 		return;
-	if (!UTF8ToWideBuf(widePatchHash, patchHash))
+	if (!UTF8ToWideBuf(widePatchHash, hash))
+		return;
+	if (!UTF8ToWideBuf(sourceURL, source))
+		return;
+	if (!UTF8ToWideBuf(patchHashStr, hash))
 		return;
 
 	for (update_t &update : updates) {
-		if (update.packageName != patchpackageName)
+		if (update.packageName != patchPackageName)
 			continue;
 		if (update.basename != widePatchableFilename)
-			continue;
-
-		wchar_t sourceURL[1024];
-		wchar_t patchHashStr[41];
-
-		if (!UTF8ToWideBuf(sourceURL, sourceStr))
-			continue;
-		if (!UTF8ToWideBuf(patchHashStr, patchHash))
 			continue;
 
 		StringToHash(patchHashStr, update.downloadhash);
 
 		/* Replace the source URL with the patch file, mark it as
 		 * patchable, and re-calculate download size */
-		totalFileSize -= (update.fileSize - patchSize);
+		totalFileSize -= (update.fileSize - size);
 		update.sourceURL = sourceURL;
-		update.fileSize  = patchSize;
+		update.fileSize  = size;
 		update.patchable = true;
 		break;
 	}
@@ -713,7 +706,7 @@ static bool UpdateFile(update_t &file)
 			installed_ok = (error_code == 0);
 
 			if (installed_ok) {
-				BYTE patchedFileHash[20];
+				BYTE patchedFileHash[BLAKE2_HASH_LENGTH];
 				if (!CalculateFileHash(file.outputPath.c_str(),
 							patchedFileHash)) {
 					Status(L"Update failed: Couldn't "
@@ -722,7 +715,7 @@ static bool UpdateFile(update_t &file)
 					return false;
 				}
 
-				if (memcmp(file.hash, patchedFileHash, 20) != 0) {
+				if (memcmp(file.hash, patchedFileHash, BLAKE2_HASH_LENGTH) != 0) {
 					Status(L"Update failed: Integrity "
 					       L"check of patched "
 					       L"%s failed",
@@ -779,21 +772,18 @@ static bool UpdateFile(update_t &file)
 			return false;
 		}
 
-		file.previousFile = nullptr;
+		file.previousFile = L"";
 		file.state        = STATE_INSTALLED;
 	}
 
 	return true;
 }
 
-static bool IsFileWritable(const wstring &file)
+static bool IsGameCaptureInUse()
 {
-	WinHandle f = CreateFile(file.c_str(), GENERIC_WRITE, 0, nullptr,
-			OPEN_EXISTING, 0, nullptr);
-	if (!f.Valid())
-		return true;
-
-	return false;
+	wstring file = L"data\\obs-plugins\\win-capture\\graphics-hook";
+	return IsFileLocked(file + L"32.dll") ||
+	       IsFileLocked(file + L"64.dll");
 }
 
 static wchar_t tempPath[MAX_PATH] = {};
@@ -814,15 +804,15 @@ static bool Update(wchar_t *cmdLine)
 			L"OBSStudioUpdateMutex");
 	if (hObsUpdateMutex) {
 		HANDLE hWait[2];
-		hWait[0] = hObsMutex;
+		hWait[0] = hObsUpdateMutex;
 		hWait[1] = cancelRequested;
 
 		int i = WaitForMultipleObjects(2, hWait, false, INFINITE);
 
 		if (i == WAIT_OBJECT_0)
-			ReleaseMutex(hObsMutex);
+			ReleaseMutex(hObsUpdateMutex);
 
-		CloseHandle(hObsMutex);
+		CloseHandle(hObsUpdateMutex);
 
 		if (i == WAIT_OBJECT_0 + 1)
 			return false;
@@ -840,6 +830,16 @@ static bool Update(wchar_t *cmdLine)
 	}
 
 	::hProvider = hProvider;
+
+	/* ------------------------------------- *
+	 * Make sure game capture isn't locked   */
+
+	if (IsGameCaptureInUse()) {
+		Status(L"Update Faield: Game capture currently in use.  "
+				L"Close all other games/programs and "
+				L"try again.");
+		return false;
+	}
 
 	/* ------------------------------------- */
 
@@ -869,6 +869,7 @@ static bool Update(wchar_t *cmdLine)
 
 	if (bIsPortable) {
 		GetCurrentDirectory(_countof(lpAppDataPath), lpAppDataPath);
+		StringCbCat(lpAppDataPath, sizeof(lpAppDataPath), L"\\config");
 	} else {
 		CoTaskMemPtr<wchar_t> pOut;
 		HRESULT hr = SHGetKnownFolderPath(FOLDERID_RoamingAppData,
@@ -888,13 +889,25 @@ static bool Update(wchar_t *cmdLine)
 	 * Get download path                     */
 
 	wchar_t manifestPath[MAX_PATH];
-	manifestPath[0]  = 0;
+	wchar_t tempDirName[MAX_PATH];
+
+	manifestPath[0] = 0;
+	tempDirName[0]  = 0;
 
 	StringCbPrintf(manifestPath, sizeof(manifestPath),
-			L"%s\\updates\\packages.xconfig", lpAppDataPath);
-	StringCbPrintf(tempPath, sizeof(tempPath),
-			L"%s\\updates\\temp", lpAppDataPath);
+			L"%s\\updates\\manifest.json", lpAppDataPath);
+	if (!GetTempPathW(_countof(tempPath), tempPath)) {
+		Status(L"Update failed: Failed to get temp path: %ld",
+				GetLastError());
+		return false;
+	}
+	if (!GetTempFileNameW(tempDirName, L"obs-studio", 0, tempDirName)) {
+		Status(L"Update failed: Failed to create temp dir name: %ld",
+				GetLastError());
+		return false;
+	}
 
+	StringCbCat(tempPath, sizeof(tempPath), tempDirName);
 	CreateDirectory(tempPath, nullptr);
 
 	/* ------------------------------------- *
@@ -926,11 +939,14 @@ static bool Update(wchar_t *cmdLine)
 	/* ------------------------------------- *
 	 * Parse current manifest update files   */
 
-	size_t packageCount = json_array_size(root);
+	json_t *packages = json_object_get(root, "packages");
+	size_t packageCount = json_array_size(packages);
 
 	for (size_t i = 0; i < packageCount; i++) {
-		if (!AddPackageUpdateFiles(updates, root, i, tempPath))
+		if (!AddPackageUpdateFiles(updates, packages, i, tempPath)) {
+			Status(L"Failed to process update packages");
 			return false;
+		}
 	}
 
 	/* ------------------------------------- *
@@ -944,17 +960,11 @@ static bool Update(wchar_t *cmdLine)
 	/* ------------------------------------- *
 	 * Generate file hash json               */
 
-	string lastPackage;
-
-	Json req(json_object());
-	json_t *packages = json_array();
-	json_t *files;
-
-	json_object_set(req, "packages", packages);
+	Json files(json_array());
 
 	for (update_t &update : updates) {
-		wchar_t whash_string[41];
-		char    hash_string[41];
+		wchar_t whash_string[BLAKE2_HASH_STR_LENGTH];
+		char    hash_string[BLAKE2_HASH_STR_LENGTH];
 		char    outputPath[MAX_PATH];
 
 		if (!update.has_hash)
@@ -970,19 +980,13 @@ static bool Update(wchar_t *cmdLine)
 		if (!WideToUTF8Buf(outputPath, update.basename.c_str()))
 			continue;
 
-		if (update.packageName != lastPackage) {
-			files = json_array();
-
-			json_t *obj = json_object();
-			json_object_set(obj, "name",
-					json_string(update.packageName.c_str()));
-			json_object_set(obj, "files", files);
-			json_array_append_new(files, obj);
-			lastPackage = update.packageName;
-		}
+		string package_path;
+		package_path = update.packageName;
+		package_path += "/";
+		package_path += outputPath;
 
 		json_t *obj = json_object();
-		json_object_set(obj, "path", json_string(outputPath));
+		json_object_set(obj, "name", json_string(package_path.c_str()));
 		json_object_set(obj, "hash", json_string(hash_string));
 		json_array_append_new(files, obj);
 	}
@@ -990,7 +994,7 @@ static bool Update(wchar_t *cmdLine)
 	/* ------------------------------------- *
 	 * Send file hashes                      */
 
-	char *post_body = json_dumps(req, JSON_COMPACT);
+	char *post_body = json_dumps(files, JSON_COMPACT);
 
 	string newManifest;
 	int    responseCode;
@@ -1030,49 +1034,44 @@ static bool Update(wchar_t *cmdLine)
 	packageCount = json_array_size(root);
 
 	for (size_t i = 0; i < packageCount; i++) {
-		json_t *patchpackage = json_array_get(root, i);
+		json_t *patch = json_array_get(root, i);
 
-		if (!json_is_object(patchpackage)) {
+		if (!json_is_object(patch)) {
 			Status(L"Update failed: Invalid patch manifest");
 			return false;
 		}
 
-		json_t *name  = json_object_get(patchpackage, "name");
-		json_t *files = json_object_get(patchpackage, "files");
+		json_t *name_json   = json_object_get(patch, "name");
+		json_t *hash_json   = json_object_get(patch, "hash");
+		json_t *source_json = json_object_get(patch, "source");
+		json_t *size_json   = json_object_get(patch, "size");
 
-		if (!json_is_string(name))
+		if (!json_is_string(name_json))
 			continue;
-		if (!json_is_array(files))
+		if (!json_is_string(hash_json))
+			continue;
+		if (!json_is_string(source_json))
+			continue;
+		if (!json_is_integer(size_json))
 			continue;
 
-		const char *patchpackageName = json_string_value(name);
+		const char *name   = json_string_value(name_json);
+		const char *hash   = json_string_value(hash_json);
+		const char *source = json_string_value(source_json);
+		int         size   = (int)json_integer_value(size_json);
 
-		size_t fileCount = json_array_size(files);
-
-		for (size_t j = 0; j < fileCount; j++) {
-			json_t *file = json_array_get(files, j);
-
-			if (!json_is_object(file)) {
-				Status(L"Update failed: Invalid patch manifest");
-				return false;
-			}
-
-			UpdateWithPatchIfAvailable(file, updates,
-					patchpackageName);
-		}
+		UpdateWithPatchIfAvailable(updates, name, hash, source, size);
 	}
 
 	/* ------------------------------------- *
 	 * Download Updates                      */
 
-	if (!RunDownloadWorkers(2, updates))
+	if (!RunDownloadWorkers(1, updates))
 		return false;
 
-	/* TODO: isn't this a fail? */
 	if (completedUpdates != updates.size()) {
-		Status(L"Update complete.");
-		SetDlgItemText(hwndMain, IDC_BUTTON, L"Launch OBS");
-		return true;
+		Status(L"Update failed to download all files.");
+		return false;
 	}
 
 	/* ------------------------------------- *
@@ -1143,31 +1142,32 @@ static void CancelUpdate(bool quit)
 	}
 }
 
-static inline bool FileExists(const wchar_t *path)
-{
-	WIN32_FIND_DATAW wfd;
-	HANDLE           hFind;
-
-	hFind = FindFirstFileW(path, &wfd);
-	if (hFind != INVALID_HANDLE_VALUE)
-		FindClose(hFind);
-
-	return hFind != INVALID_HANDLE_VALUE;
-}
-
 static void LaunchOBS()
 {
 	wchar_t cwd[MAX_PATH];
+	wchar_t newCwd[MAX_PATH];
 	wchar_t obsPath[MAX_PATH];
 
 	GetCurrentDirectory(_countof(cwd) - 1, cwd);
 
 	StringCbCopy(obsPath, sizeof(obsPath), cwd);
-	StringCbCat(obsPath, sizeof(obsPath), L"\\obs32.exe");
+	StringCbCat(obsPath, sizeof(obsPath), is32bit
+			? L"\\bin\\32bit"
+			: L"\\bin\\64bit");
+	SetCurrentDirectory(obsPath);
+	StringCbCopy(newCwd, sizeof(newCwd), obsPath);
+
+	StringCbCat(obsPath, sizeof(obsPath), is32bit
+			? L"\\obs32.exe"
+			: L"\\obs64.exe");
 
 	if (!FileExists(obsPath)) {
 		StringCbCopy(obsPath, sizeof(obsPath), cwd);
-		StringCbCat(obsPath, sizeof(obsPath), L"\\obs64.exe");
+		StringCbCat(obsPath, sizeof(obsPath), L"\\bin\\32bit");
+		SetCurrentDirectory(obsPath);
+		StringCbCopy(newCwd, sizeof(newCwd), obsPath);
+
+		StringCbCat(obsPath, sizeof(obsPath), L"\\obs32.exe");
 
 		if (!FileExists(obsPath)) {
 			/* TODO: give user a message maybe? */
@@ -1181,7 +1181,7 @@ static void LaunchOBS()
 
 	execInfo.cbSize      = sizeof(execInfo);
 	execInfo.lpFile      = obsPath;
-	execInfo.lpDirectory = cwd;
+	execInfo.lpDirectory = newCwd;
 	execInfo.nShow       = SW_SHOWNORMAL;
 
 	ShellExecuteEx(&execInfo);
@@ -1279,6 +1279,19 @@ int WINAPI wWinMain(HINSTANCE hInstance, HINSTANCE, LPWSTR lpCmdLine, int)
 
 		return 0;
 	} else {
+		{
+			wchar_t cwd[MAX_PATH];
+			wchar_t newPath[MAX_PATH];
+			GetCurrentDirectoryW(_countof(cwd) - 1, cwd);
+
+			is32bit = wcsstr(cwd, L"bin\\32bit") != nullptr;
+			StringCbCat(cwd, sizeof(cwd), L"\\..\\..");
+
+			GetFullPathName(cwd, _countof(newPath), newPath,
+					nullptr);
+			SetCurrentDirectory(newPath);
+		}
+
 		hinstMain = hInstance;
 
 		icce.dwSize = sizeof(icce);

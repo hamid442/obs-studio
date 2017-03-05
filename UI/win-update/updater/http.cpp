@@ -193,7 +193,7 @@ bool HTTPPostData(const wchar_t *url,
 	DWORD responseBufSize = MAX_BUF_SIZE;
 
 	try {
-		responseBuf.resize(responseBufSize);
+		responseBuf.reserve(responseBufSize);
 	} catch (...) {
 		*responseCode = -6;
 		return false;

@@ -28,7 +28,7 @@ public:
 	{
 		lzma_ret ret = lzma_stream_decoder(
 				&strm,
-				100 * 1024 * 1024,
+				200 * 1024 * 1024,
 				0);
 		initialized = (ret == LZMA_OK);
 		return initialized;
@@ -145,34 +145,35 @@ static int bspatch(const uint8_t *old, int64_t oldsize, uint8_t *newp, int64_t n
 /* ------------------------------------------------------------------------ */
 
 struct patch_data {
-	FILE          *f;
+	HANDLE        h;
 	lzma_stream   *strm;
 	uint8_t       buf[READ_BUF_SIZE];
-	size_t        read_size;
-	bool          do_read;
 };
 
 static int read_lzma(const struct bspatch_stream *stream, void *buffer, int len)
 {
+	if (!len)
+		return 0;
+
 	patch_data  *data    = (patch_data*)stream->opaque;
-	FILE        *f       = data->f;
+	HANDLE      h        = data->h;
 	lzma_stream *strm    = data->strm;
-	uint8_t     *buf_out = (uint8_t *)buffer;
+
+	strm->avail_out = (size_t)len;
+	strm->next_out  = (uint8_t *)buffer;
 
 	for (;;) {
-		if (data->do_read) {
-			data->read_size = fread(data->buf, 1, READ_BUF_SIZE, f);
-			if (data->read_size == 0)
+		if (strm->avail_in == 0) {
+			DWORD read_size;
+			if (!ReadFile(h, data->buf, READ_BUF_SIZE, &read_size,
+						nullptr))
+				return -1;
+			if (read_size == 0)
 				return -1;
 
-			data->do_read = false;
+			strm->avail_in = (size_t)read_size;
+			strm->next_in  = data->buf;
 		}
-
-		strm->avail_in = data->read_size;
-		strm->next_in  = data->buf;
-
-		strm->avail_out = (size_t)len;
-		strm->next_out  = buf_out;
 
 		lzma_ret ret = lzma_code(strm, LZMA_RUN);
 		if (ret == LZMA_STREAM_END)
@@ -181,10 +182,6 @@ static int read_lzma(const struct bspatch_stream *stream, void *buffer, int len)
 			return -1;
 		if (strm->avail_out == 0)
 			break;
-
-		buf_out += len - strm->avail_out;
-		len = (int)strm->avail_out;
-		data->do_read = true;
 	}
 
 	return 0;
@@ -196,10 +193,8 @@ int ApplyPatch(const wchar_t *patchFile, const wchar_t *targetFile) try {
 	struct bspatch_stream stream;
 	bool                  success;
 
-	WinHandle  hDest;
 	WinHandle  hPatch;
 	WinHandle  hTarget;
-	File       f;
 	LZMAStream strm;
 
 	/* --------------------------------- *
@@ -263,38 +258,35 @@ int ApplyPatch(const wchar_t *patchFile, const wchar_t *targetFile) try {
 	/* --------------------------------- *
 	 * patch to new file data            */
 
-	_wfopen_s(&f, patchFile, L"rb");
-	if (!f)
-		throw int(-8);
-
-	_fseeki64(f, sizeof(header), SEEK_SET);
-
 	if (!strm.init_decoder())
 		throw int(-10);
 
-	patch_data data = {f, strm.get()};
+	patch_data data;
+	data.h    = hPatch;
+	data.strm = strm.get();
 
 	stream.read   = read_lzma;
 	stream.opaque = &data;
 
 	int ret = bspatch(oldData.data(), oldData.size(), newData.data(), newData.size(), &stream);
-	if (ret == 0)
+	if (ret != 0)
 		throw int(-9);
 
 	/* --------------------------------- *
 	 * write new file                    */
 
-	hDest = CreateFile(targetFile, GENERIC_WRITE, 0, nullptr, CREATE_ALWAYS, 0, nullptr);
-	if (!hDest.Valid())
+	hTarget = nullptr;
+	hTarget = CreateFile(targetFile, GENERIC_WRITE, 0, nullptr, CREATE_ALWAYS, 0, nullptr);
+	if (!hTarget.Valid())
 		throw int(GetLastError());
 
 	DWORD written;
 
-	success = !!WriteFile(hDest, newData.data(), (DWORD)newsize, &written, nullptr);
+	success = !!WriteFile(hTarget, newData.data(), (DWORD)newsize, &written, nullptr);
 	if (!success || written != newsize)
 		throw int(GetLastError());
 
-	return 1;
+	return 0;
 
 } catch (int code) {
 	return code;
