@@ -335,10 +335,14 @@ static inline void CleanupPartialUpdates(vector<update_t> &updates)
 
 /* ----------------------------------------------------------------------- */
 
-mutex *pUpdateMutex = nullptr;
+static mutex *pUpdateMutex = nullptr;
+static vector<update_t> *pUpdates = nullptr;
 
-bool DownloadWorkerThread(vector<update_t> &updates)
+bool DownloadWorkerThread()
 {
+	mutex &updateMutex = *pUpdateMutex;
+	vector<update_t> &updates = *pUpdates;
+
 	HttpHandle hSession = WinHttpOpen(L"OBS Studio Updater/2.1",
 	                                  WINHTTP_ACCESS_TYPE_DEFAULT_PROXY,
 	                                  WINHTTP_NO_PROXY_NAME,
@@ -361,7 +365,7 @@ bool DownloadWorkerThread(vector<update_t> &updates)
 	for (;;) {
 		bool foundWork = false;
 
-		unique_lock<mutex> ulock(*pUpdateMutex);
+		unique_lock<mutex> ulock(updateMutex);
 
 		for (update_t &update : updates) {
 			int responseCode;
@@ -455,9 +459,10 @@ try {
 	thread_success_results.resize(num);
 
 	pUpdateMutex = &updateMutex;
+	pUpdates = &updates;
 
 	for (future<bool> &result : thread_success_results) {
-		result = async(DownloadWorkerThread, updates);
+		result = async(DownloadWorkerThread);
 	}
 	for (future<bool> &result : thread_success_results) {
 		if (!result.get()) {
