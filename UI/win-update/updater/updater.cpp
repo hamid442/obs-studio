@@ -307,6 +307,24 @@ struct update_t {
 			DeleteFile(tempPath.c_str());
 		}
 	}
+
+	inline update_t &operator=(const update_t &from)
+	{
+	        sourceURL = from.sourceURL;
+	        outputPath = from.outputPath;
+	        tempPath = from.tempPath;
+	        previousFile = from.previousFile;
+	        basename = from.basename;
+	        packageName = from.packageName;
+	        fileSize = from.fileSize;
+	        state = from.state;
+	        has_hash = from.has_hash;
+	        patchable = from.patchable;
+
+		memcpy(hash, from.hash, sizeof(hash));
+		memcpy(downloadhash, from.downloadhash, sizeof(downloadhash));
+		memcpy(my_hash, from.my_hash, sizeof(my_hash));
+	}
 };
 
 static inline void CleanupPartialUpdates(vector<update_t> &updates)
@@ -1015,8 +1033,6 @@ static bool Update(wchar_t *cmdLine)
 
 	string newManifest;
 	int    responseCode;
-
-	string response;
 
 	bool success = !!HTTPPostData(PATCH_MANIFEST_URL,
 			(BYTE *)post_body, (int)strlen(post_body),
