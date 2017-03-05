@@ -327,7 +327,10 @@ struct update_t {
 	}
 };
 
-static inline void CleanupPartialUpdates(vector<update_t> &updates)
+static vector<update_t> updates;
+static mutex updateMutex;
+
+static inline void CleanupPartialUpdates()
 {
 	for (update_t &update : updates)
 		update.CleanPartialUpdate();
@@ -335,14 +338,8 @@ static inline void CleanupPartialUpdates(vector<update_t> &updates)
 
 /* ----------------------------------------------------------------------- */
 
-static mutex *pUpdateMutex = nullptr;
-static vector<update_t> *pUpdates = nullptr;
-
 bool DownloadWorkerThread()
 {
-	mutex &updateMutex = *pUpdateMutex;
-	vector<update_t> &updates = *pUpdates;
-
 	HttpHandle hSession = WinHttpOpen(L"OBS Studio Updater/2.1",
 	                                  WINHTTP_ACCESS_TYPE_DEFAULT_PROXY,
 	                                  WINHTTP_NO_PROXY_NAME,
@@ -452,14 +449,10 @@ bool DownloadWorkerThread()
 	return true;
 }
 
-static bool RunDownloadWorkers(int num, vector<update_t> &updates)
+static bool RunDownloadWorkers(int num)
 try {
-	mutex updateMutex;
 	vector<future<bool>> thread_success_results;
 	thread_success_results.resize(num);
-
-	pUpdateMutex = &updateMutex;
-	pUpdates = &updates;
 
 	for (future<bool> &result : thread_success_results) {
 		result = async(DownloadWorkerThread);
@@ -517,8 +510,8 @@ static bool NonCorePackageInstalled(const char *name)
 
 #define UPDATE_URL L"https://obsproject.com/update_studio"
 
-static bool AddPackageUpdateFiles(vector<update_t> &updates, json_t *root,
-		size_t idx, const wchar_t *tempPath)
+static bool AddPackageUpdateFiles(json_t *root, size_t idx,
+		const wchar_t *tempPath)
 {
 	json_t *package = json_array_get(root, idx);
 	json_t *name    = json_object_get(package, "name");
@@ -631,8 +624,8 @@ static bool AddPackageUpdateFiles(vector<update_t> &updates, json_t *root,
 	return true;
 }
 
-static void UpdateWithPatchIfAvailable(vector<update_t> &updates,
-		const char *name, const char *hash, const char *source,
+static void UpdateWithPatchIfAvailable(const char *name, const char *hash,
+		const char *source,
 		int size)
 {
 	wchar_t widePatchableFilename[MAX_PATH];
@@ -821,8 +814,6 @@ static wchar_t tempPath[MAX_PATH] = {};
 
 static bool Update(wchar_t *cmdLine)
 {
-	vector<update_t> updates;
-
 	/* ------------------------------------- *
 	 * Check to make sure OBS isn't running  */
 
@@ -959,7 +950,7 @@ static bool Update(wchar_t *cmdLine)
 	size_t packageCount = json_array_size(packages);
 
 	for (size_t i = 0; i < packageCount; i++) {
-		if (!AddPackageUpdateFiles(updates, packages, i, tempPath)) {
+		if (!AddPackageUpdateFiles(packages, i, tempPath)) {
 			Status(L"Failed to process update packages");
 			return false;
 		}
@@ -1074,13 +1065,13 @@ static bool Update(wchar_t *cmdLine)
 		const char *source = json_string_value(source_json);
 		int         size   = (int)json_integer_value(size_json);
 
-		UpdateWithPatchIfAvailable(updates, name, hash, source, size);
+		UpdateWithPatchIfAvailable(name, hash, source, size);
 	}
 
 	/* ------------------------------------- *
 	 * Download Updates                      */
 
-	if (!RunDownloadWorkers(2, updates))
+	if (!RunDownloadWorkers(2))
 		return false;
 
 	if (completedUpdates != updates.size()) {
@@ -1115,13 +1106,12 @@ static bool Update(wchar_t *cmdLine)
 static DWORD WINAPI UpdateThread(void *arg)
 {
 	wchar_t *cmdLine = (wchar_t *)arg;
-	vector<update_t> updateList;
 
 	bool success = Update(cmdLine);
 
 	if (!success) {
 		/* This handles deleting temp files and rolling back and partially installed updates */
-		CleanupPartialUpdates(updateList);
+		CleanupPartialUpdates();
 
 		if (tempPath[0])
 			RemoveDirectory(tempPath);
