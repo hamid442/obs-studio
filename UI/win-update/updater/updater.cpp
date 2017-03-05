@@ -1001,23 +1001,38 @@ static bool Update(wchar_t *cmdLine)
 	/* ------------------------------------- *
 	 * Send file hashes                      */
 
-	char *post_body = json_dumps(files, JSON_COMPACT);
-
 	string newManifest;
-	int    responseCode;
+	{
+		char *post_body = json_dumps(files, JSON_COMPACT);
 
-	bool success = !!HTTPPostData(PATCH_MANIFEST_URL,
-			(BYTE *)post_body, (int)strlen(post_body),
-			L"Accept-Encoding: gzip", &responseCode, newManifest);
-	free(post_body);
+		int    responseCode;
 
-	if (!success)
-		return false;
+		int len = (int)strlen(post_body);
+		uLong compressSize = compressBound(len);
+		string compressedJson;
 
-	if (responseCode != 200) {
-		Status(L"Update failed: HTTP/%d while trying to download "
-				L"patch manifest", responseCode);
-		return false;
+		compressedJson.resize(compressSize);
+		compress2((Bytef*)&compressedJson[0], &compressSize,
+				(const Bytef*)post_body, len,
+				Z_BEST_COMPRESSION);
+		compressedJson.resize(compressSize);
+
+		bool success = !!HTTPPostData(PATCH_MANIFEST_URL,
+				(BYTE *)&compressedJson[0],
+				(int)compressedJson.size(),
+				L"Accept-Encoding: gzip", &responseCode,
+				newManifest);
+		free(post_body);
+
+		if (!success)
+			return false;
+
+		if (responseCode != 200) {
+			Status(L"Update failed: HTTP/%d while trying to "
+					L"download patch manifest",
+					responseCode);
+			return false;
+		}
 	}
 
 	/* ------------------------------------- *
