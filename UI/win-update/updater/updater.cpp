@@ -256,6 +256,23 @@ struct update_t {
 	bool    patchable = false;
 
 	inline update_t() {}
+	inline update_t(const update_t &from)
+	        : sourceURL(from.sourceURL),
+	          outputPath(from.outputPath),
+	          tempPath(from.tempPath),
+	          previousFile(from.previousFile),
+	          basename(from.basename),
+	          packageName(from.packageName),
+	          fileSize(from.fileSize),
+	          state(from.state),
+	          has_hash(from.has_hash),
+	          patchable(from.patchable)
+	{
+		memcpy(hash, from.hash, sizeof(hash));
+		memcpy(downloadhash, from.downloadhash, sizeof(downloadhash));
+		memcpy(my_hash, from.my_hash, sizeof(my_hash));
+	}
+
 	inline update_t(update_t &&from)
 	        : sourceURL(std::move(from.sourceURL)),
 	          outputPath(std::move(from.outputPath)),
@@ -835,7 +852,7 @@ static bool Update(wchar_t *cmdLine)
 	 * Make sure game capture isn't locked   */
 
 	if (IsGameCaptureInUse()) {
-		Status(L"Update Faield: Game capture currently in use.  "
+		Status(L"Update Failed: Game capture currently in use.  "
 				L"Close all other games/programs and "
 				L"try again.");
 		return false;
@@ -1066,7 +1083,7 @@ static bool Update(wchar_t *cmdLine)
 	/* ------------------------------------- *
 	 * Download Updates                      */
 
-	if (!RunDownloadWorkers(1, updates))
+	if (!RunDownloadWorkers(2, updates))
 		return false;
 
 	if (completedUpdates != updates.size()) {
