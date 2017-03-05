@@ -335,10 +335,10 @@ static inline void CleanupPartialUpdates(vector<update_t> &updates)
 
 /* ----------------------------------------------------------------------- */
 
+mutex *pUpdateMutex = nullptr;
+
 bool DownloadWorkerThread(vector<update_t> &updates)
 {
-	static mutex updateMutex;
-
 	HttpHandle hSession = WinHttpOpen(L"OBS Studio Updater/2.1",
 	                                  WINHTTP_ACCESS_TYPE_DEFAULT_PROXY,
 	                                  WINHTTP_NO_PROXY_NAME,
@@ -361,7 +361,7 @@ bool DownloadWorkerThread(vector<update_t> &updates)
 	for (;;) {
 		bool foundWork = false;
 
-		unique_lock<mutex> ulock(updateMutex);
+		unique_lock<mutex> ulock(*pUpdateMutex);
 
 		for (update_t &update : updates) {
 			int responseCode;
@@ -450,8 +450,11 @@ bool DownloadWorkerThread(vector<update_t> &updates)
 
 static bool RunDownloadWorkers(int num, vector<update_t> &updates)
 try {
+	mutex updateMutex;
 	vector<future<bool>> thread_success_results;
 	thread_success_results.resize(num);
+
+	pUpdateMutex = &updateMutex;
 
 	for (future<bool> &result : thread_success_results) {
 		result = async(DownloadWorkerThread, updates);
@@ -469,16 +472,6 @@ try {
 }
 
 /* ----------------------------------------------------------------------- */
-
-static bool IsFileLocked(const wstring &file)
-{
-	WinHandle f = CreateFile(file.c_str(), GENERIC_WRITE, 0, nullptr,
-			OPEN_EXISTING, 0, nullptr);
-	if (!f.Valid())
-		return true;
-
-	return false;
-}
 
 static inline bool UTF8ToWide(wchar_t *wide, int wideSize, const char *utf8)
 {
