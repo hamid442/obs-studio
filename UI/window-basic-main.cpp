@@ -1464,6 +1464,8 @@ void OBSBasic::OBSInit()
 
 	if (config_get_bool(basicConfig, "General", "OpenStatsOnStartup"))
 		on_stats_triggered();
+
+	OBSBasicStats::InitializeValues();
 }
 
 void OBSBasic::InitHotkeys()
@@ -2772,6 +2774,8 @@ int OBSBasic::ResetVideo()
 		if (program)
 			ResizeProgram(ovi.base_width, ovi.base_height);
 	}
+
+	OBSBasicStats::InitializeValues();
 
 	return ret;
 }
