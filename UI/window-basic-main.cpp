@@ -2775,7 +2775,8 @@ int OBSBasic::ResetVideo()
 			ResizeProgram(ovi.base_width, ovi.base_height);
 	}
 
-	OBSBasicStats::InitializeValues();
+	if (ret == OBS_VIDEO_SUCCESS)
+		OBSBasicStats::InitializeValues();
 
 	return ret;
 }
