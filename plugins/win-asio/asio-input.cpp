@@ -68,7 +68,7 @@ OBS_MODULE_USE_DEFAULT_LOCALE("win-asio", "en-US")
 
 struct asio_data {
 	obs_source_t *source;
-	RtAudio adc;
+
 	/*asio device and info */
 	char *device;
 	uint8_t device_index;
@@ -81,8 +81,8 @@ struct asio_data {
 	uint64_t first_ts;       //first timestamp
 
 	/* channels info */
-	uint8_t channels; //total number of input channels
-	uint8_t output_channels; // number of output channels (not used)
+	unsigned int channels; //total number of input channels
+	unsigned int output_channels; // number of output channels (not used)
 	speaker_layout speakers;
 
 	/* Allow custom capture of contiguous channels;
@@ -93,6 +93,9 @@ struct asio_data {
 	uint8_t FirstChannel; // index of the first channel which will be captured
 	uint8_t LastChannel; // index of the last channel which will be captured
 };
+
+/* global RtAudio */
+RtAudio adc;
 
 /* ======================================================================= */
 /* conversion between rtaudio and obs */
@@ -107,6 +110,15 @@ enum audio_format rtasio_to_obs_audio_format(RtAudioFormat format)
 	}
 
 	return AUDIO_FORMAT_UNKNOWN;
+}
+
+int sample_size_in_bit(audio_format format) {
+	switch (format) {
+	case AUDIO_FORMAT_16BIT:   return 16;
+	case AUDIO_FORMAT_32BIT:   return 32;
+	case AUDIO_FORMAT_FLOAT:   return 32;
+	default:                   return 32;
+	}
 }
 
 RtAudioFormat obs_to_rtasio_audio_format(audio_format format)
@@ -141,11 +153,10 @@ enum speaker_layout asio_channels_to_obs_speakers(unsigned int channels)
 /*****************************************************************************/
 //get device info
 RtAudio::DeviceInfo get_device_info(const char *device) {
-	RtAudio audio;
 	RtAudio::DeviceInfo info;
-	uint8_t numOfDevices = audio.getDeviceCount();
+	unsigned int numOfDevices = adc.getDeviceCount();
 	for (uint8_t i = 0; i<numOfDevices; i++) {
-		info = audio.getDeviceInfo(i);
+		info = adc.getDeviceInfo(i);
 		if (info.probed == true && strcmp(device, info.name.c_str()) == 0) {
 			break;
 		}
@@ -162,13 +173,11 @@ RtAudio::DeviceInfo get_device_info(const char *device) {
 
 // get the device index
 uint8_t get_device_index(const char *device) {
-	RtAudio audio;
 	RtAudio::DeviceInfo info;
-	const char* names;
-	uint8_t device_index;
-	uint8_t numOfDevices = audio.getDeviceCount();
+	uint8_t device_index = 0;
+	unsigned int numOfDevices = adc.getDeviceCount();
 	for (uint8_t i = 0; i<numOfDevices; i++) {
-		info = audio.getDeviceInfo(i);
+		info = adc.getDeviceInfo(i);
 		if (info.probed == true && strcmp(device, info.name.c_str()) == 0) {
 			device_index = i;
 			break;
@@ -178,24 +187,24 @@ uint8_t get_device_index(const char *device) {
 }
 
 /*****************************************************************************/
-void asio_deinit(struct asio_data *data);
+//void asio_deinit(struct asio_data *data);
 void asio_update(void *vptr, obs_data_t *settings);
 void asio_destroy(void *vptr);
 
 //creates the device list
 void fill_out_devices(obs_property_t *list) {
-	RtAudio audioList;
+
 	RtAudio::DeviceInfo info;
 	//for debug purposes or helpful ui things maybe later*
 	std::vector<RtAudio::DeviceInfo> asioDeviceInfo;
-	int numOfDevices = audioList.getDeviceCount();
+	int numOfDevices = adc.getDeviceCount();
 	char** names = new char*[numOfDevices];
 	blog(LOG_INFO,"ASIO Devices: %i\n", numOfDevices);
 	// Scan through devices for various capabilities
 	for (int i = 0; i<numOfDevices; i++) {
-		info = audioList.getDeviceInfo(i);
+		info = adc.getDeviceInfo(i);
 		asioDeviceInfo.push_back(info);
-		blog(LOG_INFO, "device  %i = %s \n", i, info.name.c_str());
+		blog(LOG_INFO, "device  %i = %s and probed.true is %i\n", i, info.name.c_str(), info.probed);
 		blog(LOG_INFO, ": maximum input channels = %i\n", info.inputChannels);
 		blog(LOG_INFO, ": maximum output channels = %i\n", info.outputChannels);
 		std::string test = info.name;
@@ -217,13 +226,13 @@ void fill_out_devices(obs_property_t *list) {
 static bool fill_out_channels(obs_properties_t *props, obs_property_t *list, obs_data_t *settings) {
 	const char* device = obs_data_get_string(settings, "device_id");
 	RtAudio::DeviceInfo info;
-	uint8_t input_channels;
+	unsigned int input_channels;
 
 	//get the device info
 	info = get_device_info(device);
 	input_channels = info.inputChannels;
 
-	for (uint8_t i = 0; i < input_channels; i++) {
+	for (int i = 0; i < input_channels; i++) {
 		std::string channel_numbering(device);
 		char** names = new char*[32];
 		std::string test = info.name + " " + std::to_string(i);
@@ -259,39 +268,47 @@ static bool asio_device_changed(obs_properties_t *props,
 		obs_property_list_insert_string(list, 0, " ", curDeviceId);
 		obs_property_list_item_disable(list, 0, true);
 	}
-	//fill_out_channels(first_channel);
-	//fill_out_channels(last_channel);
-	return true;
-}
-static bool asio_first_channel_changed(obs_properties_t *props,
-		obs_property_t *list, obs_data_t *settings)
-{
-	int channel_id = obs_data_get_int(settings, "first channel");
+	obs_property_set_modified_callback(first_channel, fill_out_channels);
+	obs_property_set_modified_callback(last_channel, fill_out_channels);
 
+	return true;
 }
 
 int create_asio_buffer(void *outputBuffer, void *inputBuffer, unsigned int nBufferFrames,
 	double streamTime, RtAudioStreamStatus status, void *userData) {
-	unsigned int i, j;
+	unsigned int i;
 	asio_data *data = (asio_data *)userData;
 	uint8_t *buffer = data->buffer;
 	uint8_t *inputBuf = (uint8_t *)inputBuffer;
-	int64_t bufSizePerChannelBytes = nBufferFrames * data->SampleSize / 8;
-	int recorded_channels = data->LastChannel - data->FirstChannel + 1;
+	int recorded_channels = data->LastChannel - data->FirstChannel + 1; //number of channels recorded
+	
+	/* buffer in Bytes =
+	 * number of frames in buffer x number of channels x 2 Bytes (16 bit samples)
+	 *                                                 x 4 Bytes (32 bit samples)
+	 * buffer per channel in Bytes =
+	 * number of frames in buffer x sample_size_in_bit / 8
+	 */
+	int sampleSizeBytes = sample_size_in_bit(data->SampleSize)/8;
+	int64_t bufSizePerChannelBytes = nBufferFrames * sampleSizeBytes;
 
 	if (status)
 		blog(LOG_INFO, "Stream overflow detected!");
 
-	// Write planar audio data to asio_data buffer.
+	/* Write planar audio data to asio_data buffer.
+	 * For interleaved, we would have to loop over the frames
+	 * and discard the unwanted samples by looping over the channels. 2 loops.
+	 * With planar, we have a single loop over the channels.
+	 * The buffer starts at channel 0 but we keep only from FirstChannel to LastChannel.
+	 */
 	for (i = data->FirstChannel; i<=data->LastChannel; i++) {
-		memcpy(buffer, inputBuf + i * bufSizePerChannelBytes, bufSizePerChannelBytes);
+		memcpy(buffer + (i - data->FirstChannel)*bufSizePerChannelBytes, inputBuf + i * bufSizePerChannelBytes, bufSizePerChannelBytes);
 		if (!buffer)
-			blog(LOG_INFO, "shit is happening");
-		buffer = buffer + (i - data->FirstChannel) + 1;
+			blog(LOG_INFO, "shit is happening: buffer allocation failed");
 	}
 
 	struct obs_source_audio out;
 	out.data[0] = buffer;
+
 	/* audio data passed to obs in planar format */
 	if (data->SampleSize == AUDIO_FORMAT_16BIT) {
 		out.format = AUDIO_FORMAT_16BIT_PLANAR;
@@ -318,13 +335,11 @@ int create_asio_buffer(void *outputBuffer, void *inputBuffer, unsigned int nBuff
 	if (out.timestamp > data->first_ts) {
 		obs_source_output_audio(data->source, &out);
 	}
-
+	if (data->buffer) {
+		free(data->buffer);
+		data->buffer = NULL;
+	}
 	return 0;
-}
-
-void errorCallback(RtAudioError::Type type, const std::string &errorText) {
-	blog(LOG_INFO, "error type number is %i\n", type);
-	blog(LOG_INFO, "error text is %s\n", errorText);
 }
 
 void asio_init(struct asio_data *data)
@@ -332,39 +347,56 @@ void asio_init(struct asio_data *data)
 	// number of channels which will be captured
 	int recorded_channels = data->LastChannel - data->FirstChannel + 1;
 
-	RtAudio adc;
-	data->adc = adc;
-	uint8_t deviceNumber = adc.getDeviceCount();
+
+	//std::vector< RtAudio::Api > apis;
+	//adc.getCompiledApi(apis);
+
+	unsigned int deviceNumber = adc.getDeviceCount();
 	if (deviceNumber < 1) {
 		blog(LOG_INFO,"\nNo audio devices found!\n");
 	}
 	RtAudio::StreamParameters parameters;
 	parameters.deviceId = data->device_index? data->device_index:0;
-	parameters.nChannels = recorded_channels ? recorded_channels : 1;
-	parameters.firstChannel = data->FirstChannel? data->FirstChannel:0; //first channel captured
-	unsigned int sampleRate = data->SampleRate? data->SampleRate:48000;
+	parameters.nChannels = recorded_channels? recorded_channels:1;
+	parameters.firstChannel = 0;  //first channel passed to the buffer; this is not the first channel captured
+	unsigned int sampleRate = data->SampleRate ? data->SampleRate:48000;
 	unsigned int bufferFrames = data->BufferSize? data->BufferSize:256; // default is 256 frames
 	RtAudioFormat audioFormat = obs_to_rtasio_audio_format(data->SampleSize? data->SampleSize: AUDIO_FORMAT_32BIT);
 	RtAudio::StreamOptions options;
 	options.flags = RTAUDIO_NONINTERLEAVED;
 	try {
 		adc.openStream(NULL, &parameters, audioFormat, sampleRate,
-				&bufferFrames, &create_asio_buffer, (void *)&data, &options, errorCallback);
+				&bufferFrames, &create_asio_buffer, (void *)&data, &options);
+//		adc.openStream(NULL, &parameters, RTAUDIO_SINT32, 44100, &bufferFrames, &create_asio_buffer, (void *)&data, &options);
+	}
+	catch (RtAudioError& e) {
+		e.printMessage();
+		blog(LOG_INFO, "error caught in openStream\n");
+		blog(LOG_INFO, "error type number is %i\n", e.getType());
+		blog(LOG_INFO, "error text number is %s\n", e.getMessage());
+		goto cleanup;
+	}
+	try {
 		adc.startStream();
 	}
 	catch (RtAudioError& e) {
 		e.printMessage();
-		blog(LOG_INFO, "error caught in asio_init\n");
+		blog(LOG_INFO, "error caught in startStream\n");
 		blog(LOG_INFO, "error type number is %i\n", e.getType());
 		blog(LOG_INFO, "error text number is %s\n", e.getMessage());
-//		goto cleanup;
+		//		goto cleanup;
 	}
-
-//cleanup:
-//	asio_destroy(data);
-//	asio_deinit(data);
-	//if (adc.isStreamOpen())
-	//	adc.closeStream();
+cleanup:
+	try {
+		adc.stopStream();
+	}
+	catch (RtAudioError& e) {
+		e.printMessage();
+		blog(LOG_ERROR, "exception thrown in deinit");
+	}
+	if (adc.isStreamOpen())
+		adc.closeStream();
+	asio_destroy(data);
 	
 }
 
@@ -382,31 +414,30 @@ static void * asio_create(obs_data_t *settings, obs_source_t *source)
 	return data;
 }
 
-void asio_deinit(struct asio_data *data)
-{	
-	RtAudio adc = data->adc;
-	try {
-		if (&adc != NULL)
-			adc.stopStream();
-	}
-	catch (RtAudioError& e) {
-		e.printMessage();
-		blog(LOG_ERROR, "exception thrown in deinit");
-	}
-	if (data->buffer) {
-		bfree(data->buffer);
-		data->buffer = NULL;
-	}
-
+//void asio_deinit(struct asio_data *data)
+//{	
+//	try {
+//		if (&adc != NULL)
+//			adc.stopStream();
+//	}
+//	catch (RtAudioError& e) {
+//		e.printMessage();
+//		blog(LOG_ERROR, "exception thrown in deinit");
+//	}
+//	if (data->buffer) {
+//		free(data->buffer);
+//		data->buffer = NULL;
+//	}
+//
 //	if (adc.isStreamOpen()) {
 //		adc.closeStream();
 //	}
-}
+//}
 
 void asio_destroy(void *vptr)
 {
 	struct asio_data *data = (asio_data *)vptr;
-	asio_deinit(data);
+//	asio_deinit(data);
 	delete data;
 }
 
@@ -415,7 +446,6 @@ void asio_update(void *vptr, obs_data_t *settings)
 {
 	struct asio_data *data =(asio_data *)vptr;
 	const char *device;
-	unsigned int device_index;
 	unsigned int rate;
 	speaker_layout ChannelFormat;
 	audio_format SampleSize;
@@ -507,12 +537,12 @@ obs_properties_t * asio_get_properties(void *unused)
 			TEXT_FIRST_CHANNEL, OBS_COMBO_TYPE_LIST,
 			OBS_COMBO_FORMAT_INT);
 //	fill_out_channels(first_channel);
-	obs_property_set_modified_callback(first_channel, fill_out_channels);
+//	obs_property_set_modified_callback(first_channel, fill_out_channels);
 
 	last_channel = obs_properties_add_list(props, "last channel",
 			TEXT_LAST_CHANNEL, OBS_COMBO_TYPE_LIST,
 			OBS_COMBO_FORMAT_INT);
-	obs_property_set_modified_callback(last_channel, fill_out_channels);
+//	obs_property_set_modified_callback(last_channel, fill_out_channels);
 
 	rate = obs_properties_add_list(props, "sample rate",
 			obs_module_text("SampleRate"), OBS_COMBO_TYPE_LIST,
