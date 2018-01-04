@@ -226,7 +226,7 @@ static bool fill_out_channels(obs_properties_t *props, obs_property_t *list, obs
 	for (uint8_t i = 0; i < input_channels; i++) {
 		std::string channel_numbering(device);
 		char** names = new char*[32];
-		std::string test = info.name + std::to_string(i);
+		std::string test = info.name + " " + std::to_string(i);
 		char* cstr = new char[test.length() + 1];
 		strcpy(cstr, test.c_str());
 		names[i] = cstr;
@@ -277,16 +277,54 @@ int create_asio_buffer(void *outputBuffer, void *inputBuffer, unsigned int nBuff
 	uint8_t *buffer = data->buffer;
 	uint8_t *inputBuf = (uint8_t *)inputBuffer;
 	int64_t bufSizePerChannelBytes = nBufferFrames * data->SampleSize / 8;
+	int recorded_channels = data->LastChannel - data->FirstChannel + 1;
 
 	if (status)
-		blog(LOG_INFO, "Stream underflow detected!");
+		blog(LOG_INFO, "Stream overflow detected!");
 
 	// Write planar audio data to asio_data buffer.
 	for (i = data->FirstChannel; i<=data->LastChannel; i++) {
 		memcpy(buffer, inputBuf + i * bufSizePerChannelBytes, bufSizePerChannelBytes);
+		if (!buffer)
+			blog(LOG_INFO, "shit is happening");
 		buffer = buffer + (i - data->FirstChannel) + 1;
 	}
+
+	struct obs_source_audio out;
+	out.data[0] = buffer;
+	/* audio data passed to obs in planar format */
+	if (data->SampleSize == AUDIO_FORMAT_16BIT) {
+		out.format = AUDIO_FORMAT_16BIT_PLANAR;
+	}
+	else if (data->SampleSize == AUDIO_FORMAT_32BIT) {
+		out.format = AUDIO_FORMAT_32BIT_PLANAR;
+	}
+	
+	if (recorded_channels == 7) {
+		blog(LOG_ERROR, "OBS does not support 7 channels; defaulting to 8 channels");
+		out.speakers = SPEAKERS_7POINT1;
+	}
+	else {
+		out.speakers = asio_channels_to_obs_speakers(recorded_channels);
+	}
+	out.samples_per_sec = data->SampleRate;
+	out.frames = data->BufferSize;
+	out.timestamp = os_gettime_ns() - ((data->BufferSize * NSEC_PER_SEC) / data->SampleRate);
+
+	if (!data->first_ts) {
+		data->first_ts = out.timestamp;
+	}
+
+	if (out.timestamp > data->first_ts) {
+		obs_source_output_audio(data->source, &out);
+	}
+
 	return 0;
+}
+
+void errorCallback(RtAudioError::Type type, const std::string &errorText) {
+	blog(LOG_INFO, "error type number is %i\n", type);
+	blog(LOG_INFO, "error text is %s\n", errorText);
 }
 
 void asio_init(struct asio_data *data)
@@ -311,40 +349,15 @@ void asio_init(struct asio_data *data)
 	options.flags = RTAUDIO_NONINTERLEAVED;
 	try {
 		adc.openStream(NULL, &parameters, audioFormat, sampleRate,
-				&bufferFrames, &create_asio_buffer, (void *)&data, &options);
+				&bufferFrames, &create_asio_buffer, (void *)&data, &options, errorCallback);
 		adc.startStream();
 	}
 	catch (RtAudioError& e) {
 		e.printMessage();
-		blog(LOG_INFO, "error caught in asio_init");
+		blog(LOG_INFO, "error caught in asio_init\n");
+		blog(LOG_INFO, "error type number is %i\n", e.getType());
+		blog(LOG_INFO, "error text number is %s\n", e.getMessage());
 //		goto cleanup;
-	}
-
-	struct obs_source_audio out;
-	out.data[0] = data->buffer;
-	/* audio data passed to obs in planar format */
-	if (data->SampleSize == AUDIO_FORMAT_16BIT) {
-		out.format = AUDIO_FORMAT_16BIT_PLANAR;
-	} else if (data->SampleSize == AUDIO_FORMAT_32BIT) {
-		out.format = AUDIO_FORMAT_32BIT_PLANAR;
-	}
-
-	if (recorded_channels == 7) {
-		blog(LOG_ERROR, "OBS does not support 7 channels; defaulting to 8 channels");
-		out.speakers = SPEAKERS_7POINT1;
-	} else {
-		out.speakers = asio_channels_to_obs_speakers(recorded_channels);
-	}
-	out.samples_per_sec = data->SampleRate;
-	out.frames = data->BufferSize;
-	out.timestamp = os_gettime_ns() - ((data->BufferSize * NSEC_PER_SEC) / data->SampleRate);
-
-	if (!data->first_ts) {
-		data->first_ts = out.timestamp;
-	}
-
-	if (out.timestamp > data->first_ts && adc.isStreamRunning()) {
-		obs_source_output_audio(data->source, &out);
 	}
 
 //cleanup:
@@ -373,7 +386,8 @@ void asio_deinit(struct asio_data *data)
 {	
 	RtAudio adc = data->adc;
 	try {
-		adc.stopStream();
+		if (&adc != NULL)
+			adc.stopStream();
 	}
 	catch (RtAudioError& e) {
 		e.printMessage();
