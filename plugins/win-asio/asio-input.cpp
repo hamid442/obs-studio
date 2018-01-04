@@ -70,7 +70,7 @@ struct asio_data {
 	obs_source_t *source;
 
 	/*asio device and info */
-	char *device;
+	const char *device;
 	uint8_t device_index;
 	RtAudio::DeviceInfo info;
 
@@ -410,6 +410,7 @@ static void * asio_create(obs_data_t *settings, obs_source_t *source)
 	data->source = source;
 	data->buffer = NULL;
 	data->first_ts = 0;
+	data->device = NULL;
 
 	asio_update(data, settings);
 	if (obs_data_get_string(settings, "device_id")) {
@@ -459,33 +460,65 @@ void asio_update(void *vptr, obs_data_t *settings)
 	uint8_t FirstChannel;
 	uint8_t LastChannel;
 	RtAudio::DeviceInfo info;
+	bool reset = false;
 
 	device = obs_data_get_string(settings, "device_id");
-	data->device = bstrdup(device);
+	//blog(LOG_INFO, "device in settings is %s\n", device);
+	//blog(LOG_INFO, "device in asio data is %s\n", data->device);
+	try {
+		if (device == NULL) {
+			reset = true;
+		} else if (data->device == NULL) {
+			data->device = bstrdup(device);
+			reset = true;
+		} else {
+			if (strcmp(device, data->device) != 0) {
+				data->device = bstrdup(device);
+				reset = true;
+			}
+		}
+	}
+	catch(...) {
+		blog(LOG_INFO, "Initializing asio device");
+	}
+	
 	info = get_device_info(device);
 	
 	rate = (int)obs_data_get_int(settings, "sample rate");
 	if (data->SampleRate != (int)rate) {
 		data->SampleRate = (int)rate;
+		reset = true;
 	}
 
 	ChannelFormat = (speaker_layout)obs_data_get_int(settings, CHANNEL_FORMAT);
 	if (data->speakers != ChannelFormat) {
 		data->speakers = ChannelFormat;
+		reset = true;
 	}
 
 	SampleSize = (audio_format)obs_data_get_int(settings,"sample size");
 	if (data->SampleSize != SampleSize) {
 		data->SampleSize = SampleSize;
+		reset = true;
 	}
 
 	BufferSize = obs_data_get_int(settings, "buffer");
 	if (data->BufferSize != BufferSize) {
 		data->BufferSize = BufferSize;
+		reset = true;
 	}
 
 	FirstChannel = (uint8_t)obs_data_get_int(settings, "first channel");
+	if (FirstChannel != data->FirstChannel) {
+		data->FirstChannel = FirstChannel;
+		reset = true;
+	}
 	LastChannel = (uint8_t)obs_data_get_int(settings, "last channel");
+	if (LastChannel != data->LastChannel) {
+		data->LastChannel = LastChannel;
+		reset = true;
+	}
+
 	data->channels = info.inputChannels;
 	channels = data->channels;
 	data->output_channels = info.outputChannels;
@@ -504,6 +537,11 @@ void asio_update(void *vptr, obs_data_t *settings)
 			data->FirstChannel = LastChannel;
 			data->LastChannel = FirstChannel;
 		}
+	}
+
+	if (reset && adc.isStreamOpen()) {
+		adc.closeStream();
+		asio_init(data);
 	}
 }
 
