@@ -315,11 +315,12 @@ int create_asio_buffer(void *outputBuffer, void *inputBuffer, unsigned int nBuff
 	/* audio data passed to obs in planar format */
 	if (data->SampleSize == AUDIO_FORMAT_16BIT) {
 		out.format = AUDIO_FORMAT_16BIT_PLANAR;
-	}
-	else if (data->SampleSize == AUDIO_FORMAT_32BIT) {
+	} else if (data->SampleSize == AUDIO_FORMAT_32BIT) {
 		out.format = AUDIO_FORMAT_32BIT_PLANAR;
+	} else if (data->SampleSize == AUDIO_FORMAT_FLOAT) {
+		out.format = AUDIO_FORMAT_FLOAT_PLANAR;
 	}
-	
+
 	if (recorded_channels == 7) {
 		blog(LOG_ERROR, "OBS does not support 7 channels; defaulting to 8 channels");
 		out.speakers = SPEAKERS_7POINT1;
@@ -368,8 +369,7 @@ void asio_init(struct asio_data *data)
 	RtAudio::StreamOptions options;
 	options.flags = RTAUDIO_NONINTERLEAVED;
 	try {
-	adc.openStream(NULL, &parameters, audioFormat, sampleRate, &bufferFrames, &create_asio_buffer, &data, &options);
-//		adc.openStream(NULL, &parameters, RTAUDIO_SINT32, 44100, &bufferFrames, &create_asio_buffer, (void *)&data, &options);
+	adc.openStream(NULL, &parameters, audioFormat, sampleRate, &bufferFrames, &create_asio_buffer, data, &options);
 	}
 	catch (RtAudioError& e) {
 		e.printMessage();
@@ -412,7 +412,9 @@ static void * asio_create(obs_data_t *settings, obs_source_t *source)
 	data->first_ts = 0;
 
 	asio_update(data, settings);
-	asio_init(data);
+	if (obs_data_get_string(settings, "device_id")) {
+		asio_init(data);
+	}
 
 	return data;
 }
@@ -452,6 +454,7 @@ void asio_update(void *vptr, obs_data_t *settings)
 	unsigned int rate;
 	speaker_layout ChannelFormat;
 	audio_format SampleSize;
+	uint16_t BufferSize;
 	unsigned int channels;
 	uint8_t FirstChannel;
 	uint8_t LastChannel;
@@ -459,9 +462,8 @@ void asio_update(void *vptr, obs_data_t *settings)
 
 	device = obs_data_get_string(settings, "device_id");
 	data->device = bstrdup(device);
-
 	info = get_device_info(device);
-
+	
 	rate = (int)obs_data_get_int(settings, "sample rate");
 	if (data->SampleRate != (int)rate) {
 		data->SampleRate = (int)rate;
@@ -472,9 +474,14 @@ void asio_update(void *vptr, obs_data_t *settings)
 		data->speakers = ChannelFormat;
 	}
 
-	SampleSize = (audio_format)obs_data_get_int(settings,	"sample size");
+	SampleSize = (audio_format)obs_data_get_int(settings,"sample size");
 	if (data->SampleSize != SampleSize) {
 		data->SampleSize = SampleSize;
+	}
+
+	BufferSize = obs_data_get_int(settings, "buffer");
+	if (data->BufferSize != BufferSize) {
+		data->BufferSize = BufferSize;
 	}
 
 	FirstChannel = (uint8_t)obs_data_get_int(settings, "first channel");
@@ -576,6 +583,7 @@ obs_properties_t * asio_get_properties(void *unused)
 			TEXT_SAMPLE_SIZE, OBS_COMBO_TYPE_LIST, OBS_COMBO_FORMAT_INT);
 	obs_property_list_add_int(sample_size, "16 bit", AUDIO_FORMAT_16BIT);
 	obs_property_list_add_int(sample_size, "32 bit", AUDIO_FORMAT_32BIT);
+	obs_property_list_add_int(sample_size, "32 bit float", AUDIO_FORMAT_FLOAT);
 
 	buffer_size = obs_properties_add_list(props, "buffer", TEXT_BUFFER_SIZE,
 			OBS_COMBO_TYPE_LIST, OBS_COMBO_FORMAT_INT);
