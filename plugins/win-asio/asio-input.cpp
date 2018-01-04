@@ -232,7 +232,7 @@ static bool fill_out_channels(obs_properties_t *props, obs_property_t *list, obs
 	info = get_device_info(device);
 	input_channels = info.inputChannels;
 
-	for (int i = 0; i < input_channels; i++) {
+	for (unsigned int i = 0; i < input_channels; i++) {
 		std::string channel_numbering(device);
 		char** names = new char*[32];
 		std::string test = info.name + " " + std::to_string(i);
@@ -278,10 +278,11 @@ int create_asio_buffer(void *outputBuffer, void *inputBuffer, unsigned int nBuff
 	double streamTime, RtAudioStreamStatus status, void *userData) {
 	unsigned int i;
 	asio_data *data = (asio_data *)userData;
-	uint8_t *buffer = data->buffer;
+	uint8_t *buffer;
 	uint8_t *inputBuf = (uint8_t *)inputBuffer;
 	int recorded_channels = data->LastChannel - data->FirstChannel + 1; //number of channels recorded
 	
+	blog(LOG_INFO, "testing!");
 	/* buffer in Bytes =
 	 * number of frames in buffer x number of channels x 2 Bytes (16 bit samples)
 	 *                                                 x 4 Bytes (32 bit samples)
@@ -289,7 +290,9 @@ int create_asio_buffer(void *outputBuffer, void *inputBuffer, unsigned int nBuff
 	 * number of frames in buffer x sample_size_in_bit / 8
 	 */
 	int sampleSizeBytes = sample_size_in_bit(data->SampleSize)/8;
-	int64_t bufSizePerChannelBytes = nBufferFrames * sampleSizeBytes;
+	size_t bufSizePerChannelBytes = nBufferFrames * sampleSizeBytes;
+	size_t bufSizeBytes = bufSizePerChannelBytes * recorded_channels;
+	buffer = (uint8_t *)malloc(bufSizeBytes);
 
 	if (status)
 		blog(LOG_INFO, "Stream overflow detected!");
@@ -365,8 +368,7 @@ void asio_init(struct asio_data *data)
 	RtAudio::StreamOptions options;
 	options.flags = RTAUDIO_NONINTERLEAVED;
 	try {
-		adc.openStream(NULL, &parameters, audioFormat, sampleRate,
-				&bufferFrames, &create_asio_buffer, (void *)&data, &options);
+	adc.openStream(NULL, &parameters, audioFormat, sampleRate, &bufferFrames, &create_asio_buffer, &data, &options);
 //		adc.openStream(NULL, &parameters, RTAUDIO_SINT32, 44100, &bufferFrames, &create_asio_buffer, (void *)&data, &options);
 	}
 	catch (RtAudioError& e) {
@@ -386,6 +388,7 @@ void asio_init(struct asio_data *data)
 		blog(LOG_INFO, "error text number is %s\n", e.getMessage());
 		//		goto cleanup;
 	}
+	return;
 cleanup:
 	try {
 		adc.stopStream();
@@ -449,7 +452,7 @@ void asio_update(void *vptr, obs_data_t *settings)
 	unsigned int rate;
 	speaker_layout ChannelFormat;
 	audio_format SampleSize;
-	uint8_t channels;
+	unsigned int channels;
 	uint8_t FirstChannel;
 	uint8_t LastChannel;
 	RtAudio::DeviceInfo info;
