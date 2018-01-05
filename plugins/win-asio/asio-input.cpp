@@ -76,7 +76,7 @@ struct asio_data {
 
 	audio_format BitDepth; // 16bit or 32 bit
 	int SampleRate;          //44100 or 48000 Hz
-	uint8_t *buffer;         //stores the audio data
+//	uint8_t *buffer;         //stores the audio data
 	uint16_t BufferSize;     // number of samples in buffer
 	uint64_t first_ts;       //first timestamp
 
@@ -211,6 +211,7 @@ void fill_out_devices(obs_property_t *list) {
 		char* cstr = new char[test.length() + 1];
 		strcpy(cstr, test.c_str());
 		names[i] = cstr;
+		delete cstr;
 	}
 
 	//add devices to list 
@@ -220,6 +221,7 @@ void fill_out_devices(obs_property_t *list) {
 		blog(LOG_INFO, "list: device  %i = %s \n", i, names[i]);
 		obs_property_list_add_string(list, names[i], names[i]);
 	}
+	delete names;
 }
 
 //creates list of input channels
@@ -240,6 +242,8 @@ static bool fill_out_channels(obs_properties_t *props, obs_property_t *list, obs
 		strcpy(cstr, test.c_str());
 		names[i] = cstr;
 		obs_property_list_add_int(list, names[i], i);
+		delete cstr;
+		delete names;
 	}
 	return true;
 }
@@ -339,10 +343,10 @@ int create_asio_buffer(void *outputBuffer, void *inputBuffer, unsigned int nBuff
 	if (out.timestamp > data->first_ts) {
 		obs_source_output_audio(data->source, &out);
 	}
-	if (data->buffer) {
-		free(data->buffer);
-		data->buffer = NULL;
-	}
+	//if (data->buffer) {
+	//	free(data->buffer);
+	//	data->buffer = NULL;
+	//}
 	return 0;
 }
 
@@ -386,7 +390,7 @@ void asio_init(struct asio_data *data)
 		blog(LOG_INFO, "error caught in startStream\n");
 		blog(LOG_INFO, "error type number is %i\n", e.getType());
 		blog(LOG_INFO, "error text number is %s\n", e.getMessage());
-		//		goto cleanup;
+		goto cleanup;
 	}
 	return;
 cleanup:
@@ -408,7 +412,7 @@ static void * asio_create(obs_data_t *settings, obs_source_t *source)
 	struct asio_data *data = new asio_data;
 
 	data->source = source;
-	data->buffer = NULL;
+//	data->buffer = NULL;
 	data->first_ts = 0;
 	data->device = NULL;
 
@@ -556,7 +560,7 @@ void asio_get_defaults(obs_data_t *settings)
 //	obs_data_set_default_string(settings, "device_id", "default");
 	obs_data_set_default_int(settings, "sample rate", 48000);
 	obs_data_set_default_int(settings, CHANNEL_FORMAT, SPEAKERS_MONO);
-	obs_data_set_default_int(settings, "sample format", AUDIO_FORMAT_32BIT);
+	obs_data_set_default_int(settings, "sample format", AUDIO_FORMAT_FLOAT);
 }
 
 obs_properties_t * asio_get_properties(void *unused)
