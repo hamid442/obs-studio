@@ -271,6 +271,12 @@ int create_asio_buffer(void *outputBuffer, void *inputBuffer, unsigned int nBuff
 	double streamTime, RtAudioStreamStatus status, void *userData) {
 	unsigned int i;
 	asio_data *data = (asio_data *)userData;
+
+	if (data->BitDepth == AUDIO_FORMAT_UNKNOWN ||
+		data->speakers == SPEAKERS_UNKNOWN) {
+		return 0;
+	}
+
 	uint8_t *buffer;
 	uint8_t *inputBuf = (uint8_t *)inputBuffer;
 	int recorded_channels = data->LastChannel - data->FirstChannel + 1; //number of channels recorded
