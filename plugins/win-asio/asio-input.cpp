@@ -368,7 +368,7 @@ void asio_init(struct asio_data *data)
 		e.printMessage();
 		blog(LOG_INFO, "error caught in openStream\n");
 		blog(LOG_INFO, "error type number is %i\n", e.getType());
-		blog(LOG_INFO, "error text number is %s\n", e.getMessage());
+		blog(LOG_INFO, "error: %s\n", e.getMessage().c_str());
 		goto cleanup;
 	}
 	try {
@@ -378,7 +378,7 @@ void asio_init(struct asio_data *data)
 		e.printMessage();
 		blog(LOG_INFO, "error caught in startStream\n");
 		blog(LOG_INFO, "error type number is %i\n", e.getType());
-		blog(LOG_INFO, "error text number is %s\n", e.getMessage());
+		blog(LOG_INFO, "error: %s\n", e.getMessage().c_str());
 		goto cleanup;
 	}
 	return;
@@ -389,7 +389,9 @@ cleanup:
 	}
 	catch (RtAudioError& e) {
 		e.printMessage();
-		blog(LOG_ERROR, "exception thrown in stopStream");
+		blog(LOG_ERROR, "error caught in stopStream");
+		blog(LOG_INFO, "error type number is %i\n", e.getType());
+		blog(LOG_INFO, "error: %s\n", e.getMessage().c_str());
 	}
 	if (adc.isStreamOpen())
 		adc.closeStream();
@@ -405,11 +407,11 @@ static void * asio_create(obs_data_t *settings, obs_source_t *source)
 	data->device = NULL;
 
 	asio_update(data, settings);
-	
+
 	if (obs_data_get_string(settings, "device_id")) {
 		asio_init(data);
 	}
-	
+
 	return data;
 }
 
@@ -424,7 +426,7 @@ void asio_destroy(void *vptr)
 		e.printMessage();
 		blog(LOG_INFO, "error caught in asio_destroy()\n");
 		blog(LOG_INFO, "error type number is %i\n", e.getType());
-		blog(LOG_INFO, "error text number is %s\n", e.getMessage());
+		blog(LOG_INFO, "error: %s\n", e.getMessage().c_str());
 	}
 
 	if (adc.isStreamOpen()) {
@@ -532,9 +534,9 @@ void asio_update(void *vptr, obs_data_t *settings)
 			}
 			catch (RtAudioError& e) {
 				e.printMessage();
-				blog(LOG_INFO, "error caught in asio_destroy()\n");
+				blog(LOG_INFO, "error caught in asio_update()\n");
 				blog(LOG_INFO, "error type number is %i\n", e.getType());
-				blog(LOG_INFO, "error text number is %s\n", e.getMessage());
+				blog(LOG_INFO, "error: %s\n", e.getMessage().c_str());
 			}
 		}
 		adc.closeStream();
