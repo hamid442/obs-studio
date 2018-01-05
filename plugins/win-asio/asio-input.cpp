@@ -351,11 +351,12 @@ void asio_init(struct asio_data *data)
 	parameters.firstChannel = 0;  //first channel passed to the buffer; this is not the first channel captured
 	unsigned int sampleRate = data->SampleRate ? data->SampleRate:48000;
 	unsigned int bufferFrames = data->BufferSize? data->BufferSize:256; // default is 256 frames
-	RtAudioFormat audioFormat = obs_to_rtasio_audio_format(data->BitDepth? data->BitDepth: AUDIO_FORMAT_32BIT);
+	RtAudioFormat audioFormat = obs_to_rtasio_audio_format(data->BitDepth? data->BitDepth: AUDIO_FORMAT_FLOAT);
 	RtAudio::StreamOptions options;
 	options.flags = RTAUDIO_NONINTERLEAVED;
+
 	try {
-	adc.openStream(NULL, &parameters, audioFormat, sampleRate, &bufferFrames, &create_asio_buffer, data, &options);
+		adc.openStream(NULL, &parameters, audioFormat, sampleRate, &bufferFrames, &create_asio_buffer, data, &options);
 	}
 	catch (RtAudioError& e) {
 		e.printMessage();
@@ -375,6 +376,7 @@ void asio_init(struct asio_data *data)
 		goto cleanup;
 	}
 	return;
+
 cleanup:
 	try {
 		adc.stopStream();
@@ -474,7 +476,7 @@ void asio_update(void *vptr, obs_data_t *settings)
 		reset = true;
 	}
 
-	BitDepth = (audio_format)obs_data_get_int(settings,"sample size");
+	BitDepth = (audio_format)obs_data_get_int(settings,"bit depth");
 	if (data->BitDepth != BitDepth) {
 		data->BitDepth = BitDepth;
 		reset = true;
@@ -533,8 +535,11 @@ void asio_get_defaults(obs_data_t *settings)
 {
 //	obs_data_set_default_string(settings, "device_id", "default");
 	obs_data_set_default_int(settings, "sample rate", 48000);
-	obs_data_set_default_int(settings, CHANNEL_FORMAT, SPEAKERS_MONO);
-	obs_data_set_default_int(settings, "sample format", AUDIO_FORMAT_FLOAT);
+	obs_data_set_default_int(settings, CHANNEL_FORMAT, SPEAKERS_STEREO);
+	obs_data_set_default_int(settings, "bit depth", AUDIO_FORMAT_FLOAT);
+	obs_data_set_default_int(settings, "first channel", 0);
+	obs_data_set_default_int(settings, "last channel", 1);
+	obs_data_set_default_int(settings, "buffer", 256);
 }
 
 obs_properties_t * asio_get_properties(void *unused)
@@ -556,7 +561,7 @@ obs_properties_t * asio_get_properties(void *unused)
 			OBS_COMBO_FORMAT_STRING);
 	obs_property_set_modified_callback(devices, asio_device_changed);
 	fill_out_devices(devices);
-	obs_property_list_add_string(devices, "Default", "default");
+//	obs_property_list_add_string(devices, "Default", "default");
 
 	first_channel = obs_properties_add_list(props, "first channel",
 			TEXT_FIRST_CHANNEL, OBS_COMBO_TYPE_LIST,
