@@ -164,13 +164,6 @@ RtAudio::DeviceInfo get_device_info(const char *device) {
 	return info;
 }
 
-//get the number of asio devices (up to 256)
-//uint8_t get_device_number() {
-//	RtAudio audio;
-//	uint8_t numOfDevices = audio.getDeviceCount();
-//	return numOfDevices;
-//}
-
 // get the device index
 uint8_t get_device_index(const char *device) {
 	RtAudio::DeviceInfo info;
@@ -211,7 +204,6 @@ void fill_out_devices(obs_property_t *list) {
 		char* cstr = new char[test.length() + 1];
 		strcpy(cstr, test.c_str());
 		names[i] = cstr;
-		delete cstr;
 	}
 
 	//add devices to list 
@@ -221,7 +213,6 @@ void fill_out_devices(obs_property_t *list) {
 		blog(LOG_INFO, "list: device  %i = %s \n", i, names[i]);
 		obs_property_list_add_string(list, names[i], names[i]);
 	}
-	delete names;
 }
 
 //creates list of input channels
@@ -242,8 +233,6 @@ static bool fill_out_channels(obs_properties_t *props, obs_property_t *list, obs
 		strcpy(cstr, test.c_str());
 		names[i] = cstr;
 		obs_property_list_add_int(list, names[i], i);
-		delete cstr;
-		delete names;
 	}
 	return true;
 }
@@ -343,10 +332,7 @@ int create_asio_buffer(void *outputBuffer, void *inputBuffer, unsigned int nBuff
 	if (out.timestamp > data->first_ts) {
 		obs_source_output_audio(data->source, &out);
 	}
-	//if (data->buffer) {
-	//	free(data->buffer);
-	//	data->buffer = NULL;
-	//}
+
 	return 0;
 }
 
@@ -354,10 +340,6 @@ void asio_init(struct asio_data *data)
 {
 	// number of channels which will be captured
 	int recorded_channels = data->LastChannel - data->FirstChannel + 1;
-
-
-	//std::vector< RtAudio::Api > apis;
-	//adc.getCompiledApi(apis);
 
 	unsigned int deviceNumber = adc.getDeviceCount();
 	if (deviceNumber < 1) {
@@ -399,11 +381,10 @@ cleanup:
 	}
 	catch (RtAudioError& e) {
 		e.printMessage();
-		blog(LOG_ERROR, "exception thrown in deinit");
+		blog(LOG_ERROR, "exception thrown in stopStream");
 	}
 	if (adc.isStreamOpen())
 		adc.closeStream();
-//	asio_destroy(data);
 	
 }
 
@@ -412,7 +393,6 @@ static void * asio_create(obs_data_t *settings, obs_source_t *source)
 	struct asio_data *data = new asio_data;
 
 	data->source = source;
-//	data->buffer = NULL;
 	data->first_ts = 0;
 	data->device = NULL;
 
@@ -424,30 +404,10 @@ static void * asio_create(obs_data_t *settings, obs_source_t *source)
 	return data;
 }
 
-//void asio_deinit(struct asio_data *data)
-//{	
-//	try {
-//		if (&adc != NULL)
-//			adc.stopStream();
-//	}
-//	catch (RtAudioError& e) {
-//		e.printMessage();
-//		blog(LOG_ERROR, "exception thrown in deinit");
-//	}
-//	if (data->buffer) {
-//		free(data->buffer);
-//		data->buffer = NULL;
-//	}
-//
-//	if (adc.isStreamOpen()) {
-//		adc.closeStream();
-//	}
-//}
-
 void asio_destroy(void *vptr)
 {
 	struct asio_data *data = (asio_data *)vptr;
-//	asio_deinit(data);
+
 	try {
 		adc.stopStream();
 	}
@@ -582,7 +542,6 @@ obs_properties_t * asio_get_properties(void *unused)
 	obs_properties_t *props;
 	obs_property_t *devices;
 	obs_property_t *rate;
-//	obs_property_t *channels;
 	obs_property_t *channel_layout;
 	obs_property_t *first_channel;
 	obs_property_t *last_channel;
@@ -602,13 +561,12 @@ obs_properties_t * asio_get_properties(void *unused)
 	first_channel = obs_properties_add_list(props, "first channel",
 			TEXT_FIRST_CHANNEL, OBS_COMBO_TYPE_LIST,
 			OBS_COMBO_FORMAT_INT);
-//	fill_out_channels(first_channel);
-//	obs_property_set_modified_callback(first_channel, fill_out_channels);
+	obs_property_set_modified_callback(first_channel, fill_out_channels);
 
 	last_channel = obs_properties_add_list(props, "last channel",
 			TEXT_LAST_CHANNEL, OBS_COMBO_TYPE_LIST,
 			OBS_COMBO_FORMAT_INT);
-//	obs_property_set_modified_callback(last_channel, fill_out_channels);
+	obs_property_set_modified_callback(last_channel, fill_out_channels);
 
 	rate = obs_properties_add_list(props, "sample rate",
 			obs_module_text("SampleRate"), OBS_COMBO_TYPE_LIST,
