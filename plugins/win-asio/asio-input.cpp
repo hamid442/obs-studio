@@ -360,29 +360,37 @@ void asio_init(struct asio_data *data)
 	RtAudioFormat audioFormat = obs_to_rtasio_audio_format(data->BitDepth? data->BitDepth: AUDIO_FORMAT_FLOAT);
 	RtAudio::StreamOptions options;
 	options.flags = RTAUDIO_NONINTERLEAVED;
+	if (adc.isStreamOpen()) {
+		//stream might not be runnning*
+	}
+	else {
+		try {
+			adc.openStream(NULL, &parameters, audioFormat, sampleRate, &bufferFrames, &create_asio_buffer, data, &options);
+		}
+		catch (RtAudioError& e) {
+			e.printMessage();
+			blog(LOG_INFO, "error caught in openStream\n");
+			blog(LOG_INFO, "error type number is %i\n", e.getType());
+			blog(LOG_INFO, "error: %s\n", e.getMessage().c_str());
+			goto cleanup;
+		}
+	}
+	if (adc.isStreamRunning()) {
+		//
+	} else {
+		try {
+			adc.startStream();
+		}
+		catch (RtAudioError& e) {
+			e.printMessage();
+			blog(LOG_INFO, "error caught in startStream\n");
+			blog(LOG_INFO, "error type number is %i\n", e.getType());
+			blog(LOG_INFO, "error: %s\n", e.getMessage().c_str());
+			goto cleanup;
+		}
+	}
 
-	try {
-		adc.openStream(NULL, &parameters, audioFormat, sampleRate, &bufferFrames, &create_asio_buffer, data, &options);
-	}
-	catch (RtAudioError& e) {
-		e.printMessage();
-		blog(LOG_INFO, "error caught in openStream\n");
-		blog(LOG_INFO, "error type number is %i\n", e.getType());
-		blog(LOG_INFO, "error: %s\n", e.getMessage().c_str());
-		goto cleanup;
-	}
-	try {
-		adc.startStream();
-	}
-	catch (RtAudioError& e) {
-		e.printMessage();
-		blog(LOG_INFO, "error caught in startStream\n");
-		blog(LOG_INFO, "error type number is %i\n", e.getType());
-		blog(LOG_INFO, "error: %s\n", e.getMessage().c_str());
-		goto cleanup;
-	}
 	return;
-
 cleanup:
 	try {
 		adc.stopStream();
