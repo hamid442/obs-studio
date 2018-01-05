@@ -448,6 +448,20 @@ void asio_destroy(void *vptr)
 {
 	struct asio_data *data = (asio_data *)vptr;
 //	asio_deinit(data);
+	try {
+		adc.stopStream();
+	}
+	catch (RtAudioError& e) {
+		e.printMessage();
+		blog(LOG_INFO, "error caught in asio_destroy()\n");
+		blog(LOG_INFO, "error type number is %i\n", e.getType());
+		blog(LOG_INFO, "error text number is %s\n", e.getMessage());
+	}
+
+	if (adc.isStreamOpen()) {
+		adc.closeStream();
+	}
+
 	delete data;
 }
 
