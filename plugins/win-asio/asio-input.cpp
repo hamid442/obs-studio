@@ -58,7 +58,7 @@ OBS_MODULE_USE_DEFAULT_LOCALE("win-asio", "en-US")
 #define TEXT_BUFFER_256_SAMPLES         obs_module_text("256_samples")
 #define TEXT_BUFFER_512_SAMPLES         obs_module_text("512_samples")
 #define TEXT_BUFFER_1024_SAMPLES        obs_module_text("1024_samples")
-#define TEXT_SAMPLE_SIZE                obs_module_text("SampleSize")
+#define TEXT_BITDEPTH                   obs_module_text("BitDepth")
 
 #define OPEN_ASIO_SETTINGS "open_asio_settings"
 #define CLOSE_ASIO_SETTINGS "close_asio_settings"
@@ -74,7 +74,7 @@ struct asio_data {
 	uint8_t device_index;
 	RtAudio::DeviceInfo info;
 
-	audio_format SampleSize; // 16bit or 32 bit
+	audio_format BitDepth; // 16bit or 32 bit
 	int SampleRate;          //44100 or 48000 Hz
 	uint8_t *buffer;         //stores the audio data
 	uint16_t BufferSize;     // number of samples in buffer
@@ -112,7 +112,7 @@ enum audio_format rtasio_to_obs_audio_format(RtAudioFormat format)
 	return AUDIO_FORMAT_UNKNOWN;
 }
 
-int sample_size_in_bit(audio_format format) {
+int BitDepth(audio_format format) {
 	switch (format) {
 	case AUDIO_FORMAT_16BIT:   return 16;
 	case AUDIO_FORMAT_32BIT:   return 32;
@@ -284,13 +284,13 @@ int create_asio_buffer(void *outputBuffer, void *inputBuffer, unsigned int nBuff
 	
 	blog(LOG_INFO, "testing!");
 	/* buffer in Bytes =
-	 * number of frames in buffer x number of channels x 2 Bytes (16 bit samples)
-	 *                                                 x 4 Bytes (32 bit samples)
+	 * number of frames in buffer x number of channels x bitdepth / 8
+	 *                                                 
 	 * buffer per channel in Bytes =
-	 * number of frames in buffer x sample_size_in_bit / 8
+	 * number of frames in buffer x bitdepth / 8
 	 */
-	int sampleSizeBytes = sample_size_in_bit(data->SampleSize)/8;
-	size_t bufSizePerChannelBytes = nBufferFrames * sampleSizeBytes;
+	int BitDepthBytes = BitDepth(data->BitDepth)/8;
+	size_t bufSizePerChannelBytes = nBufferFrames * BitDepthBytes;
 	size_t bufSizeBytes = bufSizePerChannelBytes * recorded_channels;
 	buffer = (uint8_t *)malloc(bufSizeBytes);
 
@@ -313,11 +313,11 @@ int create_asio_buffer(void *outputBuffer, void *inputBuffer, unsigned int nBuff
 	out.data[0] = buffer;
 
 	/* audio data passed to obs in planar format */
-	if (data->SampleSize == AUDIO_FORMAT_16BIT) {
+	if (data->BitDepth == AUDIO_FORMAT_16BIT) {
 		out.format = AUDIO_FORMAT_16BIT_PLANAR;
-	} else if (data->SampleSize == AUDIO_FORMAT_32BIT) {
+	} else if (data->BitDepth == AUDIO_FORMAT_32BIT) {
 		out.format = AUDIO_FORMAT_32BIT_PLANAR;
-	} else if (data->SampleSize == AUDIO_FORMAT_FLOAT) {
+	} else if (data->BitDepth == AUDIO_FORMAT_FLOAT) {
 		out.format = AUDIO_FORMAT_FLOAT_PLANAR;
 	}
 
@@ -365,7 +365,7 @@ void asio_init(struct asio_data *data)
 	parameters.firstChannel = 0;  //first channel passed to the buffer; this is not the first channel captured
 	unsigned int sampleRate = data->SampleRate ? data->SampleRate:48000;
 	unsigned int bufferFrames = data->BufferSize? data->BufferSize:256; // default is 256 frames
-	RtAudioFormat audioFormat = obs_to_rtasio_audio_format(data->SampleSize? data->SampleSize: AUDIO_FORMAT_32BIT);
+	RtAudioFormat audioFormat = obs_to_rtasio_audio_format(data->BitDepth? data->BitDepth: AUDIO_FORMAT_32BIT);
 	RtAudio::StreamOptions options;
 	options.flags = RTAUDIO_NONINTERLEAVED;
 	try {
@@ -399,7 +399,7 @@ cleanup:
 	}
 	if (adc.isStreamOpen())
 		adc.closeStream();
-	asio_destroy(data);
+//	asio_destroy(data);
 	
 }
 
@@ -454,7 +454,7 @@ void asio_update(void *vptr, obs_data_t *settings)
 	const char *device;
 	unsigned int rate;
 	speaker_layout ChannelFormat;
-	audio_format SampleSize;
+	audio_format BitDepth;
 	uint16_t BufferSize;
 	unsigned int channels;
 	uint8_t FirstChannel;
@@ -496,9 +496,9 @@ void asio_update(void *vptr, obs_data_t *settings)
 		reset = true;
 	}
 
-	SampleSize = (audio_format)obs_data_get_int(settings,"sample size");
-	if (data->SampleSize != SampleSize) {
-		data->SampleSize = SampleSize;
+	BitDepth = (audio_format)obs_data_get_int(settings,"sample size");
+	if (data->BitDepth != BitDepth) {
+		data->BitDepth = BitDepth;
 		reset = true;
 	}
 
@@ -568,7 +568,7 @@ obs_properties_t * asio_get_properties(void *unused)
 	obs_property_t *channel_layout;
 	obs_property_t *first_channel;
 	obs_property_t *last_channel;
-	obs_property_t *sample_size;
+	obs_property_t *bit_depth;
 	obs_property_t *buffer_size;
 
 	UNUSED_PARAMETER(unused);
@@ -617,11 +617,11 @@ obs_properties_t * asio_get_properties(void *unused)
 	obs_property_list_add_int(channel_layout, TEXT_CHANNEL_FORMAT_7_1CH,
 			SPEAKERS_7POINT1);
 
-	sample_size = obs_properties_add_list(props, "sample size",
-			TEXT_SAMPLE_SIZE, OBS_COMBO_TYPE_LIST, OBS_COMBO_FORMAT_INT);
-	obs_property_list_add_int(sample_size, "16 bit", AUDIO_FORMAT_16BIT);
-	obs_property_list_add_int(sample_size, "32 bit", AUDIO_FORMAT_32BIT);
-	obs_property_list_add_int(sample_size, "32 bit float", AUDIO_FORMAT_FLOAT);
+	bit_depth = obs_properties_add_list(props, "bit depth",
+			TEXT_BITDEPTH, OBS_COMBO_TYPE_LIST, OBS_COMBO_FORMAT_INT);
+	obs_property_list_add_int(bit_depth, "16 bit", AUDIO_FORMAT_16BIT);
+	obs_property_list_add_int(bit_depth, "32 bit", AUDIO_FORMAT_32BIT);
+	obs_property_list_add_int(bit_depth, "32 bit float", AUDIO_FORMAT_FLOAT);
 
 	buffer_size = obs_properties_add_list(props, "buffer", TEXT_BUFFER_SIZE,
 			OBS_COMBO_TYPE_LIST, OBS_COMBO_FORMAT_INT);
