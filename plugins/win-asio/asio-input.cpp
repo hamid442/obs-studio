@@ -288,7 +288,7 @@ int create_asio_buffer(void *outputBuffer, void *inputBuffer, unsigned int nBuff
 	 * buffer per channel in Bytes =
 	 * number of frames in buffer x bitdepth / 8
 	 */
-	int BitDepthBytes = BitDepth(data->BitDepth)/8;
+	int BitDepthBytes = BitDepth(data->BitDepth) / 8;
 	size_t bufSizePerChannelBytes = nBufferFrames * BitDepthBytes;
 	size_t bufSizeBytes = bufSizePerChannelBytes * recorded_channels;
 	buffer = (uint8_t *)malloc(bufSizeBytes);
@@ -405,10 +405,11 @@ static void * asio_create(obs_data_t *settings, obs_source_t *source)
 	data->device = NULL;
 
 	asio_update(data, settings);
+	
 	if (obs_data_get_string(settings, "device_id")) {
 		asio_init(data);
 	}
-
+	
 	return data;
 }
 
@@ -524,9 +525,22 @@ void asio_update(void *vptr, obs_data_t *settings)
 			data->LastChannel = FirstChannel;
 		}
 	}
-
 	if (reset && adc.isStreamOpen()) {
+		if (adc.isStreamRunning()) {
+			try {
+				adc.stopStream();
+			}
+			catch (RtAudioError& e) {
+				e.printMessage();
+				blog(LOG_INFO, "error caught in asio_destroy()\n");
+				blog(LOG_INFO, "error type number is %i\n", e.getType());
+				blog(LOG_INFO, "error text number is %s\n", e.getMessage());
+			}
+		}
 		adc.closeStream();
+		asio_init(data);
+	}
+	else if(reset) {
 		asio_init(data);
 	}
 }
@@ -541,11 +555,11 @@ void asio_get_defaults(obs_data_t *settings)
 {
 //	obs_data_set_default_string(settings, "device_id", "default");
 	obs_data_set_default_int(settings, "sample rate", 48000);
-	obs_data_set_default_int(settings, CHANNEL_FORMAT, SPEAKERS_STEREO);
+	obs_data_set_default_int(settings, CHANNEL_FORMAT, SPEAKERS_MONO);
 	obs_data_set_default_int(settings, "bit depth", AUDIO_FORMAT_FLOAT);
 	obs_data_set_default_int(settings, "first channel", 0);
-	obs_data_set_default_int(settings, "last channel", 1);
-	obs_data_set_default_int(settings, "buffer", 256);
+	obs_data_set_default_int(settings, "last channel", 0);
+//	obs_data_set_default_int(settings, "buffer", 256);
 }
 
 obs_properties_t * asio_get_properties(void *unused)
