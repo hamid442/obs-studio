@@ -42,16 +42,16 @@ OBS_MODULE_USE_DEFAULT_LOCALE("win-asio", "en-US")
 
 #define TEXT_FIRST_CHANNEL              obs_module_text("FirstChannel")
 #define TEXT_LAST_CHANNEL               obs_module_text("LastChannel")
-#define CHANNEL_FORMAT  "channel_format"
-#define TEXT_CHANNEL_FORMAT             obs_module_text("ChannelFormat")
-#define TEXT_CHANNEL_FORMAT_NONE        obs_module_text("ChannelFormat.None")
-#define TEXT_CHANNEL_FORMAT_MONO        obs_module_text("ChannelFormat.Mono")
-#define TEXT_CHANNEL_FORMAT_2_0CH       obs_module_text("ChannelFormat.2_0ch")
-#define TEXT_CHANNEL_FORMAT_2_1CH       obs_module_text("ChannelFormat.2_1ch")
-#define TEXT_CHANNEL_FORMAT_4_0CH       obs_module_text("ChannelFormat.4_0ch")
-#define TEXT_CHANNEL_FORMAT_4_1CH       obs_module_text("ChannelFormat.4_1ch")
-#define TEXT_CHANNEL_FORMAT_5_1CH       obs_module_text("ChannelFormat.5_1ch")
-#define TEXT_CHANNEL_FORMAT_7_1CH       obs_module_text("ChannelFormat.7_1ch")
+//#define CHANNEL_FORMAT  "channel_format"
+//#define TEXT_CHANNEL_FORMAT             obs_module_text("ChannelFormat")
+//#define TEXT_CHANNEL_FORMAT_NONE        obs_module_text("ChannelFormat.None")
+//#define TEXT_CHANNEL_FORMAT_MONO        obs_module_text("ChannelFormat.Mono")
+//#define TEXT_CHANNEL_FORMAT_2_0CH       obs_module_text("ChannelFormat.2_0ch")
+//#define TEXT_CHANNEL_FORMAT_2_1CH       obs_module_text("ChannelFormat.2_1ch")
+//#define TEXT_CHANNEL_FORMAT_4_0CH       obs_module_text("ChannelFormat.4_0ch")
+//#define TEXT_CHANNEL_FORMAT_4_1CH       obs_module_text("ChannelFormat.4_1ch")
+//#define TEXT_CHANNEL_FORMAT_5_1CH       obs_module_text("ChannelFormat.5_1ch")
+//#define TEXT_CHANNEL_FORMAT_7_1CH       obs_module_text("ChannelFormat.7_1ch")
 #define TEXT_BUFFER_SIZE                obs_module_text("BufferSize")
 #define TEXT_BUFFER_64_SAMPLES          obs_module_text("64_samples")
 #define TEXT_BUFFER_128_SAMPLES         obs_module_text("128_samples")
@@ -83,7 +83,7 @@ struct asio_data {
 	/* channels info */
 	unsigned int channels; //total number of input channels
 	unsigned int output_channels; // number of output channels (not used)
-	speaker_layout speakers;
+//	speaker_layout speakers;
 
 	/* Allow custom capture of contiguous channels;
 	 * FirstChannel and LastChannel can be identical (mono capture);
@@ -322,8 +322,8 @@ int create_asio_buffer(void *outputBuffer, void *inputBuffer, unsigned int nBuff
 	unsigned int i;
 	asio_data *data = (asio_data *)userData;
 
-	if (data->BitDepth == AUDIO_FORMAT_UNKNOWN ||
-		data->speakers == SPEAKERS_UNKNOWN) {
+	if (data->BitDepth == AUDIO_FORMAT_UNKNOWN /*||
+		data->speakers == SPEAKERS_UNKNOWN*/) {
 		return 0;
 	}
 
@@ -387,7 +387,7 @@ int create_asio_buffer(void *outputBuffer, void *inputBuffer, unsigned int nBuff
 
 	if (recorded_channels == 7) {
 		blog(LOG_ERROR, "OBS does not support 7 channels; defaulting to 8 channels");
-		out.speakers = SPEAKERS_7POINT1;
+		out.speakers = SPEAKERS_7POINT1; // probably won't work ; FIXME: need to memcpy one silent channel
 	}
 	else {
 		out.speakers = asio_channels_to_obs_speakers(recorded_channels);
@@ -552,11 +552,11 @@ void asio_update(void *vptr, obs_data_t *settings)
 		reset = true;
 	}
 
-	ChannelFormat = (speaker_layout)obs_data_get_int(settings, CHANNEL_FORMAT);
+	/*ChannelFormat = (speaker_layout)obs_data_get_int(settings, CHANNEL_FORMAT);
 	if (data->speakers != ChannelFormat) {
 		data->speakers = ChannelFormat;
 		reset = true;
-	}
+	}*/
 
 	BitDepth = (audio_format)obs_data_get_int(settings,"bit depth");
 	if (data->BitDepth != BitDepth) {
@@ -630,7 +630,7 @@ void asio_get_defaults(obs_data_t *settings)
 {
 //	obs_data_set_default_string(settings, "device_id", "default");
 	obs_data_set_default_int(settings, "sample rate", 48000);
-	obs_data_set_default_int(settings, CHANNEL_FORMAT, SPEAKERS_MONO);
+//	obs_data_set_default_int(settings, CHANNEL_FORMAT, SPEAKERS_MONO);
 	obs_data_set_default_int(settings, "bit depth", AUDIO_FORMAT_FLOAT);
 	obs_data_set_default_int(settings, "first channel", 0);
 	obs_data_set_default_int(settings, "last channel", 0);
@@ -642,7 +642,7 @@ obs_properties_t * asio_get_properties(void *unused)
 	obs_properties_t *props;
 	obs_property_t *devices;
 	obs_property_t *rate;
-	obs_property_t *channel_layout;
+//	obs_property_t *channel_layout;
 	obs_property_t *first_channel;
 	obs_property_t *last_channel;
 	obs_property_t *bit_depth;
@@ -674,24 +674,24 @@ obs_properties_t * asio_get_properties(void *unused)
 	obs_property_list_add_int(rate, "44100 Hz", 44100);
 	obs_property_list_add_int(rate, "48000 Hz", 48000);
 
-	channel_layout = obs_properties_add_list(props, CHANNEL_FORMAT,
-			TEXT_CHANNEL_FORMAT, OBS_COMBO_TYPE_LIST, OBS_COMBO_FORMAT_INT);
-	obs_property_list_add_int(channel_layout, TEXT_CHANNEL_FORMAT_NONE,
-			SPEAKERS_UNKNOWN);
-	obs_property_list_add_int(channel_layout, TEXT_CHANNEL_FORMAT_MONO,
-		SPEAKERS_MONO);
-	obs_property_list_add_int(channel_layout, TEXT_CHANNEL_FORMAT_2_0CH,
-			SPEAKERS_STEREO);
-	obs_property_list_add_int(channel_layout, TEXT_CHANNEL_FORMAT_2_1CH,
-			SPEAKERS_2POINT1);
-	obs_property_list_add_int(channel_layout, TEXT_CHANNEL_FORMAT_4_0CH,
-			SPEAKERS_QUAD);
-	obs_property_list_add_int(channel_layout, TEXT_CHANNEL_FORMAT_4_1CH,
-			SPEAKERS_4POINT1);
-	obs_property_list_add_int(channel_layout, TEXT_CHANNEL_FORMAT_5_1CH,
-			SPEAKERS_5POINT1);
-	obs_property_list_add_int(channel_layout, TEXT_CHANNEL_FORMAT_7_1CH,
-			SPEAKERS_7POINT1);
+	//channel_layout = obs_properties_add_list(props, CHANNEL_FORMAT,
+	//		TEXT_CHANNEL_FORMAT, OBS_COMBO_TYPE_LIST, OBS_COMBO_FORMAT_INT);
+	//obs_property_list_add_int(channel_layout, TEXT_CHANNEL_FORMAT_NONE,
+	//		SPEAKERS_UNKNOWN);
+	//obs_property_list_add_int(channel_layout, TEXT_CHANNEL_FORMAT_MONO,
+	//	SPEAKERS_MONO);
+	//obs_property_list_add_int(channel_layout, TEXT_CHANNEL_FORMAT_2_0CH,
+	//		SPEAKERS_STEREO);
+	//obs_property_list_add_int(channel_layout, TEXT_CHANNEL_FORMAT_2_1CH,
+	//		SPEAKERS_2POINT1);
+	//obs_property_list_add_int(channel_layout, TEXT_CHANNEL_FORMAT_4_0CH,
+	//		SPEAKERS_QUAD);
+	//obs_property_list_add_int(channel_layout, TEXT_CHANNEL_FORMAT_4_1CH,
+	//		SPEAKERS_4POINT1);
+	//obs_property_list_add_int(channel_layout, TEXT_CHANNEL_FORMAT_5_1CH,
+	//		SPEAKERS_5POINT1);
+	//obs_property_list_add_int(channel_layout, TEXT_CHANNEL_FORMAT_7_1CH,
+	//		SPEAKERS_7POINT1);
 
 	bit_depth = obs_properties_add_list(props, "bit depth",
 			TEXT_BITDEPTH, OBS_COMBO_TYPE_LIST, OBS_COMBO_FORMAT_INT);
