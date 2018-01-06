@@ -268,13 +268,19 @@ static bool fill_out_bit_depths(obs_properties_t *props, obs_property_t *list, o
 	RtAudioFormat nativeBitdepths;
 	nativeBitdepths = info.nativeFormats;
 	if (nativeBitdepths & 0x2) {
-		obs_property_list_add_int(list, "16 bit", AUDIO_FORMAT_16BIT);
-	}
-	if (nativeBitdepths & 0x8) {
+		obs_property_list_add_int(list, "16 bit (native)", AUDIO_FORMAT_16BIT);
 		obs_property_list_add_int(list, "32 bit", AUDIO_FORMAT_32BIT);
-	}
-	if (nativeBitdepths & 0x10) {
 		obs_property_list_add_int(list, "32 bit float", AUDIO_FORMAT_FLOAT);
+	}
+	else if (nativeBitdepths & 0x8) {
+		obs_property_list_add_int(list, "16 bit", AUDIO_FORMAT_16BIT);
+		obs_property_list_add_int(list, "32 bit (native)", AUDIO_FORMAT_32BIT);
+		obs_property_list_add_int(list, "32 bit float", AUDIO_FORMAT_FLOAT);
+	}
+	else if (nativeBitdepths & 0x10) {
+		obs_property_list_add_int(list, "16 bit", AUDIO_FORMAT_16BIT);
+		obs_property_list_add_int(list, "32 bit", AUDIO_FORMAT_32BIT);
+		obs_property_list_add_int(list, "32 bit float (native)", AUDIO_FORMAT_FLOAT);
 	}
 
 	return true;
