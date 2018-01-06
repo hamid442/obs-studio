@@ -76,14 +76,12 @@ struct asio_data {
 
 	audio_format BitDepth; // 16bit or 32 bit
 	int SampleRate;          //44100 or 48000 Hz
-//	uint8_t *buffer;         //stores the audio data
 	uint16_t BufferSize;     // number of samples in buffer
 	uint64_t first_ts;       //first timestamp
 
 	/* channels info */
 	unsigned int channels; //total number of input channels
 	unsigned int output_channels; // number of output channels (not used)
-//	speaker_layout speakers;
 
 	/* Allow custom capture of contiguous channels;
 	 * FirstChannel and LastChannel can be identical (mono capture);
@@ -188,7 +186,6 @@ void asio_destroy(void *vptr);
 void fill_out_devices(obs_property_t *list) {
 
 	RtAudio::DeviceInfo info;
-	//for debug purposes or helpful ui things maybe later*
 	std::vector<RtAudio::DeviceInfo> asioDeviceInfo;
 	int numOfDevices = adc.getDeviceCount();
 	char** names = new char*[numOfDevices];
@@ -208,7 +205,6 @@ void fill_out_devices(obs_property_t *list) {
 
 	//add devices to list 
 	for (int i = 0; i < numOfDevices; i++) {
-//		const char dev_id = static_cast<char>(i);
 		blog(LOG_INFO, "list ASIO Devices: %i\n", numOfDevices);
 		blog(LOG_INFO, "list: device  %i = %s \n", i, names[i]);
 		obs_property_list_add_string(list, names[i], names[i]);
@@ -243,6 +239,7 @@ static bool fill_out_sample_rates(obs_properties_t *props, obs_property_t *list,
 	RtAudio::DeviceInfo info;
 	unsigned int input_channels;
 
+	obs_property_list_clear(list);
 	//get the device info
 	info = get_device_info(device);
 	std::vector<unsigned int> sampleRates;
@@ -267,6 +264,7 @@ static bool fill_out_bit_depths(obs_properties_t *props, obs_property_t *list, o
 	info = get_device_info(device);
 	RtAudioFormat nativeBitdepths;
 	nativeBitdepths = info.nativeFormats;
+	obs_property_list_clear(list);
 	if (nativeBitdepths & 0x2) {
 		obs_property_list_add_int(list, "16 bit (native)", AUDIO_FORMAT_16BIT);
 		obs_property_list_add_int(list, "32 bit", AUDIO_FORMAT_32BIT);
@@ -332,8 +330,7 @@ int create_asio_buffer(void *outputBuffer, void *inputBuffer, unsigned int nBuff
 	unsigned int i;
 	asio_data *data = (asio_data *)userData;
 
-	if (data->BitDepth == AUDIO_FORMAT_UNKNOWN /*||
-		data->speakers == SPEAKERS_UNKNOWN*/) {
+	if (data->BitDepth == AUDIO_FORMAT_UNKNOWN) {
 		return 0;
 	}
 
@@ -357,7 +354,7 @@ int create_asio_buffer(void *outputBuffer, void *inputBuffer, unsigned int nBuff
 	int BitDepthBytes = BitDepth(data->BitDepth) / 8;
 	size_t bufSizePerChannelBytes = nBufferFrames * BitDepthBytes;
 	size_t bufSizeBytes = bufSizePerChannelBytes * recorded_channels;
-	buffer = (uint8_t *)malloc(bufSizeBytes);
+	buffer = (uint8_t *)bmalloc(bufSizeBytes);
 	if (!buffer) {
 		blog(LOG_INFO, "Buffer allocation failed!");
 		return 2; // per API will abort the stream
@@ -529,8 +526,7 @@ void asio_update(void *vptr, obs_data_t *settings)
 	bool reset = false;
 
 	device = obs_data_get_string(settings, "device_id");
-	//blog(LOG_INFO, "device in settings is %s\n", device);
-	//blog(LOG_INFO, "device in asio data is %s\n", data->device);
+
 	try {
 		if (device == NULL) {
 			reset = true;
@@ -555,12 +551,6 @@ void asio_update(void *vptr, obs_data_t *settings)
 		data->SampleRate = (int)rate;
 		reset = true;
 	}
-
-	/*ChannelFormat = (speaker_layout)obs_data_get_int(settings, CHANNEL_FORMAT);
-	if (data->speakers != ChannelFormat) {
-		data->speakers = ChannelFormat;
-		reset = true;
-	}*/
 
 	BitDepth = (audio_format)obs_data_get_int(settings,"bit depth");
 	if (data->BitDepth != BitDepth) {
@@ -632,13 +622,10 @@ const char * asio_get_name(void *unused)
 
 void asio_get_defaults(obs_data_t *settings)
 {
-//	obs_data_set_default_string(settings, "device_id", "default");
 	obs_data_set_default_int(settings, "sample rate", 48000);
-//	obs_data_set_default_int(settings, CHANNEL_FORMAT, SPEAKERS_MONO);
 	obs_data_set_default_int(settings, "bit depth", AUDIO_FORMAT_32BIT);
 	obs_data_set_default_int(settings, "first channel", 0);
 	obs_data_set_default_int(settings, "last channel", 0);
-//	obs_data_set_default_int(settings, "buffer", 256);
 }
 
 obs_properties_t * asio_get_properties(void *unused)
@@ -646,7 +633,6 @@ obs_properties_t * asio_get_properties(void *unused)
 	obs_properties_t *props;
 	obs_property_t *devices;
 	obs_property_t *rate;
-//	obs_property_t *channel_layout;
 	obs_property_t *first_channel;
 	obs_property_t *last_channel;
 	obs_property_t *bit_depth;
@@ -660,7 +646,6 @@ obs_properties_t * asio_get_properties(void *unused)
 			OBS_COMBO_FORMAT_STRING);
 	obs_property_set_modified_callback(devices, asio_device_changed);
 	fill_out_devices(devices);
-//	obs_property_list_add_string(devices, "Default", "default");
 
 	first_channel = obs_properties_add_list(props, "first channel",
 			TEXT_FIRST_CHANNEL, OBS_COMBO_TYPE_LIST,
@@ -675,34 +660,12 @@ obs_properties_t * asio_get_properties(void *unused)
 	rate = obs_properties_add_list(props, "sample rate",
 			obs_module_text("SampleRate"), OBS_COMBO_TYPE_LIST,
 			OBS_COMBO_FORMAT_INT);
-	obs_property_list_add_int(rate, "44100 Hz", 44100);
-	obs_property_list_add_int(rate, "48000 Hz", 48000);
-
-	//channel_layout = obs_properties_add_list(props, CHANNEL_FORMAT,
-	//		TEXT_CHANNEL_FORMAT, OBS_COMBO_TYPE_LIST, OBS_COMBO_FORMAT_INT);
-	//obs_property_list_add_int(channel_layout, TEXT_CHANNEL_FORMAT_NONE,
-	//		SPEAKERS_UNKNOWN);
-	//obs_property_list_add_int(channel_layout, TEXT_CHANNEL_FORMAT_MONO,
-	//	SPEAKERS_MONO);
-	//obs_property_list_add_int(channel_layout, TEXT_CHANNEL_FORMAT_2_0CH,
-	//		SPEAKERS_STEREO);
-	//obs_property_list_add_int(channel_layout, TEXT_CHANNEL_FORMAT_2_1CH,
-	//		SPEAKERS_2POINT1);
-	//obs_property_list_add_int(channel_layout, TEXT_CHANNEL_FORMAT_4_0CH,
-	//		SPEAKERS_QUAD);
-	//obs_property_list_add_int(channel_layout, TEXT_CHANNEL_FORMAT_4_1CH,
-	//		SPEAKERS_4POINT1);
-	//obs_property_list_add_int(channel_layout, TEXT_CHANNEL_FORMAT_5_1CH,
-	//		SPEAKERS_5POINT1);
-	//obs_property_list_add_int(channel_layout, TEXT_CHANNEL_FORMAT_7_1CH,
-	//		SPEAKERS_7POINT1);
+	//obs_property_list_add_int(rate, "44100 Hz", 44100);
+	//obs_property_list_add_int(rate, "48000 Hz", 48000);
 
 	bit_depth = obs_properties_add_list(props, "bit depth",
 			TEXT_BITDEPTH, OBS_COMBO_TYPE_LIST, OBS_COMBO_FORMAT_INT);
-	obs_property_list_add_int(bit_depth, "16 bit", AUDIO_FORMAT_16BIT);
-	obs_property_list_add_int(bit_depth, "32 bit", AUDIO_FORMAT_32BIT);
-	obs_property_list_add_int(bit_depth, "32 bit float", AUDIO_FORMAT_FLOAT);
-
+	
 	buffer_size = obs_properties_add_list(props, "buffer", TEXT_BUFFER_SIZE,
 			OBS_COMBO_TYPE_LIST, OBS_COMBO_FORMAT_INT);
 	obs_property_list_add_int(buffer_size, TEXT_BUFFER_64_SAMPLES, 64);
@@ -711,10 +674,6 @@ obs_properties_t * asio_get_properties(void *unused)
 	obs_property_list_add_int(buffer_size, TEXT_BUFFER_512_SAMPLES, 512);
 	obs_property_list_add_int(buffer_size, TEXT_BUFFER_1024_SAMPLES, 1024);
 
-	//obs_properties_add_button(props, OPEN_ASIO_SETTINGS, OPEN_ASIO_TEXT,
-	//		open_settings_button_clicked);
-	//obs_properties_add_button(props, CLOSE_ASIO_SETTINGS, CLOSE_ASIO_TEXT, close_editor_button_clicked);
-	//obs_property_set_visible(obs_properties_get(props, CLOSE_ASIO_SETTINGS), false);
 	return props;
 }
 
