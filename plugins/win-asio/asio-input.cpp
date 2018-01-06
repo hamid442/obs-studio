@@ -237,14 +237,62 @@ static bool fill_out_channels(obs_properties_t *props, obs_property_t *list, obs
 	return true;
 }
 
+//creates list of input sample rates supported by the device
+static bool fill_out_sample_rates(obs_properties_t *props, obs_property_t *list, obs_data_t *settings) {
+	const char* device = obs_data_get_string(settings, "device_id");
+	RtAudio::DeviceInfo info;
+	unsigned int input_channels;
+
+	//get the device info
+	info = get_device_info(device);
+	std::vector<unsigned int> sampleRates;
+	sampleRates = info.sampleRates;
+	size_t sampleRatesNb = sampleRates.size();
+	for (unsigned int i = 0; i < sampleRatesNb; i++) {
+		std::string rate = std::to_string(sampleRates[i]);
+		char* cstr = new char[rate.length() + 1];
+		strcpy(cstr, rate.c_str());
+		obs_property_list_add_int(list, cstr, sampleRates[i]);
+	}
+	return true;
+}
+
+//create list of supported audio formats
+static bool fill_out_bit_depths(obs_properties_t *props, obs_property_t *list, obs_data_t *settings) {
+	const char* device = obs_data_get_string(settings, "device_id");
+	RtAudio::DeviceInfo info;
+	unsigned int input_channels;
+
+	//get the device info
+	info = get_device_info(device);
+	RtAudioFormat nativeBitdepths;
+	nativeBitdepths = info.nativeFormats;
+	if (nativeBitdepths & 0x2) {
+		obs_property_list_add_int(list, "16 bit", AUDIO_FORMAT_16BIT);
+	}
+	if (nativeBitdepths & 0x8) {
+		obs_property_list_add_int(list, "32 bit", AUDIO_FORMAT_32BIT);
+	}
+	if (nativeBitdepths & 0x10) {
+		obs_property_list_add_int(list, "32 bit float", AUDIO_FORMAT_FLOAT);
+	}
+
+	return true;
+}
+
 static bool asio_device_changed(obs_properties_t *props,
 	obs_property_t *list, obs_data_t *settings)
 {
 	const char *curDeviceId = obs_data_get_string(settings, "device_id");
 	obs_property_t *first_channel = obs_properties_get(props, "first channel");
 	obs_property_t *last_channel = obs_properties_get(props, "last channel");
+	obs_property_t *sample_rate = obs_properties_get(props, "sample rate");
+	obs_property_t *bit_depth = obs_properties_get(props, "bit depth");
+
 	obs_property_list_clear(first_channel);
 	obs_property_list_clear(last_channel);
+	obs_property_list_clear(sample_rate);
+	obs_property_list_clear(bit_depth);
 
 	size_t itemCount = obs_property_list_item_count(list);
 	bool itemFound = false;
@@ -263,6 +311,8 @@ static bool asio_device_changed(obs_properties_t *props,
 	}
 	obs_property_set_modified_callback(first_channel, fill_out_channels);
 	obs_property_set_modified_callback(last_channel, fill_out_channels);
+	obs_property_set_modified_callback(sample_rate, fill_out_sample_rates);
+	obs_property_set_modified_callback(bit_depth, fill_out_bit_depths);
 
 	return true;
 }
@@ -319,7 +369,8 @@ int create_asio_buffer(void *outputBuffer, void *inputBuffer, unsigned int nBuff
 	 * The buffer starts at channel 0 but we keep only from FirstChannel to LastChannel.
 	 */
 	for (i = data->FirstChannel; i<=data->LastChannel; i++) {
-		memcpy(buffer + (i - data->FirstChannel)*bufSizePerChannelBytes, inputBuf + i * bufSizePerChannelBytes, bufSizePerChannelBytes);
+		memcpy(buffer + (i - data->FirstChannel)*bufSizePerChannelBytes, 
+				inputBuf + i * bufSizePerChannelBytes, bufSizePerChannelBytes);
 	}
 
 	struct obs_source_audio out;
