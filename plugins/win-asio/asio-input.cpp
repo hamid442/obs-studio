@@ -330,6 +330,13 @@ int create_asio_buffer(void *outputBuffer, void *inputBuffer, unsigned int nBuff
 	uint8_t *buffer;
 	uint8_t *inputBuf = (uint8_t *)inputBuffer;
 	int recorded_channels = data->LastChannel - data->FirstChannel + 1; //number of channels recorded
+	/* fix for 7 channel recording*/
+	if (recorded_channels == 7) {
+		blog(LOG_ERROR, "OBS does not support 7 channels; defaulting to 8 channels");
+		if (data->channels >= 8) {
+			recorded_channels = 8;
+		}
+	}
 	
 	/* buffer in Bytes =
 	 * number of frames in buffer x number of channels x bitdepth / 8
@@ -378,15 +385,8 @@ int create_asio_buffer(void *outputBuffer, void *inputBuffer, unsigned int nBuff
 
 	struct obs_source_audio out;
 	out.data[0] = buffer;
-
 	out.format = data->BitDepth;
-	if (recorded_channels == 7) {
-		blog(LOG_ERROR, "OBS does not support 7 channels; defaulting to 8 channels");
-		out.speakers = SPEAKERS_7POINT1; // probably won't work ; FIXME: need to memcpy one silent channel
-	}
-	else {
-		out.speakers = asio_channels_to_obs_speakers(recorded_channels);
-	}
+	out.speakers = asio_channels_to_obs_speakers(recorded_channels);
 	out.samples_per_sec = data->SampleRate;
 	out.frames = nBufferFrames;// beware, may differ from data->BufferSize;
 	out.timestamp = os_gettime_ns() - ((nBufferFrames * NSEC_PER_SEC) / data->SampleRate);
@@ -417,7 +417,7 @@ void asio_init(struct asio_data *data)
 	parameters.firstChannel = data->FirstChannel;  //first channel passed to the buffer; this is the first channel captured
 	unsigned int sampleRate = data->SampleRate ? data->SampleRate:48000;
 	unsigned int bufferFrames = data->BufferSize? data->BufferSize:256; // default to 256 frames
-	RtAudioFormat audioFormat = obs_to_rtasio_audio_format(data->BitDepth? data->BitDepth: AUDIO_FORMAT_FLOAT);
+	RtAudioFormat audioFormat = obs_to_rtasio_audio_format(data->BitDepth? data->BitDepth: AUDIO_FORMAT_32BIT);
 
 	if (adc.isStreamOpen()) {
 		//stream might not be runnning*
@@ -625,7 +625,7 @@ void asio_get_defaults(obs_data_t *settings)
 //	obs_data_set_default_string(settings, "device_id", "default");
 	obs_data_set_default_int(settings, "sample rate", 48000);
 //	obs_data_set_default_int(settings, CHANNEL_FORMAT, SPEAKERS_MONO);
-	obs_data_set_default_int(settings, "bit depth", AUDIO_FORMAT_FLOAT);
+	obs_data_set_default_int(settings, "bit depth", AUDIO_FORMAT_32BIT);
 	obs_data_set_default_int(settings, "first channel", 0);
 	obs_data_set_default_int(settings, "last channel", 0);
 //	obs_data_set_default_int(settings, "buffer", 256);
