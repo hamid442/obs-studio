@@ -331,7 +331,6 @@ int create_asio_buffer(void *outputBuffer, void *inputBuffer, unsigned int nBuff
 	uint8_t *inputBuf = (uint8_t *)inputBuffer;
 	int recorded_channels = data->LastChannel - data->FirstChannel + 1; //number of channels recorded
 	
-	blog(LOG_INFO, "testing!");
 	/* buffer in Bytes =
 	 * number of frames in buffer x number of channels x bitdepth / 8
 	 *                                                 
@@ -344,9 +343,13 @@ int create_asio_buffer(void *outputBuffer, void *inputBuffer, unsigned int nBuff
 	buffer = (uint8_t *)malloc(bufSizeBytes);
 	if (!buffer) {
 		blog(LOG_INFO, "Buffer allocation failed!");
-		return 0;
+		return 2; // per API will abort the stream
 	}
 
+	/* RtAudio tries to allocate data->BufferSize but per API actual value may differ. 
+	 * For instance this is the case for Rearoute driver: if we request 256 in OpenStream()
+	 * we get 1024 instead for this callback.
+	 */
 	if (nBufferFrames > data->BufferSize) {
 		blog(LOG_INFO, "Buffer is too small! %i > %i", nBufferFrames, data->BufferSize);
 	}
@@ -362,29 +365,21 @@ int create_asio_buffer(void *outputBuffer, void *inputBuffer, unsigned int nBuff
 		return 0;
 	}
 
-	/* Write planar audio data to asio_data buffer.
-	 * For interleaved, we would have to loop over the frames
-	 * and discard the unwanted samples by looping over the channels. 2 loops.
-	 * With planar, we have a single loop over the channels.
-	 * The buffer starts at channel 0 but we keep only from FirstChannel to LastChannel.
-	 */
-	for (i = data->FirstChannel; i<=data->LastChannel; i++) {
-		memcpy(buffer + (i - data->FirstChannel)*bufSizePerChannelBytes, 
-				inputBuf + i * bufSizePerChannelBytes, bufSizePerChannelBytes);
+	/* copy interleaved frames */
+	unsigned int j;
+	size_t frameSizeBytes = recorded_channels * BitDepthBytes;
+	for (i = 0; i < nBufferFrames; i++) {
+		for (j = 0; j < recorded_channels; j++) {
+			memcpy(buffer + i * frameSizeBytes + j * BitDepthBytes,
+				inputBuf + i * frameSizeBytes + j * BitDepthBytes,
+				BitDepthBytes);
+		}
 	}
 
 	struct obs_source_audio out;
 	out.data[0] = buffer;
 
-	/* audio data passed to obs in planar format */
-	if (data->BitDepth == AUDIO_FORMAT_16BIT) {
-		out.format = AUDIO_FORMAT_16BIT_PLANAR;
-	} else if (data->BitDepth == AUDIO_FORMAT_32BIT) {
-		out.format = AUDIO_FORMAT_32BIT_PLANAR;
-	} else if (data->BitDepth == AUDIO_FORMAT_FLOAT) {
-		out.format = AUDIO_FORMAT_FLOAT_PLANAR;
-	}
-
+	out.format = data->BitDepth;
 	if (recorded_channels == 7) {
 		blog(LOG_ERROR, "OBS does not support 7 channels; defaulting to 8 channels");
 		out.speakers = SPEAKERS_7POINT1; // probably won't work ; FIXME: need to memcpy one silent channel
@@ -393,7 +388,7 @@ int create_asio_buffer(void *outputBuffer, void *inputBuffer, unsigned int nBuff
 		out.speakers = asio_channels_to_obs_speakers(recorded_channels);
 	}
 	out.samples_per_sec = data->SampleRate;
-	out.frames = nBufferFrames;//data->BufferSize;
+	out.frames = nBufferFrames;// beware, may differ from data->BufferSize;
 	out.timestamp = os_gettime_ns() - ((nBufferFrames * NSEC_PER_SEC) / data->SampleRate);
 
 	if (!data->first_ts) {
@@ -419,18 +414,17 @@ void asio_init(struct asio_data *data)
 	RtAudio::StreamParameters parameters;
 	parameters.deviceId = data->device_index? data->device_index:0;
 	parameters.nChannels = recorded_channels? recorded_channels:1;
-	parameters.firstChannel = 0;  //first channel passed to the buffer; this is not the first channel captured
+	parameters.firstChannel = data->FirstChannel;  //first channel passed to the buffer; this is the first channel captured
 	unsigned int sampleRate = data->SampleRate ? data->SampleRate:48000;
-	unsigned int bufferFrames = data->BufferSize? data->BufferSize:256; // default is 256 frames
+	unsigned int bufferFrames = data->BufferSize? data->BufferSize:256; // default to 256 frames
 	RtAudioFormat audioFormat = obs_to_rtasio_audio_format(data->BitDepth? data->BitDepth: AUDIO_FORMAT_FLOAT);
-	RtAudio::StreamOptions options;
-	options.flags = RTAUDIO_NONINTERLEAVED;
+
 	if (adc.isStreamOpen()) {
 		//stream might not be runnning*
 	}
 	else {
 		try {
-			adc.openStream(NULL, &parameters, audioFormat, sampleRate, &bufferFrames, &create_asio_buffer, data, &options);
+			adc.openStream(NULL, &parameters, audioFormat, sampleRate, &bufferFrames, &create_asio_buffer, data);
 		}
 		catch (RtAudioError& e) {
 			e.printMessage();
