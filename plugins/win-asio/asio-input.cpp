@@ -292,9 +292,25 @@ int create_asio_buffer(void *outputBuffer, void *inputBuffer, unsigned int nBuff
 	size_t bufSizePerChannelBytes = nBufferFrames * BitDepthBytes;
 	size_t bufSizeBytes = bufSizePerChannelBytes * recorded_channels;
 	buffer = (uint8_t *)malloc(bufSizeBytes);
+	if (!buffer) {
+		blog(LOG_INFO, "Buffer allocation failed!");
+		return 0;
+	}
 
-	if (status)
+	if (nBufferFrames > data->BufferSize) {
+		blog(LOG_INFO, "Buffer is too small! %i > %i", nBufferFrames, data->BufferSize);
+	}
+	else if (nBufferFrames < data->BufferSize) {
+		blog(LOG_INFO, "Buffer is too big! %i < %i", nBufferFrames, data->BufferSize);
+	}
+	else {
+		blog(LOG_INFO, "Buffer is just right: %i", nBufferFrames);
+	}
+
+	if (status) {
 		blog(LOG_INFO, "Stream overflow detected!");
+		return 0;
+	}
 
 	/* Write planar audio data to asio_data buffer.
 	 * For interleaved, we would have to loop over the frames
@@ -304,8 +320,6 @@ int create_asio_buffer(void *outputBuffer, void *inputBuffer, unsigned int nBuff
 	 */
 	for (i = data->FirstChannel; i<=data->LastChannel; i++) {
 		memcpy(buffer + (i - data->FirstChannel)*bufSizePerChannelBytes, inputBuf + i * bufSizePerChannelBytes, bufSizePerChannelBytes);
-		if (!buffer)
-			blog(LOG_INFO, "shit is happening: buffer allocation failed");
 	}
 
 	struct obs_source_audio out;
@@ -328,8 +342,8 @@ int create_asio_buffer(void *outputBuffer, void *inputBuffer, unsigned int nBuff
 		out.speakers = asio_channels_to_obs_speakers(recorded_channels);
 	}
 	out.samples_per_sec = data->SampleRate;
-	out.frames = data->BufferSize;
-	out.timestamp = os_gettime_ns() - ((data->BufferSize * NSEC_PER_SEC) / data->SampleRate);
+	out.frames = nBufferFrames;//data->BufferSize;
+	out.timestamp = os_gettime_ns() - ((nBufferFrames * NSEC_PER_SEC) / data->SampleRate);
 
 	if (!data->first_ts) {
 		data->first_ts = out.timestamp;
