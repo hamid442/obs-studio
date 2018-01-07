@@ -313,6 +313,15 @@ static bool asio_device_changed(obs_properties_t *props,
 		obs_property_list_insert_string(list, 0, " ", curDeviceId);
 		obs_property_list_item_disable(list, 0, true);
 	}
+
+	const char *defaultDeviceId = obs_data_get_default_string(settings, "device_id");
+	if (curDeviceId == NULL || defaultDeviceId == NULL || (strcmp(defaultDeviceId,"") !=0 && strcmp(curDeviceId, defaultDeviceId) != 0)) {
+		RtAudio::DeviceInfo info = get_device_info(curDeviceId);
+		audio_format native_bit_depth = rtasio_to_obs_audio_format(info.nativeFormats);
+		obs_data_set_int(settings, "bit depth", native_bit_depth);
+	}
+	obs_data_set_default_string(settings, "device_id", curDeviceId);
+
 	obs_property_set_modified_callback(first_channel, fill_out_channels);
 	obs_property_set_modified_callback(last_channel, fill_out_channels);
 	obs_property_set_modified_callback(sample_rate, fill_out_sample_rates);
