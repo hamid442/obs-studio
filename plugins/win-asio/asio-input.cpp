@@ -315,6 +315,10 @@ static bool asio_device_changed(obs_properties_t *props,
 		obs_property_list_insert_string(list, 0, " ", curDeviceId);
 		obs_property_list_item_disable(list, 0, true);
 	}
+
+	RtAudio::DeviceInfo info = get_device_info(curDeviceId);
+	obs_data_set_int(settings, "bit depth", rtasio_to_obs_audio_format(info.nativeFormats));
+
 	obs_property_set_modified_callback(first_channel, fill_out_channels);
 	obs_property_set_modified_callback(last_channel, fill_out_channels);
 	obs_property_set_modified_callback(sample_rate, fill_out_sample_rates);
