@@ -206,8 +206,13 @@ void fill_out_devices(obs_property_t *list) {
 	//add devices to list 
 	for (int i = 0; i < numOfDevices; i++) {
 		blog(LOG_INFO, "list ASIO Devices: %i\n", numOfDevices);
-		blog(LOG_INFO, "list: device  %i = %s \n", i, names[i]);
-		obs_property_list_add_string(list, names[i], names[i]);
+		if (asioDeviceInfo[i].probed) {
+			blog(LOG_INFO, "device %i  = %s added successfully.\n", i, names[i]);
+			obs_property_list_add_string(list, names[i], names[i]);
+		} else {
+			blog(LOG_INFO, "device %i  = %s could not be added: driver issue.\n", i, names[i]);
+		}
+
 	}
 }
 
@@ -376,17 +381,17 @@ int create_asio_buffer(void *outputBuffer, void *inputBuffer, unsigned int nBuff
 	 * we get 1024 instead for this callback.
 	 */
 	if (nBufferFrames > data->BufferSize) {
-		blog(LOG_INFO, "Buffer is too small! %i > %i", nBufferFrames, data->BufferSize);
+//		blog(LOG_WARNING, "Buffer is too small! %i > %i", nBufferFrames, data->BufferSize);
 	}
 	else if (nBufferFrames < data->BufferSize) {
-		blog(LOG_INFO, "Buffer is too big! %i < %i", nBufferFrames, data->BufferSize);
+//		blog(LOG_WARNING, "Buffer is too big! %i < %i", nBufferFrames, data->BufferSize);
 	}
 	else {
-		blog(LOG_INFO, "Buffer is just right: %i", nBufferFrames);
+//		blog(LOG_WARNING, "Buffer is just right: %i", nBufferFrames);
 	}
 
 	if (status) {
-		blog(LOG_INFO, "Stream overflow detected!");
+		blog(LOG_WARNING, "Stream overflow detected!");
 		return 0;
 	}
 
