@@ -331,20 +331,23 @@ int create_asio_buffer(void *outputBuffer, void *inputBuffer, unsigned int nBuff
 	asio_data *data = (asio_data *)userData;
 
 	if (data->BitDepth == AUDIO_FORMAT_UNKNOWN) {
-		return 0;
+		return 2;
 	}
 
 	uint8_t *buffer;
 	uint8_t *inputBuf = (uint8_t *)inputBuffer;
 	int recorded_channels = data->LastChannel - data->FirstChannel + 1; //number of channels recorded
 	/* fix for 7 channel recording*/
-	if (recorded_channels == 7) {
-		blog(LOG_ERROR, "OBS does not support 7 channels; defaulting to 8 channels");
-		if (data->channels >= 8) {
-			recorded_channels = 8;
-		}
+	//if (recorded_channels == 7) {
+	//	blog(LOG_ERROR, "OBS does not support 7 channels; defaulting to 8 channels");
+	//	if (data->channels >= 8) {
+	//		recorded_channels = 8;
+	//	}
+	//}
+	if (recorded_channels > 8) {
+		blog(LOG_ERROR, "OBS does not support more than 8 channels");
+		return 2;
 	}
-	
 	/* buffer in Bytes =
 	 * number of frames in buffer x number of channels x bitdepth / 8
 	 *                                                 
@@ -354,7 +357,10 @@ int create_asio_buffer(void *outputBuffer, void *inputBuffer, unsigned int nBuff
 	int BitDepthBytes = BitDepth(data->BitDepth) / 8;
 	size_t bufSizePerChannelBytes = nBufferFrames * BitDepthBytes;
 	size_t bufSizeBytes = bufSizePerChannelBytes * recorded_channels;
-	buffer = (uint8_t *)bmalloc(bufSizeBytes);
+	if (recorded_channels == 7) { 
+		bufSizeBytes = bufSizePerChannelBytes * 8;
+	}
+	buffer = (uint8_t *)calloc(bufSizeBytes, sizeof(uint8_t));
 	if (!buffer) {
 		blog(LOG_INFO, "Buffer allocation failed!");
 		return 2; // per API will abort the stream
@@ -393,7 +399,11 @@ int create_asio_buffer(void *outputBuffer, void *inputBuffer, unsigned int nBuff
 	struct obs_source_audio out;
 	out.data[0] = buffer;
 	out.format = data->BitDepth;
-	out.speakers = asio_channels_to_obs_speakers(recorded_channels);
+	if (recorded_channels == 7) {
+		out.speakers = SPEAKERS_7POINT1;
+	} else {
+		out.speakers = asio_channels_to_obs_speakers(recorded_channels);
+	}
 	out.samples_per_sec = data->SampleRate;
 	out.frames = nBufferFrames;// beware, may differ from data->BufferSize;
 	out.timestamp = os_gettime_ns() - ((nBufferFrames * NSEC_PER_SEC) / data->SampleRate);
@@ -475,7 +485,7 @@ cleanup:
 static void * asio_create(obs_data_t *settings, obs_source_t *source)
 {
 	struct asio_data *data = new asio_data;
-
+	
 	data->source = source;
 	data->first_ts = 0;
 	data->device = NULL;
