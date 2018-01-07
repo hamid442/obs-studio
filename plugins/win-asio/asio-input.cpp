@@ -359,7 +359,7 @@ int create_asio_buffer(void *outputBuffer, void *inputBuffer, unsigned int nBuff
 	buffer = (uint8_t *)calloc(bufSizeBytes, sizeof(uint8_t));
 	if (!buffer) {
 		blog(LOG_INFO, "Buffer allocation failed!");
-		return 2; // per API will abort the stream
+		return 0; // per API will abort the stream
 	}
 
 	/* RtAudio tries to allocate data->BufferSize but per API actual value may differ. 
