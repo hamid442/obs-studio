@@ -42,16 +42,6 @@ OBS_MODULE_USE_DEFAULT_LOCALE("win-asio", "en-US")
 
 #define TEXT_FIRST_CHANNEL              obs_module_text("FirstChannel")
 #define TEXT_LAST_CHANNEL               obs_module_text("LastChannel")
-//#define CHANNEL_FORMAT  "channel_format"
-//#define TEXT_CHANNEL_FORMAT             obs_module_text("ChannelFormat")
-//#define TEXT_CHANNEL_FORMAT_NONE        obs_module_text("ChannelFormat.None")
-//#define TEXT_CHANNEL_FORMAT_MONO        obs_module_text("ChannelFormat.Mono")
-//#define TEXT_CHANNEL_FORMAT_2_0CH       obs_module_text("ChannelFormat.2_0ch")
-//#define TEXT_CHANNEL_FORMAT_2_1CH       obs_module_text("ChannelFormat.2_1ch")
-//#define TEXT_CHANNEL_FORMAT_4_0CH       obs_module_text("ChannelFormat.4_0ch")
-//#define TEXT_CHANNEL_FORMAT_4_1CH       obs_module_text("ChannelFormat.4_1ch")
-//#define TEXT_CHANNEL_FORMAT_5_1CH       obs_module_text("ChannelFormat.5_1ch")
-//#define TEXT_CHANNEL_FORMAT_7_1CH       obs_module_text("ChannelFormat.7_1ch")
 #define TEXT_BUFFER_SIZE                obs_module_text("BufferSize")
 #define TEXT_BUFFER_64_SAMPLES          obs_module_text("64_samples")
 #define TEXT_BUFFER_128_SAMPLES         obs_module_text("128_samples")
@@ -59,11 +49,6 @@ OBS_MODULE_USE_DEFAULT_LOCALE("win-asio", "en-US")
 #define TEXT_BUFFER_512_SAMPLES         obs_module_text("512_samples")
 #define TEXT_BUFFER_1024_SAMPLES        obs_module_text("1024_samples")
 #define TEXT_BITDEPTH                   obs_module_text("BitDepth")
-
-#define OPEN_ASIO_SETTINGS "open_asio_settings"
-#define CLOSE_ASIO_SETTINGS "close_asio_settings"
-#define OPEN_ASIO_TEXT obs_module_text("OpenAsioDriverSettings")
-#define CLOSE_ASIO_TEXT obs_module_text("CloseAsioDriverSettings")
 
 
 struct asio_data {
@@ -126,10 +111,10 @@ RtAudioFormat obs_to_rtasio_audio_format(audio_format format)
 	// obs doesn't have 24 bit
 	case AUDIO_FORMAT_32BIT:   return RTAUDIO_SINT32;
 	case AUDIO_FORMAT_FLOAT:   return RTAUDIO_FLOAT32;
-	default:                   break;
+	default:                   return RTAUDIO_FLOAT32;
 	}
-	// default to 32 bit samples for best quality
-	return RTAUDIO_SINT32;
+	// default to 32 float samples for best quality
+
 }
 
 enum speaker_layout asio_channels_to_obs_speakers(unsigned int channels)
@@ -138,7 +123,7 @@ enum speaker_layout asio_channels_to_obs_speakers(unsigned int channels)
 	case 1:   return SPEAKERS_MONO;
 	case 2:   return SPEAKERS_STEREO;
 	case 3:   return SPEAKERS_2POINT1;
-	case 4:   return SPEAKERS_QUAD;
+	case 4:   return SPEAKERS_4POINT0;
 	case 5:   return SPEAKERS_4POINT1;
 	case 6:   return SPEAKERS_5POINT1;
 	/* no layout for 7 channels */
@@ -227,7 +212,6 @@ static bool fill_out_channels(obs_properties_t *props, obs_property_t *list, obs
 	input_channels = info.inputChannels;
 
 	for (unsigned int i = 0; i < input_channels; i++) {
-		std::string channel_numbering(device);
 		char** names = new char*[32];
 		std::string test = info.name + " " + std::to_string(i);
 		char* cstr = new char[test.length() + 1];
@@ -251,7 +235,7 @@ static bool fill_out_sample_rates(obs_properties_t *props, obs_property_t *list,
 	sampleRates = info.sampleRates;
 	size_t sampleRatesNb = sampleRates.size();
 	for (unsigned int i = 0; i < sampleRatesNb; i++) {
-		std::string rate = std::to_string(sampleRates[i]);
+		std::string rate = std::to_string(sampleRates[i]) + " Hz";
 		char* cstr = new char[rate.length() + 1];
 		strcpy(cstr, rate.c_str());
 		obs_property_list_add_int(list, cstr, sampleRates[i]);
@@ -340,20 +324,10 @@ int create_asio_buffer(void *outputBuffer, void *inputBuffer, unsigned int nBuff
 	unsigned int i;
 	asio_data *data = (asio_data *)userData;
 
-	if (data->BitDepth == AUDIO_FORMAT_UNKNOWN) {
-		return 2;
-	}
-
 	uint8_t *buffer;
 	uint8_t *inputBuf = (uint8_t *)inputBuffer;
 	int recorded_channels = data->LastChannel - data->FirstChannel + 1; //number of channels recorded
-	/* fix for 7 channel recording*/
-	//if (recorded_channels == 7) {
-	//	blog(LOG_ERROR, "OBS does not support 7 channels; defaulting to 8 channels");
-	//	if (data->channels >= 8) {
-	//		recorded_channels = 8;
-	//	}
-	//}
+
 	if (recorded_channels > 8) {
 		blog(LOG_ERROR, "OBS does not support more than 8 channels");
 		return 2;
@@ -373,7 +347,7 @@ int create_asio_buffer(void *outputBuffer, void *inputBuffer, unsigned int nBuff
 	buffer = (uint8_t *)calloc(bufSizeBytes, sizeof(uint8_t));
 	if (!buffer) {
 		blog(LOG_INFO, "Buffer allocation failed!");
-		return 0; // per API will abort the stream
+		return 0;
 	}
 
 	/* RtAudio tries to allocate data->BufferSize but per API actual value may differ. 
@@ -409,10 +383,9 @@ int create_asio_buffer(void *outputBuffer, void *inputBuffer, unsigned int nBuff
 	struct obs_source_audio out;
 	out.data[0] = buffer;
 	out.format = data->BitDepth;
+	out.speakers = asio_channels_to_obs_speakers(recorded_channels);
 	if (recorded_channels == 7) {
 		out.speakers = SPEAKERS_7POINT1;
-	} else {
-		out.speakers = asio_channels_to_obs_speakers(recorded_channels);
 	}
 	out.samples_per_sec = data->SampleRate;
 	out.frames = nBufferFrames;// beware, may differ from data->BufferSize;
@@ -439,17 +412,14 @@ void asio_init(struct asio_data *data)
 		blog(LOG_INFO,"\nNo audio devices found!\n");
 	}
 	RtAudio::StreamParameters parameters;
-	parameters.deviceId = data->device_index? data->device_index:0;
-	parameters.nChannels = recorded_channels? recorded_channels:1;
+	parameters.deviceId = data->device_index;
+	parameters.nChannels = recorded_channels;
 	parameters.firstChannel = data->FirstChannel;  //first channel passed to the buffer; this is the first channel captured
-	unsigned int sampleRate = data->SampleRate ? data->SampleRate:48000;
-	unsigned int bufferFrames = data->BufferSize? data->BufferSize:256; // default to 256 frames
+	unsigned int sampleRate = data->SampleRate;
+	unsigned int bufferFrames = data->BufferSize; // default to 256 frames
 	RtAudioFormat audioFormat = obs_to_rtasio_audio_format(data->BitDepth? data->BitDepth: AUDIO_FORMAT_32BIT);
 
-	if (adc.isStreamOpen()) {
-		//stream might not be runnning*
-	}
-	else {
+	if (! adc.isStreamOpen()) {
 		try {
 			adc.openStream(NULL, &parameters, audioFormat, sampleRate, &bufferFrames, &create_asio_buffer, data);
 		}
@@ -461,9 +431,7 @@ void asio_init(struct asio_data *data)
 			goto cleanup;
 		}
 	}
-	if (adc.isStreamRunning()) {
-		//
-	} else {
+	if (! adc.isStreamRunning()) {
 		try {
 			adc.startStream();
 		}
@@ -614,6 +582,7 @@ void asio_update(void *vptr, obs_data_t *settings)
 			data->LastChannel = FirstChannel;
 		}
 	}
+
 	if (reset && adc.isStreamOpen()) {
 		if (adc.isStreamRunning()) {
 			try {
@@ -680,19 +649,17 @@ obs_properties_t * asio_get_properties(void *unused)
 	rate = obs_properties_add_list(props, "sample rate",
 			obs_module_text("SampleRate"), OBS_COMBO_TYPE_LIST,
 			OBS_COMBO_FORMAT_INT);
-	//obs_property_list_add_int(rate, "44100 Hz", 44100);
-	//obs_property_list_add_int(rate, "48000 Hz", 48000);
 
 	bit_depth = obs_properties_add_list(props, "bit depth",
 			TEXT_BITDEPTH, OBS_COMBO_TYPE_LIST, OBS_COMBO_FORMAT_INT);
 	
 	buffer_size = obs_properties_add_list(props, "buffer", TEXT_BUFFER_SIZE,
 			OBS_COMBO_TYPE_LIST, OBS_COMBO_FORMAT_INT);
-	obs_property_list_add_int(buffer_size, TEXT_BUFFER_64_SAMPLES, 64);
-	obs_property_list_add_int(buffer_size, TEXT_BUFFER_128_SAMPLES, 128);
-	obs_property_list_add_int(buffer_size, TEXT_BUFFER_256_SAMPLES, 256);
-	obs_property_list_add_int(buffer_size, TEXT_BUFFER_512_SAMPLES, 512);
-	obs_property_list_add_int(buffer_size, TEXT_BUFFER_1024_SAMPLES, 1024);
+	obs_property_list_add_int(buffer_size, "64", 64);
+	obs_property_list_add_int(buffer_size, "128", 128);
+	obs_property_list_add_int(buffer_size, "256", 256);
+	obs_property_list_add_int(buffer_size, "512", 512);
+	obs_property_list_add_int(buffer_size, "1024", 1024);
 
 	return props;
 }
