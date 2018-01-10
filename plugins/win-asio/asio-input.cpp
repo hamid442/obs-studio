@@ -58,6 +58,7 @@ struct asio_data {
 	const char *device;
 	uint8_t device_index;
 	RtAudio::DeviceInfo info;
+	RtAudio::StreamParameters parameters;
 
 	audio_format BitDepth; // 16bit or 32 bit
 	int SampleRate;          //44100 or 48000 Hz
@@ -373,11 +374,12 @@ int create_asio_buffer(void *outputBuffer, void *inputBuffer, unsigned int nBuff
 	/* copy interleaved frames */
 	/*
 	unsigned int j;
-	size_t frameSizeBytes = recorded_channels * BitDepthBytes;
+	size_t frameSizeBytesIn =  data->parameters.nChannels * BitDepthBytes;
+	size_t frameSizeBytesOut = recorded_channels * BitDepthBytes;
 	for (i = 0; i < nBufferFrames; i++) {
-		for (j = 0; j < recorded_channels; j++) {
-			memcpy(buffer + i * frameSizeBytes + j * BitDepthBytes,
-				inputBuf + i * frameSizeBytes + j * BitDepthBytes,
+		for (j = data->FirstChannel; j <= data->LastChannel; j++) {
+			memcpy(buffer + i * frameSizeBytesOut + j * BitDepthBytes,
+				inputBuf + i * frameSizeBytesIn + j * BitDepthBytes,
 				BitDepthBytes);
 		}
 	}
@@ -385,7 +387,17 @@ int create_asio_buffer(void *outputBuffer, void *inputBuffer, unsigned int nBuff
 	/* copy planar */
 	memcpy(buffer, inputBuf, targetSizeBytes);
 
+	/* planar code */
+	//for (i = 0 /*data->FirstChannel*/; i <= 1 /*data->LastChannel*/; i++) {
+	//	size_t to = i * bufSizePerChannelBytes;
+	//	size_t from = to;
+	//	memcpy(buffer + i * 4, inputBuf + i * 4, 4);
+	//}
+	/*memcpy(buffer, (uint8_t *)inputBuffer, 4);
+	memcpy(buffer + 4 , (uint8_t *)inputBuffer + 4, 4);*/
+
 	struct obs_source_audio out;
+
 	//out.data[0] = buffer;
 	for (size_t i = 0; i < recorded_channels; i++) {
 		//do mixing
@@ -393,6 +405,7 @@ int create_asio_buffer(void *outputBuffer, void *inputBuffer, unsigned int nBuff
 	}
 
 	out.format = (audio_format)(data->BitDepth | 4);
+
 	out.speakers = asio_channels_to_obs_speakers(recorded_channels);
 	if (recorded_channels == 7) {
 		out.speakers = SPEAKERS_7POINT1;
@@ -423,8 +436,8 @@ void asio_init(struct asio_data *data)
 	}
 	RtAudio::StreamParameters parameters;
 	parameters.deviceId = data->device_index;
-	parameters.nChannels = recorded_channels;
-	parameters.firstChannel = data->FirstChannel;  //first channel passed to the buffer; this is the first channel captured
+	parameters.nChannels = data->channels; /*recorded_channels;*/
+	parameters.firstChannel = 0; /*data->FirstChannel;*/  //first channel passed to the buffer; this is the first channel captured
 	unsigned int sampleRate = data->SampleRate;
 	unsigned int bufferFrames = data->BufferSize; // default to 256 frames
 	RtAudioFormat audioFormat = obs_to_rtasio_audio_format(data->BitDepth? data->BitDepth: AUDIO_FORMAT_32BIT);
