@@ -341,6 +341,7 @@ int create_asio_buffer(void *outputBuffer, void *inputBuffer, unsigned int nBuff
 	int BitDepthBytes = BitDepth(data->BitDepth) / 8;
 	size_t bufSizePerChannelBytes = nBufferFrames * BitDepthBytes;
 	size_t bufSizeBytes = bufSizePerChannelBytes * recorded_channels;
+	size_t targetSizeBytes = bufSizePerChannelBytes * recorded_channels;
 	if (recorded_channels == 7) { 
 		bufSizeBytes = bufSizePerChannelBytes * 8;
 	}
@@ -370,6 +371,7 @@ int create_asio_buffer(void *outputBuffer, void *inputBuffer, unsigned int nBuff
 	}
 
 	/* copy interleaved frames */
+	/*
 	unsigned int j;
 	size_t frameSizeBytes = recorded_channels * BitDepthBytes;
 	for (i = 0; i < nBufferFrames; i++) {
@@ -379,10 +381,18 @@ int create_asio_buffer(void *outputBuffer, void *inputBuffer, unsigned int nBuff
 				BitDepthBytes);
 		}
 	}
+	*/
+	/* copy planar */
+	memcpy(buffer, inputBuf, targetSizeBytes);
 
 	struct obs_source_audio out;
-	out.data[0] = buffer;
-	out.format = data->BitDepth;
+	//out.data[0] = buffer;
+	for (size_t i = 0; i < recorded_channels; i++) {
+		//do mixing
+		out.data[i] = buffer + i*bufSizePerChannelBytes;
+	}
+
+	out.format = (audio_format)(data->BitDepth | 4);
 	out.speakers = asio_channels_to_obs_speakers(recorded_channels);
 	if (recorded_channels == 7) {
 		out.speakers = SPEAKERS_7POINT1;
@@ -418,10 +428,13 @@ void asio_init(struct asio_data *data)
 	unsigned int sampleRate = data->SampleRate;
 	unsigned int bufferFrames = data->BufferSize; // default to 256 frames
 	RtAudioFormat audioFormat = obs_to_rtasio_audio_format(data->BitDepth? data->BitDepth: AUDIO_FORMAT_32BIT);
+	//force planar formats
+	RtAudio::StreamOptions options;
+	options.flags = RTAUDIO_NONINTERLEAVED;
 
-	if (! adc.isStreamOpen()) {
+	if (!adc.isStreamOpen()) {
 		try {
-			adc.openStream(NULL, &parameters, audioFormat, sampleRate, &bufferFrames, &create_asio_buffer, data);
+			adc.openStream(NULL, &parameters, audioFormat, sampleRate, &bufferFrames, &create_asio_buffer, data, &options);
 		}
 		catch (RtAudioError& e) {
 			e.printMessage();
