@@ -37,14 +37,6 @@ OBS_MODULE_USE_DEFAULT_LOCALE("win-asio", "en-US")
 
 #define NSEC_PER_SEC  1000000000LL
 
-#define TEXT_ROUTE_0                    obs_module_text("Route.0")
-#define TEXT_ROUTE_1                    obs_module_text("Route.1")
-#define TEXT_ROUTE_2                    obs_module_text("Route.2")
-#define TEXT_ROUTE_3                    obs_module_text("Route.3")
-#define TEXT_ROUTE_4                    obs_module_text("Route.4")
-#define TEXT_ROUTE_5                    obs_module_text("Route.5")
-#define TEXT_ROUTE_6                    obs_module_text("Route.6")
-#define TEXT_ROUTE_7                    obs_module_text("Route.7")
 #define TEXT_BUFFER_SIZE                obs_module_text("BufferSize")
 #define TEXT_BUFFER_64_SAMPLES          obs_module_text("64_samples")
 #define TEXT_BUFFER_128_SAMPLES         obs_module_text("128_samples")
@@ -684,12 +676,16 @@ obs_properties_t * asio_get_properties(void *unused)
 			OBS_COMBO_FORMAT_STRING);
 	obs_property_set_modified_callback(devices, asio_device_changed);
 	fill_out_devices(devices);
-
+	std::string dev_descr = "ASIO devices.\n"
+			"OBS-Studio supports for now a single ASIO source.\n"
+			"But duplication of an ASIO source in different scenes is still possible";
+	obs_property_set_long_description(devices, dev_descr.c_str());
 	// get channel number from output speaker layout set by obs
 	struct obs_audio_info aoi;
 	obs_get_audio_info(&aoi);
 	unsigned int recorded_channels = get_audio_channels(aoi.speakers);
 
+	std::string route_descr = "For each OBS output channel, pick one\n of the input channels of your ASIO device.\n";
 	const char* route_name_format = "route %i";
 	char* route_name = new char[strlen(route_name_format) + pad_digits];
 
@@ -700,6 +696,7 @@ obs_properties_t * asio_get_properties(void *unused)
 		sprintf(route_obs, route_obs_format, i);
 		route[i] = obs_properties_add_list(props, route_name, obs_module_text(route_obs),
 			OBS_COMBO_TYPE_LIST, OBS_COMBO_FORMAT_INT);
+		obs_property_set_long_description(route[i], route_descr.c_str());
 	}
 
 	free(route_name);
@@ -708,9 +705,14 @@ obs_properties_t * asio_get_properties(void *unused)
 	rate = obs_properties_add_list(props, "sample rate",
 			obs_module_text("SampleRate"), OBS_COMBO_TYPE_LIST,
 			OBS_COMBO_FORMAT_INT);
-
+	std::string rate_descr = "Sample rate : number of samples per channel in one second.\n";
+	obs_property_set_long_description(rate, rate_descr.c_str());
+	
 	bit_depth = obs_properties_add_list(props, "bit depth",
 			TEXT_BITDEPTH, OBS_COMBO_TYPE_LIST, OBS_COMBO_FORMAT_INT);
+	std::string bit_descr = "Bit depth : size of a sample in bits and format.\n"
+			"Float should be preferred.";
+	obs_property_set_long_description(bit_depth, bit_descr.c_str());
 
 	buffer_size = obs_properties_add_list(props, "buffer", TEXT_BUFFER_SIZE,
 			OBS_COMBO_TYPE_LIST, OBS_COMBO_FORMAT_INT);
@@ -719,6 +721,11 @@ obs_properties_t * asio_get_properties(void *unused)
 	obs_property_list_add_int(buffer_size, "256", 256);
 	obs_property_list_add_int(buffer_size, "512", 512);
 	obs_property_list_add_int(buffer_size, "1024", 1024);
+	std::string buffer_descr = "Buffer : number of samples in a single frame.\n"
+			"A lower value implies lower latency.\n"
+			"256 should be OK for most cards.\n"
+			"Warning: the real buffer returned by the device may differ";
+	obs_property_set_long_description(buffer_size, buffer_descr.c_str());
 
 	return props;
 }
