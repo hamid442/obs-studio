@@ -222,9 +222,10 @@ void fill_out_devices(obs_property_t *list) {
 	}
 }
 
-/* Creates list of input channels ; modified so that value -1 means inactive channel.
+/* Creates list of input channels ; modified so that value -2 means inactive channel.
 * This differs from a muted channel in that a muted channel would be passed to obs;
-* Here an inactive channel is not passed at all.
+* Here an inactive channel is not passed at all. A muted channel has value -1 and
+* is recorded. The user can unmute the channel later.
 */
 static bool fill_out_channels_modified(obs_properties_t *props, obs_property_t *list, obs_data_t *settings) {
 	const char* device = obs_data_get_string(settings, "device_id");
@@ -236,7 +237,8 @@ static bool fill_out_channels_modified(obs_properties_t *props, obs_property_t *
 	input_channels = info.inputChannels;
 
 	obs_property_list_clear(list);
-	obs_property_list_add_int(list, "inactive", -1);
+	obs_property_list_add_int(list, "inactive", -2);
+	obs_property_list_add_int(list, "mute", -1);
 	for (unsigned int i = 0; i < input_channels; i++) {
 		char** names = new char*[32];
 		std::string test = info.name + " " + std::to_string(i);
@@ -354,8 +356,13 @@ static bool asio_device_changed(obs_properties_t *props,
 int mix(uint8_t *inputBuffer, obs_source_audio *out, size_t bytes_per_ch, int route[], unsigned int recorded_device_chs = UINT_MAX) {
 	short j = 0;
 	for (size_t i = 0; i < MAX_AUDIO_CHANNELS; i++) {
-		if (route[i] != -1 && route[i] < recorded_device_chs) {
+		if (route[i] > -1 && route[i] < recorded_device_chs) {
 			out->data[j++] = inputBuffer + route[i] * bytes_per_ch;
+		}
+		else if (route[i] = -1) {
+			uint8_t * silent_buffer;
+			silent_buffer = (uint8_t *)calloc(bytes_per_ch, 1);
+			out->data[j++] = silent_buffer;
 		}
 	}
 	return true;
@@ -365,21 +372,26 @@ int create_asio_buffer(void *outputBuffer, void *inputBuffer, unsigned int nBuff
 	double streamTime, RtAudioStreamStatus status, void *userData) {
 	unsigned int i;
 	asio_data *data = (asio_data *)userData;
-
 	int input_channels = data->channels;
 
+	//reordering the channels to push away the inactive channels
 	int route[MAX_AUDIO_CHANNELS];
 	short j = 0;
 	for (short i = 0; i < MAX_AUDIO_CHANNELS; i++) {
-		if (data->route[i] >= 0 && data->route[i] < input_channels) {
-			route[j++] = data->route[i];//out.data[j++] = buffer + (data->route[i] * bufSizePerChannelBytes);
+		if (data->route[i] >= -1 && data->route[i] < input_channels) {
+			route[j++] = data->route[i];
 		}
 		if (j < MAX_AUDIO_CHANNELS) {
-			route[j] = -1;
+			route[j] = -2;
 		}
 	}
 
-	int recorded_channels = j;
+	int recorded_channels = j; // number of active channels routed to OBS (can be mute)
+	// sanity check
+	if (recorded_channels != data->recorded_channels) {
+		blog(LOG_DEBUG, "We missed something! \n");
+		return 2;
+	}
 
 	// retrieve device info (for debug)
 	RtAudio::DeviceInfo info = get_device_info(data->device);
@@ -406,7 +418,6 @@ int create_asio_buffer(void *outputBuffer, void *inputBuffer, unsigned int nBuff
 	int BitDepthBytes = bytedepth_format(data->BitDepth);
 	size_t bufSizePerChannelBytes = nBufferFrames * BitDepthBytes;
 	size_t bufSizeBytes = bufSizePerChannelBytes * recorded_channels;
-	size_t targetSizeBytes = bufSizePerChannelBytes * recorded_channels;
 	if (recorded_channels == 7) {
 		bufSizeBytes = bufSizePerChannelBytes * 8;
 	}
@@ -585,9 +596,9 @@ void asio_update(void *vptr, obs_data_t *settings)
 		route[i] = (int)obs_data_get_int(settings, route_str.c_str());
 		if (data->route[i] != route[i]) {
 			data->route[i] = route[i];
-			reset = true;
+//			reset = true;
 		}
-		if (route[i] != -1)
+		if (route[i] != -2)
 			recorded_channels += 1;
 	}
 	data->recorded_channels = recorded_channels;
@@ -644,15 +655,15 @@ const char * asio_get_name(void *unused)
 void asio_get_defaults(obs_data_t *settings)
 {
 	obs_data_set_default_int(settings, "sample rate", 48000);
-	obs_data_set_default_int(settings, "bit depth", AUDIO_FORMAT_32BIT);
-	obs_data_set_default_int(settings, "route 0", -1);
-	obs_data_set_default_int(settings, "route 1", -1);
-	obs_data_set_default_int(settings, "route 2", -1);
-	obs_data_set_default_int(settings, "route 3", -1);
-	obs_data_set_default_int(settings, "route 4", -1);
-	obs_data_set_default_int(settings, "route 5", -1);
-	obs_data_set_default_int(settings, "route 6", -1);
-	obs_data_set_default_int(settings, "route 7", -1);
+	obs_data_set_default_int(settings, "bit depth", AUDIO_FORMAT_FLOAT_PLANAR);
+	obs_data_set_default_int(settings, "route 0", -2); // default is inactive channels
+	obs_data_set_default_int(settings, "route 1", -2);
+	obs_data_set_default_int(settings, "route 2", -2);
+	obs_data_set_default_int(settings, "route 3", -2);
+	obs_data_set_default_int(settings, "route 4", -2);
+	obs_data_set_default_int(settings, "route 5", -2);
+	obs_data_set_default_int(settings, "route 6", -2);
+	obs_data_set_default_int(settings, "route 7", -2);
 }
 
 obs_properties_t * asio_get_properties(void *unused)
@@ -665,6 +676,7 @@ obs_properties_t * asio_get_properties(void *unused)
 	obs_property_t *bit_depth;
 	obs_property_t *buffer_size;
 	obs_property_t *route[MAX_AUDIO_CHANNELS];
+	int pad_digits = floor(log10(abs(MAX_AUDIO_CHANNELS))) + 1;
 
 	UNUSED_PARAMETER(unused);
 
@@ -676,10 +688,10 @@ obs_properties_t * asio_get_properties(void *unused)
 	fill_out_devices(devices);
 
 	const char* route_name_format = "route %i";
-	char* route_name = strdup(route_name_format);
+	char* route_name = new char[strlen(route_name_format) + pad_digits];
 
 	const char* route_obs_format = "Route.%i";
-	char* route_obs = strdup(route_obs_format);
+	char* route_obs = new char[strlen(route_obs_format) + pad_digits];
 	for (size_t i = 0; i < MAX_AUDIO_CHANNELS; i++) {
 		sprintf(route_name, route_name_format, i);
 		sprintf(route_obs, route_obs_format, i);
