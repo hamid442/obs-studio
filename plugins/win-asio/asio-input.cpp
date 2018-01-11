@@ -711,7 +711,7 @@ obs_properties_t * asio_get_properties(void *unused)
 	obs_property_t *last_channel;
 	obs_property_t *bit_depth;
 	obs_property_t *buffer_size;
-	obs_property_t *route[8];
+	obs_property_t *route[MAX_AUDIO_CHANNELS];
 
 	UNUSED_PARAMETER(unused);
 
@@ -722,24 +722,22 @@ obs_properties_t * asio_get_properties(void *unused)
 	obs_property_set_modified_callback(devices, asio_device_changed);
 	fill_out_devices(devices);
 
-	route[0] = obs_properties_add_list(props, "route 0", TEXT_ROUTE_0,
+	const char* route_name_format = "route %i";
+	char* route_name = strdup(route_name_format);
+
+	const char* route_obs_format = "Route.%i";
+	char* route_obs = strdup(route_obs_format);
+	for (size_t i = 0; i < MAX_AUDIO_CHANNELS; i++) {
+		sprintf(route_name, route_name_format, i);
+		sprintf(route_obs, route_obs_format, i);
+		route[i] = obs_properties_add_list(props, route_name, obs_module_text(route_obs),
 			OBS_COMBO_TYPE_LIST, OBS_COMBO_FORMAT_INT);
-	route[1] = obs_properties_add_list(props, "route 1", TEXT_ROUTE_1,
-			OBS_COMBO_TYPE_LIST, OBS_COMBO_FORMAT_INT);
-	route[2] = obs_properties_add_list(props, "route 2", TEXT_ROUTE_2,
-			OBS_COMBO_TYPE_LIST, OBS_COMBO_FORMAT_INT);
-	route[3] = obs_properties_add_list(props, "route 3", TEXT_ROUTE_3,
-			OBS_COMBO_TYPE_LIST, OBS_COMBO_FORMAT_INT);
-	route[4] = obs_properties_add_list(props, "route 4", TEXT_ROUTE_4,
-			OBS_COMBO_TYPE_LIST, OBS_COMBO_FORMAT_INT);
-	route[5] = obs_properties_add_list(props, "route 5", TEXT_ROUTE_5,
-			OBS_COMBO_TYPE_LIST, OBS_COMBO_FORMAT_INT);
-	route[6] = obs_properties_add_list(props, "route 6", TEXT_ROUTE_6,
-			OBS_COMBO_TYPE_LIST, OBS_COMBO_FORMAT_INT);
-	route[7] = obs_properties_add_list(props, "route 7", TEXT_ROUTE_7,
-			OBS_COMBO_TYPE_LIST, OBS_COMBO_FORMAT_INT);
-	//for (unsigned int i = 0; i < 8; i++) {
-		//	obs_property_set_modified_callback(route[i], fill_out_channels_modified);
+	}
+
+	free(route_name);
+	free(route_obs);
+	//for (size_t i = 0; i < MAX_AUDIO_CHANNELS; i++) {
+	//	obs_property_set_modified_callback(route[i], fill_out_channels_modified);
 	//}
 
 	rate = obs_properties_add_list(props, "sample rate",
