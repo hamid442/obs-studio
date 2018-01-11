@@ -656,14 +656,16 @@ void asio_get_defaults(obs_data_t *settings)
 {
 	obs_data_set_default_int(settings, "sample rate", 48000);
 	obs_data_set_default_int(settings, "bit depth", AUDIO_FORMAT_FLOAT_PLANAR);
-	obs_data_set_default_int(settings, "route 0", -2); // default is inactive channels
-	obs_data_set_default_int(settings, "route 1", -2);
-	obs_data_set_default_int(settings, "route 2", -2);
-	obs_data_set_default_int(settings, "route 3", -2);
-	obs_data_set_default_int(settings, "route 4", -2);
-	obs_data_set_default_int(settings, "route 5", -2);
-	obs_data_set_default_int(settings, "route 6", -2);
-	obs_data_set_default_int(settings, "route 7", -2);
+
+	// default is inactive channels -2
+	int pad_digits = floor(log10(abs(MAX_AUDIO_CHANNELS))) + 1;
+	const char* route_name_format = "route %i";
+	char* route_name = new char[strlen(route_name_format) + pad_digits];
+	
+	for (size_t i = 0; i < MAX_AUDIO_CHANNELS; i++) {
+		sprintf(route_name, route_name_format, i);
+		obs_data_set_default_int(settings, route_name, -2);
+	}
 }
 
 obs_properties_t * asio_get_properties(void *unused)
