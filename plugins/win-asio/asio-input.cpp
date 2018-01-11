@@ -256,7 +256,7 @@ static bool fill_out_channels_modified(obs_properties_t *props, obs_property_t *
 		char* cstr = new char[test.length() + 1];
 		strcpy(cstr, test.c_str());
 		names[i] = cstr;
-		+obs_property_list_add_int(list, names[i], i);
+		obs_property_list_add_int(list, names[i], i);
 	}
 	return true;
 }
@@ -308,7 +308,12 @@ static bool fill_out_bit_depths(obs_properties_t *props, obs_property_t *list, o
 		obs_property_list_add_int(list, "32 bit", AUDIO_FORMAT_32BIT_PLANAR);
 		obs_property_list_add_int(list, "32 bit float (native)", AUDIO_FORMAT_FLOAT_PLANAR);
 	}
-
+	else {
+		blog(LOG_ERROR, "Your device uses unsupported bit depth.\n"
+			"Only 16 bit, 32 bit signed int and 32 bit float are supported.\n"
+			"Change accordingly your device settings.");
+		return false;
+	}
 	return true;
 }
 
@@ -345,13 +350,13 @@ static bool asio_device_changed(obs_properties_t *props,
 		obs_property_list_item_disable(list, 0, true);
 	}
 
-	const char *defaultDeviceId = obs_data_get_default_string(settings, "device_id");
-	if (curDeviceId == NULL || defaultDeviceId == NULL || (strcmp(defaultDeviceId, "") != 0 && strcmp(curDeviceId, defaultDeviceId) != 0)) {
-		RtAudio::DeviceInfo info = get_device_info(curDeviceId);
-		audio_format native_bit_depth = rtasio_to_obs_audio_format(info.nativeFormats);
-		obs_data_set_int(settings, "bit depth", native_bit_depth);
-	}
-	obs_data_set_default_string(settings, "device_id", curDeviceId);
+	//const char *defaultDeviceId = obs_data_get_default_string(settings, "device_id");
+	//if (curDeviceId == NULL || defaultDeviceId == NULL || (strcmp(defaultDeviceId,"") !=0 && strcmp(curDeviceId, defaultDeviceId) != 0)) {
+	//	RtAudio::DeviceInfo info = get_device_info(curDeviceId);
+	//	audio_format native_bit_depth = rtasio_to_obs_audio_format(info.nativeFormats);
+	//	obs_data_set_int(settings, "bit depth", native_bit_depth);
+	//}
+	//obs_data_set_default_string(settings, "device_id", curDeviceId);
 
 	obs_property_set_modified_callback(sample_rate, fill_out_sample_rates);
 	obs_property_set_modified_callback(bit_depth, fill_out_bit_depths);
@@ -438,10 +443,6 @@ int create_asio_buffer(void *outputBuffer, void *inputBuffer, unsigned int nBuff
 		blog(LOG_WARNING, "Stream overflow detected!");
 		return 0;
 	}
-
-	/* copy interleaved frames */
-	/* copy planar */
-	//	memcpy(buffer, inputBuf, targetSizeBytes);
 
 	/* planar code */
 	//for (i = 0 /*data->FirstChannel*/; i <= 1 /*data->LastChannel*/; i++) {
