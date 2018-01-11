@@ -61,14 +61,13 @@ struct asio_data {
 	const char *device;
 	uint8_t device_index;
 	RtAudio::DeviceInfo info;
-	RtAudio::StreamParameters parameters;
 
 	audio_format BitDepth; // 16bit or 32 bit
 	int SampleRate;          //44100 or 48000 Hz
 	uint16_t BufferSize;     // number of samples in buffer
 	uint64_t first_ts;       //first timestamp
 
-							 /* channels info */
+	/* channels info */
 	unsigned int channels; //total number of input channels
 	unsigned int output_channels; // number of output channels (not used)
 	unsigned int recorded_channels; // number of channels passed from device to OBS; is at most 8
@@ -116,17 +115,6 @@ int bytedepth_format(audio_format format)
 int bytedepth_format(RtAudioFormat format) {
 	return bytedepth_format(rtasio_to_obs_audio_format(format));
 }
-
-/*
-int BitDepthInBytes(audio_format format) {
-switch (format) {
-case AUDIO_FORMAT_16BIT:   return 2;
-case AUDIO_FORMAT_32BIT:   return 4;
-case AUDIO_FORMAT_FLOAT:
-default:                   return 4;
-}
-}
-*/
 
 RtAudioFormat obs_to_rtasio_audio_format(audio_format format)
 {
@@ -231,7 +219,6 @@ void fill_out_devices(obs_property_t *list) {
 		else {
 			blog(LOG_INFO, "device %i  = %s could not be added: driver issue.\n", i, names[i]);
 		}
-
 	}
 }
 
@@ -406,8 +393,9 @@ int create_asio_buffer(void *outputBuffer, void *inputBuffer, unsigned int nBuff
 	}
 
 	// won't ever reach that part of code unless we 've made some severe coding error
-	if (recorded_channels > 8) {
-		blog(LOG_ERROR, "OBS does not support more than 8 channels");
+	if (recorded_channels > MAX_AUDIO_CHANNELS) {
+		blog(LOG_ERROR, "OBS does not support more than %i channels",
+				MAX_AUDIO_CHANNELS);
 		return 2;
 	}
 
@@ -422,49 +410,15 @@ int create_asio_buffer(void *outputBuffer, void *inputBuffer, unsigned int nBuff
 	if (recorded_channels == 7) {
 		bufSizeBytes = bufSizePerChannelBytes * 8;
 	}
-	/*
-	// allocate buffer
-	buffer = (uint8_t *)calloc(bufSizeBytes, sizeof(uint8_t));
-	if (!buffer) {
-	blog(LOG_INFO, "Buffer allocation failed!");
-	return 0;
-	}
-	uint8_t* silent_frame = (uint8_t *)calloc(bufSizePerChannelBytes, sizeof(uint8_t));
-	if (!silent_frame) {
-	blog(LOG_INFO, "Buffer allocation for silent frame failed!");
-	return 0;
-	}
-	/* RtAudio tries to allocate data->BufferSize but per API actual value may differ.
-	* For instance this is the case for Rearoute driver: if we request 256 in OpenStream()
-	* we get 1024 instead for this callback.
-	*/
 
 	if (status) {
 		blog(LOG_WARNING, "Stream overflow detected!");
 		return 0;
 	}
 
-	/* planar code */
-	//for (i = 0 /*data->FirstChannel*/; i <= 1 /*data->LastChannel*/; i++) {
-	//	size_t to = i * bufSizePerChannelBytes;
-	//	size_t from = to;
-	//	memcpy(buffer + i * 4, inputBuf + i * 4, 4);
-	//}
-	/*memcpy(buffer, (uint8_t *)inputBuffer, 4);
-	memcpy(buffer + 4 , (uint8_t *)inputBuffer + 4, 4);*/
-
 	struct obs_source_audio out;
 	mix(inputBuf, &out, bufSizePerChannelBytes, route, data->channels);
-	/*
-	for (short i = 0; i < recorded_channels; i++){//recorded_channels; i++) {
-	//do mixing
-	//out.data[i] = buffer + i*bufSizePerChannelBytes;
-	if (route[i] >= 0) // we did bounds checking earlier && route[i] < input_channels)
-	out.data[i] = buffer + (data->route[i] * bufSizePerChannelBytes);
-	else
-	out.data[i] = silent_frame;
-	}
-	*/
+
 	out.format = data->BitDepth;
 	out.speakers = asio_channels_to_obs_speakers(recorded_channels);
 	if (recorded_channels == 7) {
@@ -504,8 +458,6 @@ void asio_init(struct asio_data *data)
 	unsigned int sampleRate = data->SampleRate;
 	unsigned int bufferFrames = data->BufferSize;
 	RtAudioFormat audioFormat = obs_to_rtasio_audio_format(data->BitDepth);
-	//store StreamParameters in asio_data struct
-	data->parameters = parameters;
 	//force planar formats
 	RtAudio::StreamOptions options;
 	options.flags = RTAUDIO_NONINTERLEAVED;
@@ -737,9 +689,6 @@ obs_properties_t * asio_get_properties(void *unused)
 
 	free(route_name);
 	free(route_obs);
-	//for (size_t i = 0; i < MAX_AUDIO_CHANNELS; i++) {
-	//	obs_property_set_modified_callback(route[i], fill_out_channels_modified);
-	//}
 
 	rate = obs_properties_add_list(props, "sample rate",
 			obs_module_text("SampleRate"), OBS_COMBO_TYPE_LIST,
