@@ -319,11 +319,15 @@ static bool asio_device_changed(obs_properties_t *props,
 	unsigned int recorded_channels = get_audio_channels(aoi.speakers);
 
 	obs_property_t *route[MAX_AUDIO_CHANNELS];
+	int pad_digits = floor(log10(abs(MAX_AUDIO_CHANNELS))) + 1;
+	const char* route_name_format = "route %i";
+	char* route_name = new char[strlen(route_name_format) + pad_digits];
 	for (unsigned int i = 0; i < recorded_channels; i++) {
 		std::string name = "route " + std::to_string(i);
 		route[i] = obs_properties_get(props, name.c_str());
 		obs_property_list_clear(route[i]);
-		obs_data_set_default_int(settings, name.c_str(), -1); // default is muted channels
+		sprintf(route_name, route_name_format, i);
+		obs_data_set_default_int(settings, route_name, -1); // default is muted channels
 		obs_property_set_modified_callback(route[i], fill_out_channels_modified);
 	}
 	obs_property_list_clear(sample_rate);
