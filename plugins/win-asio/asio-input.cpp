@@ -69,8 +69,8 @@ struct asio_data {
 
 	/* channels info */
 	unsigned int channels; //total number of input channels
-	unsigned int output_channels; // number of output channels (not used)
-	unsigned int recorded_channels; // number of channels passed from device to OBS; is at most 8
+	unsigned int output_channels; // number of output channels of device (not used)
+	unsigned int recorded_channels; // number of channels passed from device (including muted) to OBS; is at most 8
 	int route[MAX_AUDIO_CHANNELS]; // stores the channel re-ordering info
 };
 
@@ -237,7 +237,7 @@ static bool fill_out_channels_modified(obs_properties_t *props, obs_property_t *
 	input_channels = info.inputChannels;
 
 	obs_property_list_clear(list);
-	obs_property_list_add_int(list, "inactive", -2);
+//	obs_property_list_add_int(list, "inactive", -2);
 	obs_property_list_add_int(list, "mute", -1);
 	for (unsigned int i = 0; i < input_channels; i++) {
 		char** names = new char*[32];
@@ -313,11 +313,17 @@ static bool asio_device_changed(obs_properties_t *props,
 	obs_property_t *sample_rate = obs_properties_get(props, "sample rate");
 	obs_property_t *bit_depth = obs_properties_get(props, "bit depth");
 
-	obs_property_t *route[8];
-	for (unsigned int i = 0; i < 8; i++) {
+	// get channel number from output speaker layout set by obs
+	struct obs_audio_info aoi;
+	obs_get_audio_info(&aoi);
+	unsigned int recorded_channels = get_audio_channels(aoi.speakers);
+
+	obs_property_t *route[MAX_AUDIO_CHANNELS];
+	for (unsigned int i = 0; i < recorded_channels; i++) {
 		std::string name = "route " + std::to_string(i);
 		route[i] = obs_properties_get(props, name.c_str());
 		obs_property_list_clear(route[i]);
+		obs_data_set_default_int(settings, name.c_str(), -1); // default is muted channels
 		obs_property_set_modified_callback(route[i], fill_out_channels_modified);
 	}
 	obs_property_list_clear(sample_rate);
@@ -354,8 +360,11 @@ static bool asio_device_changed(obs_properties_t *props,
 }
 
 int mix(uint8_t *inputBuffer, obs_source_audio *out, size_t bytes_per_ch, int route[], unsigned int recorded_device_chs = UINT_MAX) {
+	struct obs_audio_info aoi;
+	obs_get_audio_info(&aoi);
+	unsigned int recorded_channels = get_audio_channels(aoi.speakers);
 	short j = 0;
-	for (size_t i = 0; i < MAX_AUDIO_CHANNELS; i++) {
+	for (size_t i = 0; i < recorded_channels; i++) {
 		if (route[i] > -1 && route[i] < recorded_device_chs) {
 			out->data[j++] = inputBuffer + route[i] * bytes_per_ch;
 		}
@@ -374,23 +383,15 @@ int create_asio_buffer(void *outputBuffer, void *inputBuffer, unsigned int nBuff
 	asio_data *data = (asio_data *)userData;
 	int input_channels = data->channels;
 
-	//reordering the channels to push away the inactive channels
 	int route[MAX_AUDIO_CHANNELS];
-	short j = 0;
+	int recorded_channels = data->recorded_channels;
 	for (short i = 0; i < MAX_AUDIO_CHANNELS; i++) {
-		if (data->route[i] >= -1 && data->route[i] < input_channels) {
-			route[j++] = data->route[i];
+		if (i < recorded_channels) {
+			route[i] = data->route[i];
 		}
-		if (j < MAX_AUDIO_CHANNELS) {
-			route[j] = -2;
-		}
-	}
-
-	int recorded_channels = j; // number of active channels routed to OBS (can be mute)
-	// sanity check
-	if (recorded_channels != data->recorded_channels) {
-		blog(LOG_DEBUG, "We missed something! \n");
-		return 2;
+		else {
+			route[i] = -1; // not necessary, just avoids it being unset
+		}	
 	}
 
 	// retrieve device info (for debug)
@@ -567,7 +568,12 @@ void asio_update(void *vptr, obs_data_t *settings)
 	RtAudio::DeviceInfo info;
 	bool reset = false;
 	int route[MAX_AUDIO_CHANNELS];
-	unsigned int recorded_channels = 0;
+
+	// get channel number from output speaker layout set by obs
+	struct obs_audio_info aoi;
+	obs_get_audio_info(&aoi);
+	unsigned int recorded_channels = get_audio_channels(aoi.speakers);
+	data->recorded_channels = recorded_channels;
 
 	// get device from settings
 	device = obs_data_get_string(settings, "device_id");
@@ -591,17 +597,13 @@ void asio_update(void *vptr, obs_data_t *settings)
 
 	info = get_device_info(device);
 
-	for (unsigned int i = 0; i < MAX_AUDIO_CHANNELS; i++) {
+	for (unsigned int i = 0; i < recorded_channels; i++) {
 		std::string route_str = "route " + std::to_string(i);
 		route[i] = (int)obs_data_get_int(settings, route_str.c_str());
 		if (data->route[i] != route[i]) {
 			data->route[i] = route[i];
-//			reset = true;
 		}
-		if (route[i] != -2)
-			recorded_channels += 1;
 	}
-	data->recorded_channels = recorded_channels;
 
 	rate = (int)obs_data_get_int(settings, "sample rate");
 	if (data->SampleRate != (int)rate) {
@@ -656,16 +658,6 @@ void asio_get_defaults(obs_data_t *settings)
 {
 	obs_data_set_default_int(settings, "sample rate", 48000);
 	obs_data_set_default_int(settings, "bit depth", AUDIO_FORMAT_FLOAT_PLANAR);
-
-	// default is inactive channels -2
-	int pad_digits = floor(log10(abs(MAX_AUDIO_CHANNELS))) + 1;
-	const char* route_name_format = "route %i";
-	char* route_name = new char[strlen(route_name_format) + pad_digits];
-	
-	for (size_t i = 0; i < MAX_AUDIO_CHANNELS; i++) {
-		sprintf(route_name, route_name_format, i);
-		obs_data_set_default_int(settings, route_name, -2);
-	}
 }
 
 obs_properties_t * asio_get_properties(void *unused)
@@ -689,12 +681,17 @@ obs_properties_t * asio_get_properties(void *unused)
 	obs_property_set_modified_callback(devices, asio_device_changed);
 	fill_out_devices(devices);
 
+	// get channel number from output speaker layout set by obs
+	struct obs_audio_info aoi;
+	obs_get_audio_info(&aoi);
+	unsigned int recorded_channels = get_audio_channels(aoi.speakers);
+
 	const char* route_name_format = "route %i";
 	char* route_name = new char[strlen(route_name_format) + pad_digits];
 
 	const char* route_obs_format = "Route.%i";
 	char* route_obs = new char[strlen(route_obs_format) + pad_digits];
-	for (size_t i = 0; i < MAX_AUDIO_CHANNELS; i++) {
+	for (size_t i = 0; i < recorded_channels; i++) {
 		sprintf(route_name, route_name_format, i);
 		sprintf(route_obs, route_obs_format, i);
 		route[i] = obs_properties_add_list(props, route_name, obs_module_text(route_obs),
