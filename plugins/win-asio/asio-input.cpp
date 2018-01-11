@@ -257,19 +257,19 @@ static bool fill_out_bit_depths(obs_properties_t *props, obs_property_t *list, o
 	nativeBitdepths = info.nativeFormats;
 	obs_property_list_clear(list);
 	if (nativeBitdepths & 0x2) {
-		obs_property_list_add_int(list, "16 bit (native)", AUDIO_FORMAT_16BIT);
-		obs_property_list_add_int(list, "32 bit", AUDIO_FORMAT_32BIT);
-		obs_property_list_add_int(list, "32 bit float", AUDIO_FORMAT_FLOAT);
+		obs_property_list_add_int(list, "16 bit (native)", AUDIO_FORMAT_16BIT_PLANAR);
+		obs_property_list_add_int(list, "32 bit", AUDIO_FORMAT_32BIT_PLANAR);
+		obs_property_list_add_int(list, "32 bit float", AUDIO_FORMAT_FLOAT_PLANAR);
 	}
 	else if (nativeBitdepths & 0x8) {
-		obs_property_list_add_int(list, "16 bit", AUDIO_FORMAT_16BIT);
-		obs_property_list_add_int(list, "32 bit (native)", AUDIO_FORMAT_32BIT);
-		obs_property_list_add_int(list, "32 bit float", AUDIO_FORMAT_FLOAT);
+		obs_property_list_add_int(list, "16 bit", AUDIO_FORMAT_16BIT_PLANAR);
+		obs_property_list_add_int(list, "32 bit (native)", AUDIO_FORMAT_32BIT_PLANAR);
+		obs_property_list_add_int(list, "32 bit float", AUDIO_FORMAT_FLOAT_PLANAR);
 	}
 	else if (nativeBitdepths & 0x10) {
-		obs_property_list_add_int(list, "16 bit", AUDIO_FORMAT_16BIT);
-		obs_property_list_add_int(list, "32 bit", AUDIO_FORMAT_32BIT);
-		obs_property_list_add_int(list, "32 bit float (native)", AUDIO_FORMAT_FLOAT);
+		obs_property_list_add_int(list, "16 bit", AUDIO_FORMAT_16BIT_PLANAR);
+		obs_property_list_add_int(list, "32 bit", AUDIO_FORMAT_32BIT_PLANAR);
+		obs_property_list_add_int(list, "32 bit float (native)", AUDIO_FORMAT_FLOAT_PLANAR);
 	}
 
 	return true;
@@ -330,7 +330,6 @@ int create_asio_buffer(void *outputBuffer, void *inputBuffer, unsigned int nBuff
 	// retrieve device info (for debug)
 	RtAudio::DeviceInfo info = get_device_info(data->device);
 	data->info = info;
-	uint8_t *buffer;
 	uint8_t *inputBuf = (uint8_t *)inputBuffer;
 	int recorded_channels = data->recorded_channels;
 
@@ -352,16 +351,11 @@ int create_asio_buffer(void *outputBuffer, void *inputBuffer, unsigned int nBuff
 	int BitDepthBytes = BitDepthInBytes(data->BitDepth);
 	size_t bufSizePerChannelBytes = nBufferFrames * BitDepthBytes;
 	size_t bufSizeBytes = bufSizePerChannelBytes * recorded_channels;
-	size_t targetSizeBytes = bufSizePerChannelBytes * recorded_channels;
+	size_t targetSizeBytes = bufSizePerChannelBytes * data->channels;
 	if (recorded_channels == 7) { 
 		bufSizeBytes = bufSizePerChannelBytes * 8;
 	}
-	// allocate buffer
-	buffer = (uint8_t *)calloc(bufSizeBytes, sizeof(uint8_t));
-	if (!buffer) {
-		blog(LOG_INFO, "Buffer allocation failed!");
-		return 0;
-	}
+
 
 	/* RtAudio tries to allocate data->BufferSize but per API actual value may differ. 
 	 * For instance this is the case for Rearoute driver: if we request 256 in OpenStream()
@@ -382,46 +376,24 @@ int create_asio_buffer(void *outputBuffer, void *inputBuffer, unsigned int nBuff
 		return 0;
 	}
 
-	/* copy interleaved frames */
-	/*
-	unsigned int j;
-	size_t frameSizeBytesIn =  data->parameters.nChannels * BitDepthBytes;
-	size_t frameSizeBytesOut = recorded_channels * BitDepthBytes;
-	for (i = 0; i < nBufferFrames; i++) {
-		for (j = 0; j < 8 ; j++) {
-			if (route[j] != -1) {
-				memcpy(buffer + i * frameSizeBytesOut,
-					inputBuf + i * frameSizeBytesIn + route[j] * BitDepthBytes,
-					BitDepthBytes);
-				buffer += BitDepthBytes;
-			}
-		}
-	}
-	*/
-	/* copy planar */
-	memcpy(buffer, inputBuf, targetSizeBytes);
 
 	/* planar code */
-	//for (i = 0 /*data->FirstChannel*/; i <= 1 /*data->LastChannel*/; i++) {
-	//	size_t to = i * bufSizePerChannelBytes;
-	//	size_t from = to;
-	//	memcpy(buffer + i * 4, inputBuf + i * 4, 4);
-	//}
-	/*memcpy(buffer, (uint8_t *)inputBuffer, 4);
-	memcpy(buffer + 4 , (uint8_t *)inputBuffer + 4, 4);*/
 
 	struct obs_source_audio out;
-
-	for (size_t i = 0; i < recorded_channels; i++) {
-		//do mixing
-		out.data[i] = buffer + i*bufSizePerChannelBytes;
+	int j = 0;
+	for (size_t i = 0; i < MAX_AUDIO_CHANNELS; i++) {
+		if (route[i] != -1) {
+			out.data[j++] = inputBuf + route[i] * bufSizePerChannelBytes;
+		}	
 	}
 
 	out.format = data->BitDepth;
 	out.speakers = asio_channels_to_obs_speakers(recorded_channels);
-	if (recorded_channels == 7) {
-		out.speakers = SPEAKERS_7POINT1;
-	}
+	//to do, add a mute channel for ch = 7 
+	//if (recorded_channels == 7) {
+	//	out.speakers = SPEAKERS_7POINT1;
+	//	out.data[7] = 
+	//}
 	out.samples_per_sec = data->SampleRate;
 	out.frames = nBufferFrames;// beware, may differ from data->BufferSize;
 	out.timestamp = os_gettime_ns() - ((nBufferFrames * NSEC_PER_SEC) / data->SampleRate);
@@ -456,6 +428,8 @@ void asio_init(struct asio_data *data)
 	unsigned int sampleRate = data->SampleRate;
 	unsigned int bufferFrames = data->BufferSize;
 	RtAudioFormat audioFormat = obs_to_rtasio_audio_format(data->BitDepth);
+	//store StreamParameters in asio_data struct
+	data->parameters = parameters;
 	//force planar formats
 	RtAudio::StreamOptions options;
 	options.flags = RTAUDIO_NONINTERLEAVED;
