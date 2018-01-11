@@ -68,11 +68,11 @@ struct asio_data {
 	uint16_t BufferSize;     // number of samples in buffer
 	uint64_t first_ts;       //first timestamp
 
-	/* channels info */
+							 /* channels info */
 	unsigned int channels; //total number of input channels
 	unsigned int output_channels; // number of output channels (not used)
 	unsigned int recorded_channels; // number of channels passed from device to OBS; is at most 8
-	int route[8]; // stores the channel re-ordering info
+	int route[MAX_AUDIO_CHANNELS]; // stores the channel re-ordering info
 };
 
 /* global RtAudio */
@@ -93,23 +93,59 @@ enum audio_format rtasio_to_obs_audio_format(RtAudioFormat format)
 	return AUDIO_FORMAT_UNKNOWN;
 }
 
-int BitDepthInBytes(audio_format format) {
+enum audio_format get_planar_format(audio_format format)
+{
+	if (is_audio_planar(format))
+		return format;
+
 	switch (format) {
-	case AUDIO_FORMAT_16BIT:   return 2;
-	case AUDIO_FORMAT_32BIT:   return 4;
-	case AUDIO_FORMAT_FLOAT:
-	default:                   return 4;
+	case AUDIO_FORMAT_U8BIT: return AUDIO_FORMAT_U8BIT_PLANAR;
+	case AUDIO_FORMAT_16BIT: return AUDIO_FORMAT_16BIT_PLANAR;
+	case AUDIO_FORMAT_32BIT: return AUDIO_FORMAT_32BIT_PLANAR;
+	case AUDIO_FORMAT_FLOAT: return AUDIO_FORMAT_FLOAT_PLANAR;
+		//should NEVER get here
+	default: return AUDIO_FORMAT_UNKNOWN;
 	}
 }
+
+int bytedepth_format(audio_format format)
+{
+	return get_audio_bytes_per_channel(format);
+}
+
+int bytedepth_format(RtAudioFormat format) {
+	return bytedepth_format(rtasio_to_obs_audio_format(format));
+}
+
+/*
+int BitDepthInBytes(audio_format format) {
+switch (format) {
+case AUDIO_FORMAT_16BIT:   return 2;
+case AUDIO_FORMAT_32BIT:   return 4;
+case AUDIO_FORMAT_FLOAT:
+default:                   return 4;
+}
+}
+*/
 
 RtAudioFormat obs_to_rtasio_audio_format(audio_format format)
 {
 	switch (format) {
-	case AUDIO_FORMAT_16BIT:   return RTAUDIO_SINT16;
-	// obs doesn't have 24 bit
-	case AUDIO_FORMAT_32BIT:   return RTAUDIO_SINT32;
-	case AUDIO_FORMAT_FLOAT:   return RTAUDIO_FLOAT32;
-	default:                   return RTAUDIO_FLOAT32;
+	case AUDIO_FORMAT_U8BIT:
+	case AUDIO_FORMAT_U8BIT_PLANAR:
+		return RTAUDIO_SINT8;
+
+	case AUDIO_FORMAT_16BIT:
+	case AUDIO_FORMAT_16BIT_PLANAR:
+		return RTAUDIO_SINT16;
+		// obs doesn't have 24 bit
+	case AUDIO_FORMAT_32BIT:
+	case AUDIO_FORMAT_32BIT_PLANAR:
+		return RTAUDIO_SINT32;
+
+	case AUDIO_FORMAT_FLOAT:
+	case AUDIO_FORMAT_FLOAT_PLANAR:
+		return RTAUDIO_FLOAT32;
 	}
 	// default to 32 float samples for best quality
 
@@ -124,7 +160,7 @@ enum speaker_layout asio_channels_to_obs_speakers(unsigned int channels)
 	case 4:   return SPEAKERS_4POINT0;
 	case 5:   return SPEAKERS_4POINT1;
 	case 6:   return SPEAKERS_5POINT1;
-	/* no layout for 7 channels */
+		/* no layout for 7 channels */
 	case 8:   return SPEAKERS_7POINT1;
 	}
 	return SPEAKERS_UNKNOWN;
@@ -171,7 +207,7 @@ void fill_out_devices(obs_property_t *list) {
 	std::vector<RtAudio::DeviceInfo> asioDeviceInfo;
 	int numOfDevices = adc.getDeviceCount();
 	char** names = new char*[numOfDevices];
-	blog(LOG_INFO,"ASIO Devices: %i\n", numOfDevices);
+	blog(LOG_INFO, "ASIO Devices: %i\n", numOfDevices);
 	// Scan through devices for various capabilities
 	for (int i = 0; i<numOfDevices; i++) {
 		info = adc.getDeviceInfo(i);
@@ -191,7 +227,8 @@ void fill_out_devices(obs_property_t *list) {
 		if (asioDeviceInfo[i].probed) {
 			blog(LOG_INFO, "device %i  = %s added successfully.\n", i, names[i]);
 			obs_property_list_add_string(list, names[i], names[i]);
-		} else {
+		}
+		else {
 			blog(LOG_INFO, "device %i  = %s could not be added: driver issue.\n", i, names[i]);
 		}
 
@@ -199,9 +236,9 @@ void fill_out_devices(obs_property_t *list) {
 }
 
 /* Creates list of input channels ; modified so that value -1 means inactive channel.
- * This differs from a muted channel in that a muted channel would be passed to obs;
- * Here an inactive channel is not passed at all.
- */
+* This differs from a muted channel in that a muted channel would be passed to obs;
+* Here an inactive channel is not passed at all.
+*/
 static bool fill_out_channels_modified(obs_properties_t *props, obs_property_t *list, obs_data_t *settings) {
 	const char* device = obs_data_get_string(settings, "device_id");
 	RtAudio::DeviceInfo info;
@@ -309,7 +346,7 @@ static bool asio_device_changed(obs_properties_t *props,
 	}
 
 	const char *defaultDeviceId = obs_data_get_default_string(settings, "device_id");
-	if (curDeviceId == NULL || defaultDeviceId == NULL || (strcmp(defaultDeviceId,"") !=0 && strcmp(curDeviceId, defaultDeviceId) != 0)) {
+	if (curDeviceId == NULL || defaultDeviceId == NULL || (strcmp(defaultDeviceId, "") != 0 && strcmp(curDeviceId, defaultDeviceId) != 0)) {
 		RtAudio::DeviceInfo info = get_device_info(curDeviceId);
 		audio_format native_bit_depth = rtasio_to_obs_audio_format(info.nativeFormats);
 		obs_data_set_int(settings, "bit depth", native_bit_depth);
@@ -322,16 +359,41 @@ static bool asio_device_changed(obs_properties_t *props,
 	return true;
 }
 
+int mix(uint8_t *inputBuffer, obs_source_audio *out, size_t bytes_per_ch, int route[], unsigned int recorded_device_chs = UINT_MAX) {
+	short j = 0;
+	for (size_t i = 0; i < MAX_AUDIO_CHANNELS; i++) {
+		if (route[i] != -1 && route[i] < recorded_device_chs) {
+			out->data[j++] = inputBuffer + route[i] * bytes_per_ch;
+		}
+	}
+	return true;
+}
+
 int create_asio_buffer(void *outputBuffer, void *inputBuffer, unsigned int nBufferFrames,
 	double streamTime, RtAudioStreamStatus status, void *userData) {
 	unsigned int i;
 	asio_data *data = (asio_data *)userData;
-	int *route = data->route;
+
+	int input_channels = data->channels;
+
+	int route[MAX_AUDIO_CHANNELS];
+	short j = 0;
+	for (short i = 0; i < MAX_AUDIO_CHANNELS; i++) {
+		if (data->route[i] >= 0 && data->route[i] < input_channels) {
+			route[j++] = data->route[i];//out.data[j++] = buffer + (data->route[i] * bufSizePerChannelBytes);
+		}
+		if (j < MAX_AUDIO_CHANNELS) {
+			route[j] = -1;
+		}
+	}
+
+	int recorded_channels = j;
+
 	// retrieve device info (for debug)
 	RtAudio::DeviceInfo info = get_device_info(data->device);
 	data->info = info;
+	//uint8_t *buffer;
 	uint8_t *inputBuf = (uint8_t *)inputBuffer;
-	int recorded_channels = data->recorded_channels;
 
 	if (status) {
 		blog(LOG_WARNING, "Stream overflow detected!");
@@ -345,55 +407,68 @@ int create_asio_buffer(void *outputBuffer, void *inputBuffer, unsigned int nBuff
 	}
 
 	/* buffer in Bytes =
-	 * number of frames in buffer x number of channels x bitdepth / 8
-	 * buffer per channel in Bytes = number of frames in buffer x bitdepth / 8                                                
-	 */
-	int BitDepthBytes = BitDepthInBytes(data->BitDepth);
+	* number of frames in buffer x number of channels x bitdepth / 8
+	* buffer per channel in Bytes = number of frames in buffer x bitdepth / 8
+	*/
+	int BitDepthBytes = bytedepth_format(data->BitDepth);
 	size_t bufSizePerChannelBytes = nBufferFrames * BitDepthBytes;
 	size_t bufSizeBytes = bufSizePerChannelBytes * recorded_channels;
-	size_t targetSizeBytes = bufSizePerChannelBytes * data->channels;
-	if (recorded_channels == 7) { 
+	size_t targetSizeBytes = bufSizePerChannelBytes * recorded_channels;
+	if (recorded_channels == 7) {
 		bufSizeBytes = bufSizePerChannelBytes * 8;
 	}
-
-
-	/* RtAudio tries to allocate data->BufferSize but per API actual value may differ. 
-	 * For instance this is the case for Rearoute driver: if we request 256 in OpenStream()
-	 * we get 1024 instead for this callback.
-	 */
-	if (nBufferFrames > data->BufferSize) {
-//		blog(LOG_WARNING, "Buffer is too small! %i > %i", nBufferFrames, data->BufferSize);
+	/*
+	// allocate buffer
+	buffer = (uint8_t *)calloc(bufSizeBytes, sizeof(uint8_t));
+	if (!buffer) {
+	blog(LOG_INFO, "Buffer allocation failed!");
+	return 0;
 	}
-	else if (nBufferFrames < data->BufferSize) {
-//		blog(LOG_WARNING, "Buffer is too big! %i < %i", nBufferFrames, data->BufferSize);
+	uint8_t* silent_frame = (uint8_t *)calloc(bufSizePerChannelBytes, sizeof(uint8_t));
+	if (!silent_frame) {
+	blog(LOG_INFO, "Buffer allocation for silent frame failed!");
+	return 0;
 	}
-	else {
-//		blog(LOG_WARNING, "Buffer is just right: %i", nBufferFrames);
-	}
+	/* RtAudio tries to allocate data->BufferSize but per API actual value may differ.
+	* For instance this is the case for Rearoute driver: if we request 256 in OpenStream()
+	* we get 1024 instead for this callback.
+	*/
 
 	if (status) {
 		blog(LOG_WARNING, "Stream overflow detected!");
 		return 0;
 	}
 
+	/* copy interleaved frames */
+	/* copy planar */
+	//	memcpy(buffer, inputBuf, targetSizeBytes);
 
 	/* planar code */
+	//for (i = 0 /*data->FirstChannel*/; i <= 1 /*data->LastChannel*/; i++) {
+	//	size_t to = i * bufSizePerChannelBytes;
+	//	size_t from = to;
+	//	memcpy(buffer + i * 4, inputBuf + i * 4, 4);
+	//}
+	/*memcpy(buffer, (uint8_t *)inputBuffer, 4);
+	memcpy(buffer + 4 , (uint8_t *)inputBuffer + 4, 4);*/
 
 	struct obs_source_audio out;
-	int j = 0;
-	for (size_t i = 0; i < MAX_AUDIO_CHANNELS; i++) {
-		if (route[i] != -1) {
-			out.data[j++] = inputBuf + route[i] * bufSizePerChannelBytes;
-		}	
+	mix(inputBuf, &out, bufSizePerChannelBytes, route, data->channels);
+	/*
+	for (short i = 0; i < recorded_channels; i++){//recorded_channels; i++) {
+	//do mixing
+	//out.data[i] = buffer + i*bufSizePerChannelBytes;
+	if (route[i] >= 0) // we did bounds checking earlier && route[i] < input_channels)
+	out.data[i] = buffer + (data->route[i] * bufSizePerChannelBytes);
+	else
+	out.data[i] = silent_frame;
 	}
-
+	*/
 	out.format = data->BitDepth;
 	out.speakers = asio_channels_to_obs_speakers(recorded_channels);
-	//to do, add a mute channel for ch = 7 
-	//if (recorded_channels == 7) {
-	//	out.speakers = SPEAKERS_7POINT1;
-	//	out.data[7] = 
-	//}
+	if (recorded_channels == 7) {
+		out.speakers = SPEAKERS_7POINT1;
+	}
 	out.samples_per_sec = data->SampleRate;
 	out.frames = nBufferFrames;// beware, may differ from data->BufferSize;
 	out.timestamp = os_gettime_ns() - ((nBufferFrames * NSEC_PER_SEC) / data->SampleRate);
@@ -419,12 +494,12 @@ void asio_init(struct asio_data *data)
 
 	unsigned int deviceNumber = adc.getDeviceCount();
 	if (deviceNumber < 1) {
-		blog(LOG_INFO,"\nNo audio devices found!\n");
+		blog(LOG_INFO, "\nNo audio devices found!\n");
 	}
 	RtAudio::StreamParameters parameters;
 	parameters.deviceId = data->device_index;
 	parameters.nChannels = data->channels;
-	parameters.firstChannel = 0; 
+	parameters.firstChannel = 0;
 	unsigned int sampleRate = data->SampleRate;
 	unsigned int bufferFrames = data->BufferSize;
 	RtAudioFormat audioFormat = obs_to_rtasio_audio_format(data->BitDepth);
@@ -434,10 +509,10 @@ void asio_init(struct asio_data *data)
 	RtAudio::StreamOptions options;
 	options.flags = RTAUDIO_NONINTERLEAVED;
 
-	if (! adc.isStreamOpen() && data->recorded_channels != 0) {
+	if (!adc.isStreamOpen() && data->recorded_channels != 0) {
 		try {
-			adc.openStream(NULL, &parameters, audioFormat, sampleRate, 
-					&bufferFrames, &create_asio_buffer, data, &options);
+			adc.openStream(NULL, &parameters, audioFormat, sampleRate,
+				&bufferFrames, &create_asio_buffer, data, &options);
 		}
 		catch (RtAudioError& e) {
 			e.printMessage();
@@ -447,7 +522,7 @@ void asio_init(struct asio_data *data)
 			goto cleanup;
 		}
 	}
-	if (! adc.isStreamRunning()) {
+	if (!adc.isStreamRunning()) {
 		try {
 			adc.startStream();
 		}
@@ -478,7 +553,7 @@ cleanup:
 static void * asio_create(obs_data_t *settings, obs_source_t *source)
 {
 	struct asio_data *data = new asio_data;
-	
+
 	data->source = source;
 	data->first_ts = 0;
 	data->device = NULL;
@@ -516,7 +591,7 @@ void asio_destroy(void *vptr)
 /* set all settings to asio_data struct */
 void asio_update(void *vptr, obs_data_t *settings)
 {
-	struct asio_data *data =(asio_data *)vptr;
+	struct asio_data *data = (asio_data *)vptr;
 	const char *device;
 	unsigned int rate;
 	speaker_layout ChannelFormat;
@@ -527,7 +602,7 @@ void asio_update(void *vptr, obs_data_t *settings)
 	uint8_t LastChannel;
 	RtAudio::DeviceInfo info;
 	bool reset = false;
-	int route[8];
+	int route[MAX_AUDIO_CHANNELS];
 	unsigned int recorded_channels = 0;
 
 	// get device from settings
@@ -546,18 +621,18 @@ void asio_update(void *vptr, obs_data_t *settings)
 			}
 		}
 	}
-	catch(...) {
+	catch (...) {
 		blog(LOG_INFO, "Initializing asio device");
 	}
-	
+
 	info = get_device_info(device);
-	
-	for (unsigned int i = 0; i < 8; i++) {
+
+	for (unsigned int i = 0; i < MAX_AUDIO_CHANNELS; i++) {
 		std::string route_str = "route " + std::to_string(i);
-		route[i] = obs_data_get_int(settings, route_str.c_str());
+		route[i] = (int)obs_data_get_int(settings, route_str.c_str());
 		if (data->route[i] != route[i]) {
 			data->route[i] = route[i];
-			reset = true;		
+			reset = true;
 		}
 		if (route[i] != -1)
 			recorded_channels += 1;
@@ -570,9 +645,9 @@ void asio_update(void *vptr, obs_data_t *settings)
 		reset = true;
 	}
 
-	BitDepth = (audio_format)obs_data_get_int(settings,"bit depth");
+	BitDepth = (audio_format)obs_data_get_int(settings, "bit depth");
 	if (data->BitDepth != BitDepth) {
-		data->BitDepth = BitDepth;
+		data->BitDepth = get_planar_format(BitDepth);
 		reset = true;
 	}
 
@@ -673,7 +748,7 @@ obs_properties_t * asio_get_properties(void *unused)
 
 	bit_depth = obs_properties_add_list(props, "bit depth",
 			TEXT_BITDEPTH, OBS_COMBO_TYPE_LIST, OBS_COMBO_FORMAT_INT);
-	
+
 	buffer_size = obs_properties_add_list(props, "buffer", TEXT_BUFFER_SIZE,
 			OBS_COMBO_TYPE_LIST, OBS_COMBO_FORMAT_INT);
 	obs_property_list_add_int(buffer_size, "64", 64);
