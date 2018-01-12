@@ -1,5 +1,5 @@
 /*
-Copyright (C) 2017 by pkv <pkv.stream@gmail.com>, andersama <???>
+Copyright (C) 2017 by pkv <pkv.stream@gmail.com>, andersama <anderson.john.alexander@gmail.com>
 
 Based on Pulse Input plugin by Leonhard Oelke.
 
