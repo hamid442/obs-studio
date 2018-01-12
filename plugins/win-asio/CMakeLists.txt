@@ -1,5 +1,12 @@
 project(win-asio)
 
+set(CMAKE_PREFIX_PATH "${QTDIR}")
+
+#include("${CMAKE_SOURCE_DIR}/external/FindLibObs.cmake")
+find_package(LibObs REQUIRED)
+find_package(Qt5Core REQUIRED)
+find_package(Qt5Widgets REQUIRED)
+
 if(DISABLE_ASIO)
 	message(STATUS "Asio support disabled")
 	return()
@@ -15,6 +22,9 @@ endif()
 
 include_directories(
 	SYSTEM "${CMAKE_SOURCE_DIR}/libobs"
+	"${CMAKE_SOURCE_DIR}/UI/obs-frontend-api"
+	${Qt5Core}
+	${Qt5Widgets}
 	${RTAUDIO_INCLUDE_DIR}
 )
 set(win-asio-sdk_HEADERS
@@ -35,6 +45,10 @@ add_library(win-asio MODULE
 )
 target_link_libraries(win-asio
 	libobs
+	w32-pthreads
+	obs-frontend-api
+	Qt5::Core
+	Qt5::Widgets
 	${RTAUDIO_LIBRARY}
 )
 
