@@ -26,7 +26,6 @@ along with this program.  If not, see <http://www.gnu.org/licenses/>.
 #include <stdio.h>
 #include <string>
 #include <windows.h>
-
 #include "RtAudio.h"
 
 

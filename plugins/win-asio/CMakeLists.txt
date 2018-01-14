@@ -20,6 +20,14 @@ elseif(NOT RTAUDIO_ASIO_FOUND)
 	return()
 endif()
 
+# Find includes in corresponding build directories
+set(CMAKE_INCLUDE_CURRENT_DIR ON)
+# Instruct CMake to run moc automatically when needed.
+set(CMAKE_AUTOMOC ON)
+
+# Find the QtWidgets library
+find_package(Qt5Widgets)
+
 include_directories(
 	SYSTEM "${CMAKE_SOURCE_DIR}/libobs"
 	"${CMAKE_SOURCE_DIR}/UI/obs-frontend-api"
@@ -50,6 +58,7 @@ target_link_libraries(win-asio
 	Qt5::Core
 	Qt5::Widgets
 	${RTAUDIO_LIBRARY}
+	Qt5::Widgets
 )
 
 install_obs_plugin_with_data(win-asio data)
