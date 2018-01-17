@@ -95,21 +95,6 @@ enum audio_format asio_to_obs_audio_format(DWORD format)
 	return AUDIO_FORMAT_UNKNOWN;
 }
 
-enum audio_format get_planar_format(audio_format format)
-{
-	if (is_audio_planar(format))
-		return format;
-
-	switch (format) {
-	case AUDIO_FORMAT_U8BIT: return AUDIO_FORMAT_U8BIT_PLANAR;
-	case AUDIO_FORMAT_16BIT: return AUDIO_FORMAT_16BIT_PLANAR;
-	case AUDIO_FORMAT_32BIT: return AUDIO_FORMAT_32BIT_PLANAR;
-	case AUDIO_FORMAT_FLOAT: return AUDIO_FORMAT_FLOAT_PLANAR;
-		//should NEVER get here
-	default: return AUDIO_FORMAT_UNKNOWN;
-	}
-}
-
 int bytedepth_format(audio_format format)
 {
 	return (int)get_audio_bytes_per_channel(format);
@@ -166,30 +151,28 @@ DWORD get_obs_output_channels() {
 uint8_t getDeviceCount() {
 	uint8_t a, count = 0;
 	BASS_ASIO_DEVICEINFO info;
-	for (a = 0; BASS_ASIO_GetDeviceInfo(a, &info); a++)
+	for (a = 0; BASS_ASIO_GetDeviceInfo(a, &info); a++) {
+		blog(LOG_INFO, "device index is : %i and name is : %s", a, info.name);
 		count++;
-	return count;
-}
-
-//get list of devices (retrieves a list of driver names)
-const char **get_list_devices() {
-	const char **names;
-	BASS_ASIO_SetUnicode(true);
-	BASS_ASIO_DEVICEINFO *info;
-	for (int i = 0; BASS_ASIO_GetDeviceInfo(i, info); i++) {
-		names[i] = info->name;
-		blog(LOG_INFO, "device  %i = %s\n", i, info->name);
 	}
-	return names;
+
+	return count;
 }
 
 // get the device index from a device name : the current index can be retrieved from DWORD BASS_ASIO_GetDevice();
 DWORD get_device_index(const char *device) {
 	DWORD device_index = 0;
-	BASS_ASIO_SetUnicode(true);
-	BASS_ASIO_DEVICEINFO *info;
-	for (int i = 0; BASS_ASIO_GetDeviceInfo(i, info); i++) {
-		if (strcmp(device, info->name)) {
+	int i, res;
+	BASS_ASIO_SetUnicode(false);
+	BASS_ASIO_DEVICEINFO info;
+	bool ret;
+	int numOfDevices = getDeviceCount();
+	for (i = 0; i < numOfDevices; i++) {
+		ret = BASS_ASIO_GetDeviceInfo(i, &info);
+		if (!ret)
+			blog(LOG_ERROR, "Invalide device index");
+		res = strcmp(info.name, device);
+		if (res == 0) {
 			device_index = i;
 			break;
 		}
@@ -198,28 +181,31 @@ DWORD get_device_index(const char *device) {
 }
 
 /*****************************************************************************/
-//void asio_deinit(struct asio_data *data);
+
 void asio_update(void *vptr, obs_data_t *settings);
 void asio_destroy(void *vptr);
 
 //creates the device list
 void fill_out_devices(obs_property_t *list) {
-	BASS_ASIO_SetUnicode(true);
-	BASS_ASIO_DEVICEINFO *info;
-	int numOfDevices = getDeviceCount();
-	const char** names = get_list_devices();
-	blog(LOG_INFO, "ASIO Devices number is : %i\n", numOfDevices);
-
+	int numOfDevices = (int)getDeviceCount();
+	char** names = new char*[numOfDevices];
+	blog(LOG_INFO, "ASIO Devices: %i\n", numOfDevices);
+	BASS_ASIO_SetUnicode(false);
+	BASS_ASIO_DEVICEINFO info;
 	for (int i = 0; i < numOfDevices; i++) {
+		BASS_ASIO_GetDeviceInfo(i, &info);
+		blog(LOG_INFO, "device  %i = %ls\n", i, info.name);
+		std::string test = info.name;
+		char* cstr = new char[test.length() + 1];
+		strcpy(cstr, test.c_str());
+		names[i] = cstr;
 		blog(LOG_INFO, "Number of ASIO Devices: %i\n", numOfDevices);
 		blog(LOG_INFO, "device %i  = %s added successfully.\n", i, names[i]);
 		obs_property_list_add_string(list, names[i], names[i]);
 	}
 }
 
-/* Creates list of input channels ; modified so that value -2 means inactive channel.
-* This differs from a muted channel in that a muted channel would be passed to obs;
-* Here an inactive channel is not passed at all. A muted channel has value -1 and
+/* Creates list of input channels ; a muted channel has route value -1 and
 * is recorded. The user can unmute the channel later.
 */
 static bool fill_out_channels_modified(obs_properties_t *props, obs_property_t *list, obs_data_t *settings) {
@@ -310,8 +296,8 @@ static bool fill_out_bit_depths(obs_properties_t *props, obs_property_t *list, o
 	}
 
 	//get the device channel info
-	BASS_ASIO_CHANNELINFO *channelInfo;
-	ret = BASS_ASIO_ChannelGetInfo(true, 0, channelInfo);
+	BASS_ASIO_CHANNELINFO channelInfo;
+	ret = BASS_ASIO_ChannelGetInfo(true, 0, &channelInfo);
 	if (!ret) {
 		blog(LOG_ERROR, "Unable to retrieve channel info on the current driver \n"
 			"error number is : %i \n; check BASS_ASIO_ErrorGetCode\n",
@@ -319,17 +305,17 @@ static bool fill_out_bit_depths(obs_properties_t *props, obs_property_t *list, o
 	}
 	
 	obs_property_list_clear(list);
-	if (channelInfo->format == BASS_ASIO_FORMAT_16BIT) {
+	if (channelInfo.format == BASS_ASIO_FORMAT_16BIT) {
 		obs_property_list_add_int(list, "16 bit (native)", AUDIO_FORMAT_16BIT);
 		obs_property_list_add_int(list, "32 bit", AUDIO_FORMAT_32BIT);
 		obs_property_list_add_int(list, "32 bit float", AUDIO_FORMAT_FLOAT);
 	}
-	else if (channelInfo->format == BASS_ASIO_FORMAT_32BIT) {
+	else if (channelInfo.format == BASS_ASIO_FORMAT_32BIT) {
 		obs_property_list_add_int(list, "16 bit", AUDIO_FORMAT_16BIT);
 		obs_property_list_add_int(list, "32 bit (native)", AUDIO_FORMAT_32BIT);
 		obs_property_list_add_int(list, "32 bit float", AUDIO_FORMAT_FLOAT);
 	}
-	else if (channelInfo->format == BASS_ASIO_FORMAT_FLOAT) {
+	else if (channelInfo.format == BASS_ASIO_FORMAT_FLOAT) {
 		obs_property_list_add_int(list, "16 bit", AUDIO_FORMAT_16BIT);
 		obs_property_list_add_int(list, "32 bit", AUDIO_FORMAT_32BIT);
 		obs_property_list_add_int(list, "32 bit float (native)", AUDIO_FORMAT_FLOAT);
@@ -389,13 +375,15 @@ static bool asio_device_changed(obs_properties_t *props,
 	int pad_digits = (int)floor(log10(abs(MAX_AUDIO_CHANNELS))) + 1;
 	const char* route_name_format = "route %i";
 	char* route_name = new char[strlen(route_name_format) + pad_digits];
-	for (unsigned int i = 0; i < recorded_channels; i++) {
-		std::string name = "route " + std::to_string(i);
-		route[i] = obs_properties_get(props, name.c_str());
-		obs_property_list_clear(route[i]);
-		sprintf(route_name, route_name_format, i);
-		obs_data_set_default_int(settings, route_name, -1); // default is muted channels
-		obs_property_set_modified_callback(route[i], fill_out_channels_modified);
+	if (itemFound) {
+		for (unsigned int i = 0; i < recorded_channels; i++) {
+			std::string name = "route " + std::to_string(i);
+			route[i] = obs_properties_get(props, name.c_str());
+			obs_property_list_clear(route[i]);
+			sprintf(route_name, route_name_format, i);
+			obs_data_set_default_int(settings, route_name, -1); // default is muted channels
+			obs_property_set_modified_callback(route[i], fill_out_channels_modified);
+		}
 	}
 	obs_property_list_clear(sample_rate);
 	obs_property_list_clear(bit_depth);
@@ -422,9 +410,9 @@ int mix(uint8_t *inputBuffer, obs_source_audio *out, size_t bytes_per_ch, int ro
 	return true;
 }
 
-DWORD CALLBACK create_asio_buffer(BOOL input, DWORD channel, void *buffer, DWORD length, void *asiodata) {
-	asio_data *data = (asio_data *)userData;
-
+DWORD CALLBACK create_asio_buffer(BOOL input, DWORD channel, void *buffer, DWORD nBufferFrames, void *asiodata) {
+	asio_data *data = (asio_data *)asiodata;
+	bool ret;
 	int route[MAX_AUDIO_CHANNELS];
 	int recorded_channels = data->recorded_channels;
 	for (short i = 0; i < MAX_AUDIO_CHANNELS; i++) {
@@ -437,15 +425,11 @@ DWORD CALLBACK create_asio_buffer(BOOL input, DWORD channel, void *buffer, DWORD
 	}
 
 	// retrieve device info (for debug)
-	RtAudio::DeviceInfo info = get_device_info(data->device);
-	data->info = info;
+	BASS_ASIO_INFO info; 
+	ret = BASS_ASIO_GetInfo(&info);
+	data->info = &info;
 	//uint8_t *buffer;
-	uint8_t *inputBuf = (uint8_t *)inputBuffer;
-
-	if (status) {
-		blog(LOG_WARNING, "Stream overflow detected!");
-		return 0;
-	}
+	uint8_t *inputBuf = (uint8_t *)buffer;
 
 	// won't ever reach that part of code unless we 've made some severe coding error
 	if (recorded_channels > MAX_AUDIO_CHANNELS) {
@@ -453,7 +437,12 @@ DWORD CALLBACK create_asio_buffer(BOOL input, DWORD channel, void *buffer, DWORD
 				MAX_AUDIO_CHANNELS);
 		return 2;
 	}
-
+	/* check that the buffer length is correct
+	 * nBufferFrames is the size in Bytes of the buffer
+	 * it should be: #channels * bitdepth/8 * nb of samples
+	 * or it might be per channel ...
+	 */
+	blog(LOG_INFO, "the buffer length is %i", nBufferFrames);
 	/* buffer in Bytes =
 	* number of frames in buffer x number of channels x bitdepth / 8
 	* buffer per channel in Bytes = number of frames in buffer x bitdepth / 8
@@ -461,23 +450,20 @@ DWORD CALLBACK create_asio_buffer(BOOL input, DWORD channel, void *buffer, DWORD
 	int BitDepthBytes = bytedepth_format(data->BitDepth);
 	size_t bufSizePerChannelBytes = nBufferFrames * BitDepthBytes;
 	size_t bufSizeBytes = bufSizePerChannelBytes * recorded_channels;
-	if (recorded_channels == 7) {
-		bufSizeBytes = bufSizePerChannelBytes * 8;
-	}
 
-	if (status) {
-		blog(LOG_WARNING, "Stream overflow detected!");
-		return 0;
-	}
+	// number of recorded channels is set by obs so its value is between 1 to 8 excluding 7
+	// so no need to make a special case for 7 channels
+	//if (recorded_channels == 7) {
+	//	bufSizeBytes = bufSizePerChannelBytes * 8;
+	//}
 
 	struct obs_source_audio out;
-	mix(inputBuf, &out, bufSizePerChannelBytes, route, data->channels);
+	// interleaved frames
+
+	//mix(inputBuf, &out, bufSizePerChannelBytes, route, data->channels);
 
 	out.format = data->BitDepth;
 	out.speakers = asio_channels_to_obs_speakers(recorded_channels);
-	if (recorded_channels == 7) {
-		out.speakers = SPEAKERS_7POINT1;
-	}
 	out.samples_per_sec = data->SampleRate;
 	out.frames = nBufferFrames;// beware, may differ from data->BufferSize;
 	out.timestamp = os_gettime_ns() - ((nBufferFrames * NSEC_PER_SEC) / data->SampleRate);
@@ -487,7 +473,7 @@ DWORD CALLBACK create_asio_buffer(BOOL input, DWORD channel, void *buffer, DWORD
 	}
 
 	if (out.timestamp > data->first_ts && recorded_channels != 0) {
-		obs_source_output_audio(data->source, &out);
+//		obs_source_output_audio(data->source, &out);
 	}
 
 	return 0;
@@ -513,91 +499,48 @@ void asio_init(struct asio_data *data)
 	// get channel number from output speaker layout set by obs
 	DWORD recorded_channels = get_obs_output_channels();
 
-	// initialize channels
-	// first find the first non muted channel
-	for (unsigned int i = 0; i < recorded_channels; i++) {}
+	// initialize channels: enable first channel, join all the others
+	// we initialize ALL the device input channels
+	// First : enable channel 0
 
-	for (unsigned int i = 0; i < recorded_channels; i++) {
-		// convert all samples to float irrespective of what the user sets in the settings ==> disable this setting later
-		ret = BASS_ASIO_ChannelSetFormat(true, data->route[i], BASS_ASIO_FORMAT_FLOAT);
-		if (!ret)
-		{
-			blog(LOG_ERROR, "Could not set channel bitdepth; error code : %i", BASS_ASIO_ErrorGetCode());
-		}
-		//ret = BASS_ASIO_ChannelSetRate(true, data->route[i], data->SampleRate);
-		//if (!ret)
-		//{
-		//	blog(LOG_ERROR, "Could not set sample rate; error code : %i", BASS_ASIO_ErrorGetCode());
-		//}
-		ret = BASS_ASIO_ChannelEnable(true, data->route[i], &create_asio_buffer, data);		
-		if (!ret)
-		{
-			blog(LOG_ERROR, "Could not enable channel; error code : %i", BASS_ASIO_ErrorGetCode());
-		}
+	// convert all samples to float irrespective of what the user sets in the settings ==> disable this setting later
+	ret = BASS_ASIO_ChannelSetFormat(true, 0, BASS_ASIO_FORMAT_FLOAT);
+	if (!ret)
+	{
+		blog(LOG_ERROR, "Could not set channel bitdepth; error code : %i", BASS_ASIO_ErrorGetCode());
 	}
+	// enable channel 0 and link to callback
+	ret = BASS_ASIO_ChannelEnable(true, 0, &create_asio_buffer, data);
+	if (!ret)
+	{
+		blog(LOG_ERROR, "Could not enable channel; error code : %i", BASS_ASIO_ErrorGetCode());
+	}
+
+	// join the other channels
+	for (DWORD i = 1; i < data->channels; i++) {
+		BASS_ASIO_ChannelJoin(true, i, 0);
+	}
+	// check buffer size is legit; if not set it to bufpref
+	// to be implemented : to avoid issues, force to bufpref
+	// this ignores any setting; bufpref is most likely set in asio control panel
+	data->BufferSize = info.bufpref;
 
 	//start asio device
-	ret = BASS_ASIO_Start(data->BufferSize, recorded_channels);
+	if (!BASS_ASIO_IsStarted())
+		BASS_ASIO_Start(data->BufferSize, recorded_channels);
 	switch (BASS_ASIO_ErrorGetCode()) {
 	case BASS_ERROR_INIT:
+		blog(LOG_ERROR, "Error: Bass asio not initialized.\n");
 	case BASS_ERROR_ALREADY:
+		blog(LOG_ERROR, "Error: device already started\n");
+		BASS_ASIO_Stop(); 
+		BASS_ASIO_Start(data->BufferSize, recorded_channels);
 	case BASS_ERROR_NOCHAN:
-		blog(LOG_ERROR, "Unknown error when trying to start the device\n");
+		blog(LOG_ERROR, "Error: channels have not been enabled so can not start\n");
 	case BASS_ERROR_UNKNOWN:
 	default:
-			blog(LOG_ERROR, "Unknown error when trying to start the device\n");
-		}
+			blog(LOG_ERROR, "ASIO init: Unknown error when trying to start the device\n");
 	}
-	RtAudio::StreamParameters parameters;
-	parameters.deviceId = data->device_index;
-	parameters.nChannels = data->channels;
-	parameters.firstChannel = 0;
-	unsigned int sampleRate = data->SampleRate;
-	unsigned int bufferFrames = data->BufferSize;
-	RtAudioFormat audioFormat = obs_to_rtasio_audio_format(data->BitDepth);
-	//force planar formats
-	RtAudio::StreamOptions options;
-	options.flags = RTAUDIO_NONINTERLEAVED;
-
-	if (!adc.isStreamOpen() && data->recorded_channels != 0) {
-		try {
-			adc.openStream(NULL, &parameters, audioFormat, sampleRate,
-				&bufferFrames, &create_asio_buffer, data, &options);
-		}
-		catch (RtAudioError& e) {
-			e.printMessage();
-			blog(LOG_INFO, "error caught in openStream\n");
-			blog(LOG_INFO, "error type number is %i\n", e.getType());
-			blog(LOG_INFO, "error: %s\n", e.getMessage().c_str());
-			goto cleanup;
-		}
-	}
-	if (!adc.isStreamRunning()) {
-		try {
-			adc.startStream();
-		}
-		catch (RtAudioError& e) {
-			e.printMessage();
-			blog(LOG_INFO, "error caught in startStream\n");
-			blog(LOG_INFO, "error type number is %i\n", e.getType());
-			blog(LOG_INFO, "error: %s\n", e.getMessage().c_str());
-			goto cleanup;
-		}
-	}
-	return;
-
-cleanup:
-	try {
-		adc.stopStream();
-	}
-	catch (RtAudioError& e) {
-		e.printMessage();
-		blog(LOG_ERROR, "error caught in stopStream");
-		blog(LOG_INFO, "error type number is %i\n", e.getType());
-		blog(LOG_INFO, "error: %s\n", e.getMessage().c_str());
-	}
-	if (adc.isStreamOpen())
-		adc.closeStream();
 }
 
 static void * asio_create(obs_data_t *settings, obs_source_t *source)
@@ -611,9 +554,9 @@ static void * asio_create(obs_data_t *settings, obs_source_t *source)
 
 	asio_update(data, settings);
 
-	if (obs_data_get_string(settings, "device_id")) {
-		asio_init(data);
-	}
+	//if (obs_data_get_string(settings, "device_id")) {
+	//	asio_init(data);
+	//}
 
 	return data;
 }
@@ -622,24 +565,15 @@ void asio_destroy(void *vptr)
 {
 	struct asio_data *data = (asio_data *)vptr;
 
-	try {
-		adc.stopStream();
-	}
-	catch (RtAudioError& e) {
-		e.printMessage();
-		blog(LOG_INFO, "error caught in asio_destroy()\n");
-		blog(LOG_INFO, "error type number is %i\n", e.getType());
-		blog(LOG_INFO, "error: %s\n", e.getMessage().c_str());
-	}
+	if (BASS_ASIO_IsStarted())
+		BASS_ASIO_Stop();
 
-	if (adc.isStreamOpen()) {
-		adc.closeStream();
-	}
+	BASS_ASIO_Free();
 
 	delete data;
 }
 
-/* set all settings to asio_data struct */
+/* set all settings to asio_data struct and pass to driver */
 void asio_update(void *vptr, obs_data_t *settings)
 {
 	struct asio_data *data = (asio_data *)vptr;
@@ -671,13 +605,19 @@ void asio_update(void *vptr, obs_data_t *settings)
 			reset = true;
 		}
 	}
+
 	DWORD device_index = get_device_index(device);
+
 	bool ret = BASS_ASIO_Free(); 
 	if (!ret) {
 		blog(LOG_ERROR, "Driver was already freed \n"
 			"no need to free it\n");
 	}
-	ret = BASS_ASIO_Init(device_index, BASS_ASIO_JOINORDER);
+	else {
+		blog(LOG_INFO, "Uninitialize asio\n");
+	}
+
+	ret = BASS_ASIO_Init(device_index, 0);
 	if (!ret) {
 		blog(LOG_ERROR, "Unable to initialize the current driver \n"
 			"error number is : %i \n;"
@@ -686,6 +626,9 @@ void asio_update(void *vptr, obs_data_t *settings)
 			"code 23: invalid device index\n",
 			BASS_ASIO_ErrorGetCode());
 		initialized = false;
+	}
+	else {
+		blog(LOG_INFO, "Device %i was successfully initialized\n", device_index);
 	}
 
 	ret = BASS_ASIO_GetInfo(&info);
@@ -697,7 +640,6 @@ void asio_update(void *vptr, obs_data_t *settings)
 
 	// DEBUG: check that the current device in bass thread is the correct one
 	// once code is fine the check can be removed
-	const char* device = obs_data_get_string(settings, "device_id");
 	if (!strcmp(device, info.name)) {
 		blog(LOG_ERROR, "Device loaded is not the one in settings\n");
 	}
@@ -727,7 +669,7 @@ void asio_update(void *vptr, obs_data_t *settings)
 
 	BitDepth = (audio_format)obs_data_get_int(settings, "bit depth");
 	if (data->BitDepth != BitDepth) {
-		data->BitDepth = get_planar_format(BitDepth);
+		data->BitDepth = BitDepth;
 		reset = true;
 	}
 
