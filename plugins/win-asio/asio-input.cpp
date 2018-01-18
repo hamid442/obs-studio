@@ -718,7 +718,7 @@ const char * asio_get_name(void *unused)
 void asio_get_defaults(obs_data_t *settings)
 {
 	obs_data_set_default_int(settings, "sample rate", 48000);
-	obs_data_set_default_int(settings, "bit depth", AUDIO_FORMAT_FLOAT_PLANAR);
+	obs_data_set_default_int(settings, "bit depth", AUDIO_FORMAT_FLOAT);
 }
 
 obs_properties_t * asio_get_properties(void *unused)
