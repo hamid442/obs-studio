@@ -360,7 +360,7 @@ static bool asio_device_changed(obs_properties_t *props,
 		if (!ret) {
 			blog(LOG_ERROR, "Unable to set device %i\n", device_index);
 			if (BASS_ASIO_ErrorGetCode() == BASS_ERROR_INIT) {
-				BASS_ASIO_Init(device_index, BASS_ASIO_JOINORDER);
+				BASS_ASIO_Init(device_index, BASS_ASIO_THREAD);
 				BASS_ASIO_SetDevice(device_index);
 			}
 			else if (BASS_ASIO_ErrorGetCode() == BASS_ERROR_DEVICE) {
@@ -410,7 +410,7 @@ int mix(uint8_t *inputBuffer, obs_source_audio *out, size_t bytes_per_ch, int ro
 	return true;
 }
 
-DWORD CALLBACK create_asio_buffer(BOOL input, DWORD channel, void *buffer, DWORD nBufferFrames, void *asiodata) {
+DWORD CALLBACK create_asio_buffer(BOOL input, DWORD channel, void *buffer, DWORD BufSize, void *asiodata) {
 	asio_data *data = (asio_data *)asiodata;
 	bool ret;
 	int route[MAX_AUDIO_CHANNELS];
@@ -430,7 +430,8 @@ DWORD CALLBACK create_asio_buffer(BOOL input, DWORD channel, void *buffer, DWORD
 	data->info = &info;
 	//uint8_t *buffer;
 	uint8_t *inputBuf = (uint8_t *)buffer;
-
+	uint8_t *outputBuf;
+	
 	// won't ever reach that part of code unless we 've made some severe coding error
 	if (recorded_channels > MAX_AUDIO_CHANNELS) {
 		blog(LOG_ERROR, "OBS does not support more than %i channels",
@@ -439,41 +440,52 @@ DWORD CALLBACK create_asio_buffer(BOOL input, DWORD channel, void *buffer, DWORD
 	}
 	/* check that the buffer length is correct
 	 * nBufferFrames is the size in Bytes of the buffer
-	 * it should be: #channels * bitdepth/8 * nb of samples
-	 * or it might be per channel ...
+	 * it is: #channels * bitdepth/8 * nb of samples
 	 */
-	blog(LOG_INFO, "the buffer length is %i", nBufferFrames);
+	blog(LOG_INFO, "the buffer length in Bytes is %i", BufSize);
 	/* buffer in Bytes =
 	* number of frames in buffer x number of channels x bitdepth / 8
 	* buffer per channel in Bytes = number of frames in buffer x bitdepth / 8
 	*/
 	int BitDepthBytes = bytedepth_format(data->BitDepth);
-	size_t bufSizePerChannelBytes = nBufferFrames * BitDepthBytes;
-	size_t bufSizeBytes = bufSizePerChannelBytes * recorded_channels;
+	size_t inputbufSizeBytes = BufSize;
+	size_t bufSizePerChannelBytes = inputbufSizeBytes / data->channels;
+	size_t nbFrames = bufSizePerChannelBytes / BitDepthBytes;
+	size_t outputbufSizeBytes = bufSizePerChannelBytes * recorded_channels;
+	// for interleaved, the size in bytes of a frame is not the same for input
+	// which has all the devices channels and for the buffer passed to obs:
+	// the latter has a different number of channels = recorded_channels
+	size_t outFrameSize = recorded_channels * BitDepthBytes;
+	size_t inputFrameSize = data->channels * BitDepthBytes;
+	// allocate outputBuf
+	outputBuf = (uint8_t *)calloc(outputbufSizeBytes, 1);
 
-	// number of recorded channels is set by obs so its value is between 1 to 8 excluding 7
-	// so no need to make a special case for 7 channels
-	//if (recorded_channels == 7) {
-	//	bufSizeBytes = bufSizePerChannelBytes * 8;
-	//}
-
-	struct obs_source_audio out;
 	// interleaved frames
+	for (short i = 0; i < nbFrames; i++) {
+		for (short j = 0; j < recorded_channels; j++) {
+			if (route[j] != -1) {
+				memcpy(outputBuf + i * outFrameSize + j * BitDepthBytes, inputBuf + i * inputFrameSize + route[j] * BitDepthBytes, BitDepthBytes);
+			}
+			// no need to silent the mute channels since they're already calloc'ed to zero == silence
+		}
+	}
 
 	//mix(inputBuf, &out, bufSizePerChannelBytes, route, data->channels);
 
+	struct obs_source_audio out;
+	out.data[0] = outputBuf;
 	out.format = data->BitDepth;
 	out.speakers = asio_channels_to_obs_speakers(recorded_channels);
 	out.samples_per_sec = data->SampleRate;
-	out.frames = nBufferFrames;// beware, may differ from data->BufferSize;
-	out.timestamp = os_gettime_ns() - ((nBufferFrames * NSEC_PER_SEC) / data->SampleRate);
+	out.frames = nbFrames;
+	out.timestamp = os_gettime_ns() - ((nbFrames * NSEC_PER_SEC) / data->SampleRate);
 
 	if (!data->first_ts) {
 		data->first_ts = out.timestamp;
 	}
 
 	if (out.timestamp > data->first_ts && recorded_channels != 0) {
-//		obs_source_output_audio(data->source, &out);
+		obs_source_output_audio(data->source, &out);
 	}
 
 	return 0;
@@ -524,6 +536,11 @@ void asio_init(struct asio_data *data)
 	// to be implemented : to avoid issues, force to bufpref
 	// this ignores any setting; bufpref is most likely set in asio control panel
 	data->BufferSize = info.bufpref;
+	//check channel setup
+	DWORD checkrate = BASS_ASIO_GetRate();
+	blog(LOG_INFO, "sample rate is set in device to %i.\n", checkrate);
+	DWORD checkbitdepth = BASS_ASIO_ChannelGetFormat(true, 0);
+	blog(LOG_INFO, "bitdepth is set in device to %i.\n", checkbitdepth);
 
 	//start asio device
 	if (!BASS_ASIO_IsStarted())
@@ -617,7 +634,8 @@ void asio_update(void *vptr, obs_data_t *settings)
 		blog(LOG_INFO, "Uninitialize asio\n");
 	}
 
-	ret = BASS_ASIO_Init(device_index, 0);
+	ret = BASS_ASIO_Init(device_index, BASS_ASIO_THREAD);
+
 	if (!ret) {
 		blog(LOG_ERROR, "Unable to initialize the current driver \n"
 			"error number is : %i \n;"
