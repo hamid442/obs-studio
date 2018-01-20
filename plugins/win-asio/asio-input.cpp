@@ -389,7 +389,7 @@ static bool asio_device_changed(obs_properties_t *props,
 	obs_property_list_clear(bit_depth);
 
 	obs_property_set_modified_callback(sample_rate, fill_out_sample_rates);
-	obs_property_set_modified_callback(bit_depth, fill_out_bit_depths);
+//	obs_property_set_modified_callback(bit_depth, fill_out_bit_depths);
 
 	return true;
 }
@@ -769,11 +769,11 @@ obs_properties_t * asio_get_properties(void *unused)
 	std::string rate_descr = "Sample rate : number of samples per channel in one second.\n";
 	obs_property_set_long_description(rate, rate_descr.c_str());
 	
-	bit_depth = obs_properties_add_list(props, "bit depth",
-			TEXT_BITDEPTH, OBS_COMBO_TYPE_LIST, OBS_COMBO_FORMAT_INT);
-	std::string bit_descr = "Bit depth : size of a sample in bits and format.\n"
-			"Float should be preferred.";
-	obs_property_set_long_description(bit_depth, bit_descr.c_str());
+	//bit_depth = obs_properties_add_list(props, "bit depth",
+	//		TEXT_BITDEPTH, OBS_COMBO_TYPE_LIST, OBS_COMBO_FORMAT_INT);
+	//std::string bit_descr = "Bit depth : size of a sample in bits and format.\n"
+	//		"Float should be preferred.";
+	//obs_property_set_long_description(bit_depth, bit_descr.c_str());
 
 	buffer_size = obs_properties_add_list(props, "buffer", TEXT_BUFFER_SIZE,
 			OBS_COMBO_TYPE_LIST, OBS_COMBO_FORMAT_INT);
