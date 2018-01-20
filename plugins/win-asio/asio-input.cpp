@@ -447,7 +447,7 @@ DWORD CALLBACK create_asio_buffer(BOOL input, DWORD channel, void *buffer, DWORD
 	* number of frames in buffer x number of channels x bitdepth / 8
 	* buffer per channel in Bytes = number of frames in buffer x bitdepth / 8
 	*/
-	int BitDepthBytes = bytedepth_format(data->BitDepth);
+	int BitDepthBytes = bytedepth_format(AUDIO_FORMAT_FLOAT);//data->BitDepth);
 	size_t inputbufSizeBytes = BufSize;
 	size_t bufSizePerChannelBytes = inputbufSizeBytes / data->channels;
 	size_t nbFrames = bufSizePerChannelBytes / BitDepthBytes;
@@ -474,7 +474,7 @@ DWORD CALLBACK create_asio_buffer(BOOL input, DWORD channel, void *buffer, DWORD
 
 	struct obs_source_audio out;
 	out.data[0] = outputBuf;
-	out.format = data->BitDepth;
+	out.format = AUDIO_FORMAT_FLOAT;//data->BitDepth;
 	out.speakers = asio_channels_to_obs_speakers(recorded_channels);
 	out.samples_per_sec = data->SampleRate;
 	out.frames = nbFrames;
