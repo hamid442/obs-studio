@@ -66,7 +66,7 @@ struct asio_data {
 	uint8_t device_index;
 	BASS_ASIO_INFO *info;
 
-	audio_format BitDepth = AUDIO_FORMAT_FLOAT;  //32 bit float only
+	audio_format BitDepth;  //32 bit float only
 	double SampleRate;       //44100 or 48000 Hz
 	uint16_t BufferSize;     // number of samples in buffer
 	uint64_t first_ts;       //first timestamp
@@ -470,7 +470,7 @@ DWORD CALLBACK create_asio_buffer(BOOL input, DWORD channel, void *buffer, DWORD
 	* number of frames in buffer x number of channels x bitdepth / 8
 	* buffer per channel in Bytes = number of frames in buffer x bitdepth / 8
 	*/
-	int BitDepthBytes = bytedepth_format(AUDIO_FORMAT_FLOAT);//data->BitDepth);
+	int BitDepthBytes = bytedepth_format(data->BitDepth);//data->BitDepth);
 	size_t inputbufSizeBytes = BufSize;
 	size_t bufSizePerChannelBytes = inputbufSizeBytes / data->channels;
 	size_t nbFrames = bufSizePerChannelBytes / BitDepthBytes;
@@ -497,7 +497,7 @@ DWORD CALLBACK create_asio_buffer(BOOL input, DWORD channel, void *buffer, DWORD
 
 	struct obs_source_audio out;
 	out.data[0] = outputBuf;
-	out.format = AUDIO_FORMAT_FLOAT;//data->BitDepth;
+	out.format = data->BitDepth;
 	out.speakers = asio_channels_to_obs_speakers(recorded_channels);
 	out.samples_per_sec = data->SampleRate;
 	out.frames = nbFrames;
@@ -720,6 +720,11 @@ void asio_update(void *vptr, obs_data_t *settings)
 			data->BufferSize = BufferSize;
 		}
 
+		BitDepth = (audio_format)obs_data_get_int(settings, "bit depth");
+		if (data->BitDepth != BitDepth) {
+			data->BitDepth = BitDepth;
+		}
+
 		data->info = &info;
 		data->channels = info.inputs;
 		channels = data->channels;
@@ -793,8 +798,8 @@ obs_properties_t * asio_get_properties(void *unused)
 	std::string rate_descr = "Sample rate : number of samples per channel in one second.\n";
 	obs_property_set_long_description(rate, rate_descr.c_str());
 	
-	bit_depth = obs_properties_add_list(props, "bit depth",
-			TEXT_BITDEPTH, OBS_COMBO_TYPE_LIST, OBS_COMBO_FORMAT_INT);
+	bit_depth = obs_properties_add_list(props, "bit depth", TEXT_BITDEPTH,
+			OBS_COMBO_TYPE_LIST, OBS_COMBO_FORMAT_INT);
 	std::string bit_descr = "Bit depth : size of a sample in bits and format.\n"
 			"Float should be preferred.";
 	obs_property_set_long_description(bit_depth, bit_descr.c_str());
