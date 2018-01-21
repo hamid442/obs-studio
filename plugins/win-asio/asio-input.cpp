@@ -525,6 +525,8 @@ void asio_init(struct asio_data *data)
 			BASS_ASIO_ErrorGetCode());
 	}
 	data->info = &info;
+	audio_format BitDepth = data->BitDepth;
+	DWORD bassBitdepth = obs_to_asio_audio_format(BitDepth);
 
 	uint8_t deviceNumber = getDeviceCount();
 	if (deviceNumber < 1) {
@@ -539,7 +541,7 @@ void asio_init(struct asio_data *data)
 	// First : enable channel 0
 
 	// convert all samples to float irrespective of what the user sets in the settings ==> disable this setting later
-	ret = BASS_ASIO_ChannelSetFormat(true, 0, BASS_ASIO_FORMAT_FLOAT);
+	ret = BASS_ASIO_ChannelSetFormat(true, 0, bassBitdepth);
 	if (!ret)
 	{
 		blog(LOG_ERROR, "Could not set channel bitdepth; error code : %i", BASS_ASIO_ErrorGetCode());
