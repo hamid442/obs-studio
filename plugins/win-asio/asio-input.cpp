@@ -546,17 +546,21 @@ void asio_init(struct asio_data *data)
 	{
 		blog(LOG_ERROR, "Could not set channel bitdepth; error code : %i", BASS_ASIO_ErrorGetCode());
 	}
-	// enable channel 0 and link to callback
-	ret = BASS_ASIO_ChannelEnable(true, 0, &create_asio_buffer, data);
-	if (!ret)
-	{
-		blog(LOG_ERROR, "Could not enable channel; error code : %i", BASS_ASIO_ErrorGetCode());
+	// enable channels 0 and link to callback
+	for (DWORD i = 0; i < info.inputs; i++) {
+		ret = BASS_ASIO_ChannelEnable(true, i, &create_asio_buffer, data);
+		if (!ret)
+		{
+			blog(LOG_ERROR, "Could not enable channel %i; error code : %i", i, BASS_ASIO_ErrorGetCode());
+		}
 	}
 
-	// join the other channels
+	//don't join the other channels
+	/*
 	for (DWORD i = 1; i < data->channels; i++) {
 		BASS_ASIO_ChannelJoin(true, i, 0);
 	}
+	*/
 	// check buffer size is legit; if not set it to bufpref
 	// to be implemented : to avoid issues, force to bufpref
 	// this ignores any setting; bufpref is most likely set in asio control panel
