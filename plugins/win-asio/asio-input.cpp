@@ -66,7 +66,7 @@ struct asio_data {
 	uint8_t device_index;
 	BASS_ASIO_INFO *info;
 
-	audio_format BitDepth;  // 16bit or 32 bit
+	audio_format BitDepth = AUDIO_FORMAT_FLOAT;  //32 bit float only
 	double SampleRate;       //44100 or 48000 Hz
 	uint16_t BufferSize;     // number of samples in buffer
 	uint64_t first_ts;       //first timestamp
@@ -170,7 +170,7 @@ DWORD get_device_index(const char *device) {
 	for (i = 0; i < numOfDevices; i++) {
 		ret = BASS_ASIO_GetDeviceInfo(i, &info);
 		if (!ret)
-			blog(LOG_ERROR, "Invalide device index");
+			blog(LOG_ERROR, "Invalid device index");
 		res = strcmp(info.name, device);
 		if (res == 0) {
 			device_index = i;
@@ -623,9 +623,11 @@ void asio_update(void *vptr, obs_data_t *settings)
 	uint16_t BufferSize;
 	unsigned int channels;
 	BASS_ASIO_INFO info;
-	bool reset = false;
-	bool initialized = true;
+	bool ret;
+	int res;
 	DWORD route[MAX_AUDIO_CHANNELS];
+	DWORD device_index;
+	int numDevices = getDeviceCount();
 
 	// get channel number from output speaker layout set by obs
 	DWORD recorded_channels = get_obs_output_channels();
@@ -634,101 +636,99 @@ void asio_update(void *vptr, obs_data_t *settings)
 	// get device from settings
 	device = obs_data_get_string(settings, "device_id");
 
-	if (device == NULL) {
-		reset = true;
-	} else if (data->device == NULL) {
+	if (device == NULL || device[0] == '\0') {
+		blog(LOG_INFO, "Device not yet set \n");
+	} else if (data->device == NULL || data->device[0] == '\0') {
 		data->device = bstrdup(device);
-		reset = true;
 	} else {
 		if (strcmp(device, data->device) != 0) {
 			data->device = bstrdup(device);
-			reset = true;
 		}
 	}
 
-	DWORD device_index = get_device_index(device);
+	if (device != NULL && device[0] != '\0') {
+		device_index = get_device_index(device);
+		// check if device is already initialized
+		ret = BASS_ASIO_Init(device_index, BASS_ASIO_THREAD);
 
-	bool ret = BASS_ASIO_Free(); 
-	if (!ret) {
-		blog(LOG_ERROR, "Driver was already freed \n"
-			"no need to free it\n");
-	}
-	else {
-		blog(LOG_INFO, "Uninitialize asio\n");
-	}
-
-	ret = BASS_ASIO_Init(device_index, BASS_ASIO_THREAD);
-
-	if (!ret) {
-		blog(LOG_ERROR, "Unable to initialize the current driver \n"
-			"error number is : %i \n;"
-			"code 3: driver could not be initialized\n"
-			"code 14: device already initialized\n"
-			"code 23: invalid device index\n",
-			BASS_ASIO_ErrorGetCode());
-		initialized = false;
-	}
-	else {
-		blog(LOG_INFO, "Device %i was successfully initialized\n", device_index);
-	}
-
-	ret = BASS_ASIO_GetInfo(&info);
-	if (!ret) {
-		blog(LOG_ERROR, "Unable to retrieve info on the current driver \n"
-			"error number is : %i \n; driver is not initialized\n",
-			BASS_ASIO_ErrorGetCode());
-	}
-
-	// DEBUG: check that the current device in bass thread is the correct one
-	// once code is fine the check can be removed
-	if (!strcmp(device, info.name)) {
-		blog(LOG_ERROR, "Device loaded is not the one in settings\n");
-	}
-
-	for (unsigned int i = 0; i < recorded_channels; i++) {
-		std::string route_str = "route " + std::to_string(i);
-		route[i] = (int)obs_data_get_int(settings, route_str.c_str());
-		if (data->route[i] != route[i]) {
-			data->route[i] = route[i];
+		if (!ret) {
+			res = BASS_ASIO_ErrorGetCode();
+			switch (res) {
+			case BASS_ERROR_DEVICE:
+				blog(LOG_ERROR, "The device number specified is invalid.\n");
+				break;
+			case BASS_ERROR_ALREADY:
+				blog(LOG_ERROR, "The device has already been initialized\n");
+				break;
+			case BASS_ERROR_DRIVER:
+				blog(LOG_ERROR, "The driver could not be initialized\n");
+				break;
+			}
 		}
-	}
+		else {
+			blog(LOG_INFO, "Device %i was successfully initialized\n", device_index);
+		}
+		ret = BASS_ASIO_SetDevice(device_index);
+		if (!ret) {
+			res = BASS_ASIO_ErrorGetCode();
+			switch (res) {
+			case BASS_ERROR_DEVICE:
+				blog(LOG_ERROR, "The device number specified is invalid.\n");
+				break;
+			case BASS_ERROR_INIT:
+				blog(LOG_ERROR, "The device has not been initialized\n");
+				break;
+			}
+		}
 
-	rate = (double)obs_data_get_int(settings, "sample rate");
-	if (data->SampleRate != rate) {
-		data->SampleRate = rate;
-		bool ret = BASS_ASIO_SetRate(rate);
-		switch (BASS_ASIO_ErrorGetCode()) {
-		case BASS_ERROR_NOTAVAIL:
-			blog(LOG_ERROR, "Selected sample rate not supported by device\n");
-		case BASS_ERROR_INIT:
-			blog(LOG_ERROR, "Device not initialized; sample rate can not be set\n");
-		case BASS_ERROR_UNKNOWN:
-			blog(LOG_ERROR, "Unknown error when trying to set the sample rate\n");
-		} 
-		reset = true;
-	}
+		ret = BASS_ASIO_GetInfo(&info);
+		if (!ret) {
+			blog(LOG_ERROR, "Unable to retrieve info on the current driver \n"
+				"driver is not initialized\n");
+		}
 
-	BitDepth = (audio_format)obs_data_get_int(settings, "bit depth");
-	if (data->BitDepth != BitDepth) {
-		data->BitDepth = BitDepth;
-		reset = true;
-	}
+		// DEBUG: check that the current device in bass thread is the correct one
+		// once code is fine the check can be removed
+		if (!strcmp(device, info.name)) {
+			blog(LOG_ERROR, "Device loaded is not the one in settings\n");
+		}
 
-	BufferSize = (uint16_t)obs_data_get_int(settings, "buffer");
-	if (data->BufferSize != BufferSize) {
-		data->BufferSize = BufferSize;
-		reset = true;
-	}
+		for (unsigned int i = 0; i < recorded_channels; i++) {
+			std::string route_str = "route " + std::to_string(i);
+			route[i] = (int)obs_data_get_int(settings, route_str.c_str());
+			if (data->route[i] != route[i]) {
+				data->route[i] = route[i];
+			}
+		}
 
-	data->info = &info;
-	data->channels = info.inputs;
-	channels = data->channels;
-	data->output_channels = info.outputs;
-	data->device_index = get_device_index(device);
+		rate = (double)obs_data_get_int(settings, "sample rate");
+		if (data->SampleRate != rate) {
+			data->SampleRate = rate;
+			bool ret = BASS_ASIO_SetRate(rate);
+			switch (BASS_ASIO_ErrorGetCode()) {
+			case BASS_ERROR_NOTAVAIL:
+				blog(LOG_ERROR, "Selected sample rate not supported by device\n");
+			case BASS_ERROR_INIT:
+				blog(LOG_ERROR, "Device not initialized; sample rate can not be set\n");
+			case BASS_ERROR_UNKNOWN:
+				blog(LOG_ERROR, "Unknown error when trying to set the sample rate\n");
+			}
+		}
 
-	if (reset) {
+		BufferSize = (uint16_t)obs_data_get_int(settings, "buffer");
+		if (data->BufferSize != BufferSize) {
+			data->BufferSize = BufferSize;
+		}
+
+		data->info = &info;
+		data->channels = info.inputs;
+		channels = data->channels;
+		data->output_channels = info.outputs;
+		data->device_index = get_device_index(device);
 		asio_init(data);
 	}
+
+
 
 }
 
