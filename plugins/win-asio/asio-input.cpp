@@ -180,6 +180,29 @@ DWORD get_device_index(const char *device) {
 	return device_index;
 }
 
+// call the control panel
+static bool DeviceControlPanel(obs_properties_t *props,
+	obs_property_t *property, void *data) {
+	if (!BASS_ASIO_ControlPanel()) {
+		switch (BASS_ASIO_ErrorGetCode()) {
+		case BASS_ERROR_INIT:
+			blog(LOG_ERROR, "Init not called\n");
+			break;
+		case BASS_ERROR_UNKNOWN:
+			blog(LOG_ERROR, "Unknown error\n");
+		}
+		return false;
+	}
+	else {
+		int device_index = BASS_ASIO_GetDevice();
+		BASS_ASIO_INFO info;
+		BASS_ASIO_GetInfo(&info);
+		blog(LOG_INFO, "Console loaded for device %s with index %i\n", 
+			info.name, device_index);
+	}
+	return true;
+}
+
 /*****************************************************************************/
 
 void asio_update(void *vptr, obs_data_t *settings);
@@ -442,7 +465,7 @@ DWORD CALLBACK create_asio_buffer(BOOL input, DWORD channel, void *buffer, DWORD
 	 * nBufferFrames is the size in Bytes of the buffer
 	 * it is: #channels * bitdepth/8 * nb of samples
 	 */
-	blog(LOG_INFO, "the buffer length in Bytes is %i", BufSize);
+//	blog(LOG_INFO, "the buffer length in Bytes is %i", BufSize);
 	/* buffer in Bytes =
 	* number of frames in buffer x number of channels x bitdepth / 8
 	* buffer per channel in Bytes = number of frames in buffer x bitdepth / 8
@@ -729,6 +752,7 @@ obs_properties_t * asio_get_properties(void *unused)
 	obs_property_t *bit_depth;
 	obs_property_t *buffer_size;
 	obs_property_t *route[MAX_AUDIO_CHANNELS];
+	obs_property_t *console;
 	int pad_digits = (int)floor(log10(abs(MAX_AUDIO_CHANNELS))) + 1;
 
 	UNUSED_PARAMETER(unused);
@@ -787,6 +811,13 @@ obs_properties_t * asio_get_properties(void *unused)
 			"256 should be OK for most cards.\n"
 			"Warning: the real buffer returned by the device may differ";
 	obs_property_set_long_description(buffer_size, buffer_descr.c_str());
+
+	console = obs_properties_add_button(props, "console", 
+			obs_module_text("ASIO driver control panel"), DeviceControlPanel);
+	std::string console_descr = "Make sure your settings in the Driver Control Panel\n"
+		"for sample rate and buffer are consistent with what you\n"
+		"have set in OBS.";
+	obs_property_set_long_description(console, console_descr.c_str());
 
 	return props;
 }
