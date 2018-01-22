@@ -135,7 +135,8 @@ public:
 	long route[MAX_AUDIO_CHANNELS]; // stores the channel re-ordering info
 	std::vector<std::vector<short>> route_map;
 	std::vector<std::vector<short>> silent_map;
-
+	std::vector<short> unmuted_chs;
+	std::vector<short> muted_chs;
 	//circlebuf buffers[MAX_AUDIO_CHANNELS];
 	circlebuf audio_buffer;
 
@@ -153,12 +154,15 @@ public:
 
 	asio_data() : source(NULL), BitDepth(AUDIO_FORMAT_UNKNOWN),
 	SampleRate(0.0), BufferSize(0), first_ts(0), read_index(0),
-	write_index(0){
+	write_index(0), device_index(-1){
 		memset(&route[0], -1, sizeof(DWORD) * 8);
 		circlebuf_init(&audio_buffer);
 		circlebuf_reserve(&audio_buffer, 480 * sizeof(asio_source_audio));
 		//0 out everything
-		memset(audio_buffer.data, 0, 480 * sizeof(asio_source_audio));
+		//memset(audio_buffer.data, 0, 480 * sizeof(asio_source_audio));
+		for (int i = 0; i < 480; i++) {
+			circlebuf_push_back(&audio_buffer, &asio_source_audio(), sizeof(asio_source_audio));
+		}
 
 		stopSignal = CreateEvent(nullptr, true, false, nullptr);
 		receiveSignal = CreateEvent(nullptr, false, false, nullptr);
@@ -179,7 +183,7 @@ public:
 
 		if (ch < route_map.size()) {
 			for (size_t i = 0; i < route_map[ch].size(); i++) {
-				if (route_map[ch][i] > 0 && route_map[ch][i] < MAX_AUDIO_CHANNELS) {
+				if (route_map[ch][i] >= 0 && route_map[ch][i] < MAX_AUDIO_CHANNELS) {
 					uint8_t* data = (uint8_t*)malloc(buffer_size);
 					memcpy(data, buffer, buffer_size);
 					asio_source_audio* _source_audio = (asio_source_audio*)circlebuf_data(&audio_buffer, write_index * sizeof(asio_source_audio));
@@ -204,7 +208,7 @@ public:
 		}
 		else if (ch < silent_map.size()) {
 			for (size_t i = 0; i < silent_map[ch].size(); i++) {
-				if (silent_map[ch][i] > 0 && silent_map[ch][i] < MAX_AUDIO_CHANNELS) {
+				if (silent_map[ch][i] >= 0 && silent_map[ch][i] < MAX_AUDIO_CHANNELS) {
 					uint8_t* data = (uint8_t*)malloc(buffer_size);
 					memcpy(data, buffer, buffer_size);
 					asio_source_audio* _source_audio = (asio_source_audio*)circlebuf_data(&audio_buffer, write_index * sizeof(asio_source_audio));
@@ -254,7 +258,7 @@ public:
 			for (short i = 0; i < MAX_AUDIO_CHANNELS; i++) {
 				data.data[i] = asiobuf->data[i];
 			}
-			long speakers = os_atomic_load_long(&(asiobuf->speakers));
+			long speakers = unmuted_chs.size();//input_channels;//os_atomic_load_long(&(asiobuf->speakers));
 			if (speakers == 0) {
 				//also can't output this...this'll be junk (no speakers)
 				read_index++;
@@ -265,19 +269,22 @@ public:
 				speakers = 8;
 				data.data[7] = (uint8_t*)calloc(data.frames,bytedepth_format(BitDepth));
 			}
+			data.speakers = (speaker_layout)speakers;
 			//so long as the data's properly formatted, we're good to go
-
+			
 			obs_source_output_audio(source, &data);
 			//obs is done processing the audio
 
 			//reset the speaker count (the only thing we need to do w/ this frame to "delete") it
 			os_atomic_set_long(&(asiobuf->speakers), 0);
 			//cleanup
+			/*
 			for (short i = 0; i < MAX_AUDIO_CHANNELS; i++) {
 				if (asiobuf->data[i]) {
 					free(asiobuf->data[i]);
 				}
 			}
+			*/
 
 			read_index++;
 		}
@@ -773,7 +780,9 @@ DWORD CALLBACK create_asio_buffer(BOOL input, DWORD channel, void *buffer, DWORD
 	//BASS_ASIO_GetInfo(&info); 
 	for (std::list<asio_data*>::iterator it = sources->begin(); it != sources->end(); it++) {
 		asio_data* source = *it;
-		source->write_buffer(channel, (uint8_t*)buffer, BufSize);
+		if (source->device_index >= 0) {
+			source->write_buffer(channel, (uint8_t*)buffer, BufSize);
+		}
 	}
 
 	return 0;
@@ -976,11 +985,13 @@ void asio_update(void *vptr, obs_data_t *settings)
 			blog(LOG_ERROR, "Device loaded is not the one in settings\n");
 		}
 
+		bool route_changed = false;
 		for (unsigned int i = 0; i < recorded_channels; i++) {
 			std::string route_str = "route " + std::to_string(i);
 			route[i] = (int)obs_data_get_int(settings, route_str.c_str());
 			if (data->route[i] != route[i]) {
 				data->route[i] = route[i];
+				route_changed = true;
 			}
 		}
 
@@ -1025,6 +1036,10 @@ void asio_update(void *vptr, obs_data_t *settings)
 		else {
 			source_list[device_index].push_back(data);
 		}
+		data->route_map = data->_bin_map_unmuted(data->route);
+		data->silent_map = data->_bin_map_muted(data->route);
+		data->muted_chs = data->_get_muted_chs(data->route);
+		data->unmuted_chs = data->_get_unmuted_chs(data->route);
 		LeaveCriticalSection(&source_list_mutex);
 
 		asio_init(data);
