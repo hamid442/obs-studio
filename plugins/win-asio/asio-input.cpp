@@ -110,6 +110,8 @@ audio_format get_interleaved_format(audio_format format) {
 
 int bytedepth_format(audio_format format);
 
+
+#define CAPTURE_INTERVAL INFINITE
 class asio_data {
 	size_t write_index;
 	size_t read_index;
@@ -130,9 +132,9 @@ public:
 	DWORD input_channels; //total number of input channels
 	DWORD output_channels; // number of output channels of device (not used)
 	DWORD recorded_channels; // number of channels passed from device (including muted) to OBS; is at most 8
-	DWORD route[MAX_AUDIO_CHANNELS]; // stores the channel re-ordering info
-	std::vector<short> route_map;
-	std::vector<short> silent_map;
+	long route[MAX_AUDIO_CHANNELS]; // stores the channel re-ordering info
+	std::vector<std::vector<short>> route_map;
+	std::vector<std::vector<short>> silent_map;
 
 	//circlebuf buffers[MAX_AUDIO_CHANNELS];
 	circlebuf audio_buffer;
@@ -141,8 +143,17 @@ public:
 	WinHandle stopSignal;
 	WinHandle receiveSignal;
 
+	WinHandle reconnectThread;
+	WinHandle captureThread;
+
+	bool isASIOActive = false;
+	bool reconnecting = false;
+	bool previouslyFailed = false;
+	bool useDeviceTiming = false;
+
 	asio_data() : source(NULL), BitDepth(AUDIO_FORMAT_UNKNOWN),
-	SampleRate(0.0), BufferSize(0), first_ts(0){
+	SampleRate(0.0), BufferSize(0), first_ts(0), read_index(0),
+	write_index(0){
 		memset(&route[0], -1, sizeof(DWORD) * 8);
 		circlebuf_init(&audio_buffer);
 		circlebuf_reserve(&audio_buffer, 480 * sizeof(asio_source_audio));
@@ -151,6 +162,8 @@ public:
 
 		stopSignal = CreateEvent(nullptr, true, false, nullptr);
 		receiveSignal = CreateEvent(nullptr, false, false, nullptr);
+
+		captureThread = CreateThread(nullptr, 0, asio_data::capture_thread, this, 0, nullptr);
 	}
 
 	asio_source_audio* get_writeable_source_audio() {
@@ -165,47 +178,52 @@ public:
 	void write_buffer(DWORD ch, uint8_t* buffer, size_t buffer_size) {
 
 		if (ch < route_map.size()) {
-			if (route_map[ch] >= 0 && route_map[ch] < MAX_AUDIO_CHANNELS) {
-				uint8_t* data = (uint8_t*)malloc(buffer_size);
-				memcpy(data, buffer, buffer_size);
-				asio_source_audio* _source_audio = (asio_source_audio*)circlebuf_data(&audio_buffer, write_index * sizeof(asio_source_audio));
-				_source_audio->data[route_map[ch]] = data;
-				os_atomic_inc_long(&(_source_audio->speakers));
-				if (os_atomic_load_long(&(_source_audio->speakers)) == input_channels) {
-					//write_info();
-					_source_audio->frames = buffer_size / bytedepth_format(BitDepth);
-					_source_audio->format = get_planar_format(BitDepth);
-					_source_audio->samples_per_sec = SampleRate;
-					_source_audio->timestamp = os_gettime_ns() - ((_source_audio->frames * NSEC_PER_SEC) / SampleRate);
+			for (size_t i = 0; i < route_map[ch].size(); i++) {
+				if (route_map[ch][i] > 0 && route_map[ch][i] < MAX_AUDIO_CHANNELS) {
+					uint8_t* data = (uint8_t*)malloc(buffer_size);
+					memcpy(data, buffer, buffer_size);
+					asio_source_audio* _source_audio = (asio_source_audio*)circlebuf_data(&audio_buffer, write_index * sizeof(asio_source_audio));
+					_source_audio->data[route_map[ch][i]] = data;
+					os_atomic_inc_long(&(_source_audio->speakers));
+					if (os_atomic_load_long(&(_source_audio->speakers)) == input_channels) {
+						//write_info();
+						_source_audio->frames = buffer_size / bytedepth_format(BitDepth);
+						_source_audio->format = get_planar_format(BitDepth);
+						_source_audio->samples_per_sec = SampleRate;
+						_source_audio->timestamp = os_gettime_ns() - ((_source_audio->frames * NSEC_PER_SEC) / SampleRate);
 
-					//move write_index one over
-					write_index++;
-					//wrap
-					write_index = write_index % 480;
+						//move write_index one over
+						write_index++;
+						//wrap
+						write_index = write_index % 480;
 
-					SetEvent(receiveSignal);
+						SetEvent(receiveSignal);
+					}
 				}
 			}
 		}
 		else if (ch < silent_map.size()) {
-			if (silent_map[ch] >= 0 && silent_map[ch] < MAX_AUDIO_CHANNELS) {
-				uint8_t* data = (uint8_t*)calloc(buffer_size, sizeof(uint8_t));
-				asio_source_audio* _source_audio = (asio_source_audio*)circlebuf_data(&audio_buffer, write_index * sizeof(asio_source_audio));
-				_source_audio->data[route_map[ch]] = data;
-				os_atomic_inc_long(&(_source_audio->speakers));
-				if (os_atomic_load_long(&(_source_audio->speakers)) == input_channels) {
-					//write_info();
-					_source_audio->frames = buffer_size / bytedepth_format(BitDepth);
-					_source_audio->format = get_planar_format(BitDepth);
-					_source_audio->samples_per_sec = SampleRate;
-					_source_audio->timestamp = os_gettime_ns() - ((_source_audio->frames * NSEC_PER_SEC) / SampleRate);
+			for (size_t i = 0; i < silent_map[ch].size(); i++) {
+				if (silent_map[ch][i] > 0 && silent_map[ch][i] < MAX_AUDIO_CHANNELS) {
+					uint8_t* data = (uint8_t*)malloc(buffer_size);
+					memcpy(data, buffer, buffer_size);
+					asio_source_audio* _source_audio = (asio_source_audio*)circlebuf_data(&audio_buffer, write_index * sizeof(asio_source_audio));
+					_source_audio->data[silent_map[ch][i]] = data;
+					os_atomic_inc_long(&(_source_audio->speakers));
+					if (os_atomic_load_long(&(_source_audio->speakers)) == input_channels) {
+						//write_info();
+						_source_audio->frames = buffer_size / bytedepth_format(BitDepth);
+						_source_audio->format = get_planar_format(BitDepth);
+						_source_audio->samples_per_sec = SampleRate;
+						_source_audio->timestamp = os_gettime_ns() - ((_source_audio->frames * NSEC_PER_SEC) / SampleRate);
 
-					//move write_index one over
-					write_index++;
-					//wrap
-					write_index = write_index % 480;
+						//move write_index one over
+						write_index++;
+						//wrap
+						write_index = write_index % 480;
 
-					SetEvent(receiveSignal);
+						SetEvent(receiveSignal);
+					}
 				}
 			}
 		}
@@ -270,10 +288,39 @@ public:
 		return true;
 	}
 
-	static std::vector<std::vector<short>> _bin_map(long route_array[]) {
+	static DWORD WINAPI capture_thread(void *data) {
+		asio_data *source = static_cast<asio_data*>(data);
+		std::string thread_name = "asio capture thread";//source->device;
+		//thread_name += " capture thread";
+		os_set_thread_name(thread_name.c_str());
+
+		HANDLE signals[2] = { source->receiveSignal, source->stopSignal };
+
+		source->route_map = _bin_map_unmuted( source->route );
+		source->silent_map = _bin_map_muted( source->route );
+
+		while (true) {
+			int waitResult = WaitForMultipleObjects(2, signals, false, CAPTURE_INTERVAL);
+			if (waitResult == WAIT_OBJECT_0 || waitResult == WAIT_TIMEOUT) {
+				source->read_buffer();
+			}
+			else if (waitResult == WAIT_OBJECT_0 + 1) {
+				break;
+			}
+			else {
+				blog(LOG_ERROR, "[%s::%s] Abnormal termination of %s", typeid(*source).name(), __FUNCTION__, thread_name.c_str());
+				break;
+			}
+		}
+
+		return 0;
+	}
+
+	static std::vector<std::vector<short>> _bin_map_unmuted(long route_array[]) {
 		std::vector<std::vector<short>> bins;
 		//std::vector<short> out;// = std::vector<short>(256);
 		long max_size = 0;
+
 		for (short i = 0; i < MAX_AUDIO_CHANNELS; i++) {
 			long ch_index = route_array[i] + 1;
 			max_size = max(ch_index, max_size);
@@ -288,18 +335,42 @@ public:
 
 		return bins;
 	}
+	
+	static std::vector<std::vector<short>> _bin_map_muted(long route_array[]) {
+		std::vector<std::vector<short>> bins;
+		//std::vector<short> out;// = std::vector<short>(256);
+		std::vector<short> unmuted_chs;
+		std::vector<short> muted_chs;
 
-	std::pair<std::vector<short>, std::vector<short>> sort_chs(long route_array[]) {
-		std::pair<std::vector<short>, std::vector<short>> out;
-
+		long max_size = 0;
 		for (short i = 0; i < MAX_AUDIO_CHANNELS; i++) {
+			long ch_index = route_array[i] + 1;
+			max_size = max(ch_index, max_size);
 			if (route_array[i] == -1) {
-				out.first.push_back(i);
+				muted_chs.push_back(i);
 			}
 			else if (route_array[i] >= 0) {
-				out.second.push_back(i);
+				unmuted_chs.push_back(i);
 			}
 		}
+		bins.resize(max_size);
+
+		for (size_t j = 0; j < max_size; j++) {
+			bool found = false;
+			for (size_t k = 0; k < unmuted_chs.size(); k++) {
+				if (unmuted_chs[k] == j) {
+					found = true;
+					break;
+				}
+			}
+			if (!found) {
+				short index = muted_chs.back();
+				muted_chs.pop_back();
+				bins[j].push_back( index );
+			}
+		}
+
+		return bins;
 	}
 
 	static std::vector<short> _get_muted_chs(long route_array[]) {
@@ -322,18 +393,6 @@ public:
 			}
 		}
 		return unmuted_chs;
-	}
-
-	static std::vector<short> make_silent_hash_map(long route_array[]) {
-		std::vector<short> out = std::vector<short>(256);
-		long max_size = 0;
-		for (short i = 0; i < MAX_AUDIO_CHANNELS; i++) {
-			long ch_index = route_array[i] + 1;
-			max_size = max(ch_index, max_size);
-			out.resize(max_size);
-			out[ch_index] = i;
-		}
-		return out;
 	}
 
 	static long* make_route(std::vector<short> hash_map) {
