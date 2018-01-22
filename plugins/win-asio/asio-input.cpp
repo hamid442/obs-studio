@@ -703,82 +703,12 @@ int mix(uint8_t *inputBuffer, obs_source_audio *out, size_t bytes_per_ch, int ro
 	return true;
 }
 
-DWORD CALLBACK create_asio_buffer(BOOL input, DWORD channel, void *buffer, DWORD BufSize, void *asiodata) {
-	asio_data *data = (asio_data *)asiodata;
-	bool ret;
-	int route[MAX_AUDIO_CHANNELS];
-	int recorded_channels = data->recorded_channels;
-	for (short i = 0; i < MAX_AUDIO_CHANNELS; i++) {
-		if (i < recorded_channels) {
-			route[i] = data->route[i];
-		}
-		else {
-			route[i] = -1; // not necessary, just avoids it being unset
-		}	
-	}
-
-	// retrieve device info (for debug)
-	BASS_ASIO_INFO info; 
-	ret = BASS_ASIO_GetInfo(&info);
-	data->info = &info;
-	//uint8_t *buffer;
-	uint8_t *inputBuf = (uint8_t *)buffer;
-	uint8_t *outputBuf;
-	
-	// won't ever reach that part of code unless we 've made some severe coding error
-	if (recorded_channels > MAX_AUDIO_CHANNELS) {
-		blog(LOG_ERROR, "OBS does not support more than %i channels",
-				MAX_AUDIO_CHANNELS);
-		return 2;
-	}
-	/* check that the buffer length is correct
-	 * nBufferFrames is the size in Bytes of the buffer
-	 * it is: #channels * bitdepth/8 * nb of samples
-	 */
-//	blog(LOG_INFO, "the buffer length in Bytes is %i", BufSize);
-	/* buffer in Bytes =
-	* number of frames in buffer x number of channels x bitdepth / 8
-	* buffer per channel in Bytes = number of frames in buffer x bitdepth / 8
-	*/
-	int BitDepthBytes = bytedepth_format(data->BitDepth);//data->BitDepth);
-	size_t inputbufSizeBytes = BufSize;
-	size_t bufSizePerChannelBytes = inputbufSizeBytes / data->channels;
-	size_t nbFrames = bufSizePerChannelBytes / BitDepthBytes;
-	size_t outputbufSizeBytes = bufSizePerChannelBytes * recorded_channels;
-	// for interleaved, the size in bytes of a frame is not the same for input
-	// which has all the devices channels and for the buffer passed to obs:
-	// the latter has a different number of channels = recorded_channels
-	size_t outFrameSize = recorded_channels * BitDepthBytes;
-	size_t inputFrameSize = data->channels * BitDepthBytes;
-	// allocate outputBuf
-	outputBuf = (uint8_t *)calloc(outputbufSizeBytes, 1);
-
-	// interleaved frames
-	for (short i = 0; i < nbFrames; i++) {
-		for (short j = 0; j < recorded_channels; j++) {
-			if (route[j] != -1) {
-				memcpy(outputBuf + i * outFrameSize + j * BitDepthBytes, inputBuf + i * inputFrameSize + route[j] * BitDepthBytes, BitDepthBytes);
-			}
-			// no need to silent the mute channels since they're already calloc'ed to zero == silence
-		}
-	}
-
-	//mix(inputBuf, &out, bufSizePerChannelBytes, route, data->channels);
-
-	struct obs_source_audio out;
-	out.data[0] = outputBuf;
-	out.format = data->BitDepth;
-	out.speakers = asio_channels_to_obs_speakers(recorded_channels);
-	out.samples_per_sec = data->SampleRate;
-	out.frames = nbFrames;
-	out.timestamp = os_gettime_ns() - ((nbFrames * NSEC_PER_SEC) / data->SampleRate);
-
-	if (!data->first_ts) {
-		data->first_ts = out.timestamp;
-	}
-
-	if (out.timestamp > data->first_ts && recorded_channels != 0) {
-		obs_source_output_audio(data->source, &out);
+DWORD CALLBACK create_asio_buffer(BOOL input, DWORD channel, void *buffer, DWORD BufSize, void *source_list) {
+	std::vector<asio_data>* sources = (std::vector<asio_data>*)source_list;
+	//BASS_ASIO_INFO info;
+	//BASS_ASIO_GetInfo(&info); 
+	for (size_t i = 0; i < sources->size(); i++) {
+		sources->at(i).write_buffer(channel, (uint8_t*)buffer, BufSize);
 	}
 
 	return 0;
