@@ -24,6 +24,7 @@ along with this program.  If not, see <http://www.gnu.org/licenses/>.
 #include <util/circlebuf.h>
 #include <obs-module.h>
 #include <vector>
+#include <list>
 #include <stdio.h>
 #include <string>
 #include <windows.h>
@@ -106,6 +107,8 @@ audio_format get_interleaved_format(audio_format format) {
 
 	return format;
 }
+
+int bytedepth_format(audio_format format);
 
 class asio_data {
 	size_t write_index;
@@ -348,6 +351,8 @@ public:
 	}
 };
 
+CRITICAL_SECTION source_list_mutex;
+std::vector<std::list<asio_data*>> source_list;
 
 /* ======================================================================= */
 
@@ -704,11 +709,12 @@ int mix(uint8_t *inputBuffer, obs_source_audio *out, size_t bytes_per_ch, int ro
 }
 
 DWORD CALLBACK create_asio_buffer(BOOL input, DWORD channel, void *buffer, DWORD BufSize, void *source_list) {
-	std::vector<asio_data>* sources = (std::vector<asio_data>*)source_list;
+	std::list<asio_data*> *sources = (std::list<asio_data*> *)source_list;
 	//BASS_ASIO_INFO info;
 	//BASS_ASIO_GetInfo(&info); 
-	for (size_t i = 0; i < sources->size(); i++) {
-		sources->at(i).write_buffer(channel, (uint8_t*)buffer, BufSize);
+	for (std::list<asio_data*>::iterator it = sources->begin(); it != sources->end(); it++) {
+		asio_data* source = *it;
+		source->write_buffer(channel, (uint8_t*)buffer, BufSize);
 	}
 
 	return 0;
@@ -747,8 +753,9 @@ void asio_init(struct asio_data *data)
 		blog(LOG_ERROR, "Could not set channel bitdepth; error code : %i", BASS_ASIO_ErrorGetCode());
 	}
 	// enable channels 0 and link to callback
+	DWORD device_index = get_device_index(info.name);
 	for (DWORD i = 0; i < info.inputs; i++) {
-		ret = BASS_ASIO_ChannelEnable(true, i, &create_asio_buffer, data);
+		ret = BASS_ASIO_ChannelEnable(true, i, &create_asio_buffer, &source_list[device_index]);//data
 		if (!ret)
 		{
 			blog(LOG_ERROR, "Could not enable channel %i; error code : %i", i, BASS_ASIO_ErrorGetCode());
@@ -834,6 +841,9 @@ void asio_update(void *vptr, obs_data_t *settings)
 	DWORD route[MAX_AUDIO_CHANNELS];
 	DWORD device_index;
 	int numDevices = getDeviceCount();
+	bool device_changed = false;
+	const char *prev_device;
+	DWORD prev_device_index;
 
 	// get channel number from output speaker layout set by obs
 	DWORD recorded_channels = get_obs_output_channels();
@@ -848,12 +858,20 @@ void asio_update(void *vptr, obs_data_t *settings)
 		data->device = bstrdup(device);
 	} else {
 		if (strcmp(device, data->device) != 0) {
+			prev_device = bstrdup(data->device);
 			data->device = bstrdup(device);
+			device_changed = true;
 		}
 	}
 
 	if (device != NULL && device[0] != '\0') {
 		device_index = get_device_index(device);
+		if (!device_changed) {
+			prev_device_index = device_index;
+		}
+		else {
+			prev_device_index = get_device_index(prev_device);
+		}
 		// check if device is already initialized
 		ret = BASS_ASIO_Init(device_index, BASS_ASIO_THREAD);
 
@@ -932,14 +950,26 @@ void asio_update(void *vptr, obs_data_t *settings)
 		}
 
 		data->info = &info;
-		data->channels = info.inputs;
-		channels = data->channels;
+		data->input_channels = info.inputs;
 		data->output_channels = info.outputs;
-		data->device_index = get_device_index(device);
+		data->device_index = device_index;//get_device_index(device);
+		//move the data to the device appropriate list
+		EnterCriticalSection(&source_list_mutex);
+		if (device_changed) {
+			std::list<asio_data*>::iterator src;
+			src = std::find(source_list[prev_device_index].begin(), source_list[prev_device_index].end(), data);
+			//splice into the new location
+			source_list[device_index].splice(source_list[device_index].end(), source_list[prev_device_index], src);
+			//source_list[prev_device_index].remove(data);
+			//source_list[device_index].push_back(data);
+		}
+		else {
+			source_list[device_index].push_back(data);
+		}
+		LeaveCriticalSection(&source_list_mutex);
+
 		asio_init(data);
 	}
-
-
 
 }
 
@@ -1045,6 +1075,15 @@ bool obs_module_load(void)
 	asio_input_capture.get_defaults   = asio_get_defaults;
 	asio_input_capture.get_name       = asio_get_name;
 	asio_input_capture.get_properties = asio_get_properties;
+
+	InitializeCriticalSection(&source_list_mutex);
+
+	uint8_t devices = getDeviceCount();
+	//preallocate before we push vectors
+	source_list.reserve(devices);
+	for (uint8_t i = 0; i < devices; i++) {
+		source_list.push_back(std::list<asio_data*>());
+	}
 
 	obs_register_source(&asio_input_capture);
 	return true;
