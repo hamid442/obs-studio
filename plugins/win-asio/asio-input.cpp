@@ -21,11 +21,13 @@ along with this program.  If not, see <http://www.gnu.org/licenses/>.
 #include <util/bmem.h>
 #include <util/platform.h>
 #include <util/threading.h>
+#include <util/circlebuf.h>
 #include <obs-module.h>
 #include <vector>
 #include <stdio.h>
 #include <string>
 #include <windows.h>
+#include <util/windows/WinHandle.hpp>
 #include <bassasio.h>
 
 //#include "RtAudio.h"
@@ -57,8 +59,58 @@ OBS_MODULE_USE_DEFAULT_LOCALE("win-asio", "en-US")
 #define TEXT_BUFFER_1024_SAMPLES        obs_module_text("1024_samples")
 #define TEXT_BITDEPTH                   obs_module_text("BitDepth")
 
+struct asio_source_audio {
+	uint8_t       *data[MAX_AUDIO_CHANNELS];
+	uint32_t            frames;
 
-struct asio_data {
+	//enum speaker_layout speakers;
+	volatile long		speakers;
+	enum audio_format   format;
+	uint32_t            samples_per_sec;
+
+	uint64_t            timestamp;
+};
+
+audio_format get_planar_format(audio_format format) {
+	switch (format) {
+	case AUDIO_FORMAT_U8BIT:
+		return AUDIO_FORMAT_U8BIT_PLANAR;
+
+	case AUDIO_FORMAT_16BIT:
+		return AUDIO_FORMAT_16BIT_PLANAR;
+
+	case AUDIO_FORMAT_32BIT:
+		return AUDIO_FORMAT_32BIT_PLANAR;
+
+	case AUDIO_FORMAT_FLOAT:
+		return AUDIO_FORMAT_FLOAT_PLANAR;
+	}
+
+	return format;
+}
+
+audio_format get_interleaved_format(audio_format format) {
+	switch (format) {
+	case AUDIO_FORMAT_U8BIT_PLANAR:
+		return AUDIO_FORMAT_U8BIT;
+
+	case AUDIO_FORMAT_16BIT_PLANAR:
+		return AUDIO_FORMAT_16BIT;
+
+	case AUDIO_FORMAT_32BIT_PLANAR:
+		return AUDIO_FORMAT_32BIT;
+
+	case AUDIO_FORMAT_FLOAT_PLANAR:
+		return AUDIO_FORMAT_FLOAT;
+	}
+
+	return format;
+}
+
+class asio_data {
+	size_t write_index;
+	size_t read_index;
+public:
 	obs_source_t *source;
 
 	/*asio device and info */
@@ -72,10 +124,228 @@ struct asio_data {
 	uint64_t first_ts;       //first timestamp
 
 	/* channels info */
-	DWORD channels; //total number of input channels
+	DWORD input_channels; //total number of input channels
 	DWORD output_channels; // number of output channels of device (not used)
 	DWORD recorded_channels; // number of channels passed from device (including muted) to OBS; is at most 8
 	DWORD route[MAX_AUDIO_CHANNELS]; // stores the channel re-ordering info
+	std::vector<short> route_map;
+	std::vector<short> silent_map;
+
+	//circlebuf buffers[MAX_AUDIO_CHANNELS];
+	circlebuf audio_buffer;
+
+	//signals
+	WinHandle stopSignal;
+	WinHandle receiveSignal;
+
+	asio_data() : source(NULL), BitDepth(AUDIO_FORMAT_UNKNOWN),
+	SampleRate(0.0), BufferSize(0), first_ts(0){
+		memset(&route[0], -1, sizeof(DWORD) * 8);
+		circlebuf_init(&audio_buffer);
+		circlebuf_reserve(&audio_buffer, 480 * sizeof(asio_source_audio));
+		//0 out everything
+		memset(audio_buffer.data, 0, 480 * sizeof(asio_source_audio));
+
+		stopSignal = CreateEvent(nullptr, true, false, nullptr);
+		receiveSignal = CreateEvent(nullptr, false, false, nullptr);
+	}
+
+	asio_source_audio* get_writeable_source_audio() {
+		return (asio_source_audio*)circlebuf_data(&audio_buffer, write_index * sizeof(asio_source_audio));
+	}
+
+	asio_source_audio* get_readable_source_audio() {
+		return (asio_source_audio*)circlebuf_data(&audio_buffer, read_index * sizeof(asio_source_audio));
+	}
+
+	//obs_source_audio out
+	void write_buffer(DWORD ch, uint8_t* buffer, size_t buffer_size) {
+
+		if (ch < route_map.size()) {
+			if (route_map[ch] >= 0 && route_map[ch] < MAX_AUDIO_CHANNELS) {
+				uint8_t* data = (uint8_t*)malloc(buffer_size);
+				memcpy(data, buffer, buffer_size);
+				asio_source_audio* _source_audio = (asio_source_audio*)circlebuf_data(&audio_buffer, write_index * sizeof(asio_source_audio));
+				_source_audio->data[route_map[ch]] = data;
+				os_atomic_inc_long(&(_source_audio->speakers));
+				if (os_atomic_load_long(&(_source_audio->speakers)) == input_channels) {
+					//write_info();
+					_source_audio->frames = buffer_size / bytedepth_format(BitDepth);
+					_source_audio->format = get_planar_format(BitDepth);
+					_source_audio->samples_per_sec = SampleRate;
+					_source_audio->timestamp = os_gettime_ns() - ((_source_audio->frames * NSEC_PER_SEC) / SampleRate);
+
+					//move write_index one over
+					write_index++;
+					//wrap
+					write_index = write_index % 480;
+
+					SetEvent(receiveSignal);
+				}
+			}
+		}
+		else if (ch < silent_map.size()) {
+			if (silent_map[ch] >= 0 && silent_map[ch] < MAX_AUDIO_CHANNELS) {
+				uint8_t* data = (uint8_t*)calloc(buffer_size, sizeof(uint8_t));
+				asio_source_audio* _source_audio = (asio_source_audio*)circlebuf_data(&audio_buffer, write_index * sizeof(asio_source_audio));
+				_source_audio->data[route_map[ch]] = data;
+				os_atomic_inc_long(&(_source_audio->speakers));
+				if (os_atomic_load_long(&(_source_audio->speakers)) == input_channels) {
+					//write_info();
+					_source_audio->frames = buffer_size / bytedepth_format(BitDepth);
+					_source_audio->format = get_planar_format(BitDepth);
+					_source_audio->samples_per_sec = SampleRate;
+					_source_audio->timestamp = os_gettime_ns() - ((_source_audio->frames * NSEC_PER_SEC) / SampleRate);
+
+					//move write_index one over
+					write_index++;
+					//wrap
+					write_index = write_index % 480;
+
+					SetEvent(receiveSignal);
+				}
+			}
+		}
+		//no need to write, wasn't 
+	}
+
+	bool read_buffer() {
+		while ((read_index % 480) != (write_index % 480)) {
+			obs_source_audio data;
+			//PLANAR DATA NEEDS TO BE SET UP AHEAD OF TIME
+			asio_source_audio* asiobuf = get_readable_source_audio();
+			data.format = asiobuf->format;
+			if (data.format == AUDIO_FORMAT_UNKNOWN) {
+				//we can't output this...this'll be junk
+				read_index++;
+				continue;
+			}
+
+			data.frames = asiobuf->frames;
+			data.samples_per_sec = asiobuf->samples_per_sec;
+			data.timestamp = asiobuf->timestamp;
+			if (!first_ts) {
+				first_ts = data.timestamp;
+				read_index;
+				continue;
+			}
+			//HANDLING PLANAR ONLY FROM THIS POINT FORWARD!
+			for (short i = 0; i < MAX_AUDIO_CHANNELS; i++) {
+				data.data[i] = asiobuf->data[i];
+			}
+			long speakers = os_atomic_load_long(&(asiobuf->speakers));
+			if (speakers == 0) {
+				//also can't output this...this'll be junk (no speakers)
+				read_index++;
+				continue;
+			}
+			//upscale if needed
+			if (speakers == 7) {
+				speakers = 8;
+				data.data[7] = (uint8_t*)calloc(data.frames,bytedepth_format(BitDepth));
+			}
+			//so long as the data's properly formatted, we're good to go
+
+			obs_source_output_audio(source, &data);
+			//obs is done processing the audio
+
+			//reset the speaker count (the only thing we need to do w/ this frame to "delete") it
+			os_atomic_set_long(&(asiobuf->speakers), 0);
+			//cleanup
+			for (short i = 0; i < MAX_AUDIO_CHANNELS; i++) {
+				if (asiobuf->data[i]) {
+					free(asiobuf->data[i]);
+				}
+			}
+
+			read_index++;
+		}
+		//
+		read_index = read_index % 480;
+		write_index = write_index % 480;
+
+		return true;
+	}
+
+	static std::vector<std::vector<short>> _bin_map(long route_array[]) {
+		std::vector<std::vector<short>> bins;
+		//std::vector<short> out;// = std::vector<short>(256);
+		long max_size = 0;
+		for (short i = 0; i < MAX_AUDIO_CHANNELS; i++) {
+			long ch_index = route_array[i] + 1;
+			max_size = max(ch_index, max_size);
+		}
+		bins.resize(max_size);
+		
+		for (short i = 0; i < MAX_AUDIO_CHANNELS; i++) {
+			if (route_array[i] >= 0) {
+				bins[route_array[i]].push_back(i);
+			}
+		}
+
+		return bins;
+	}
+
+	std::pair<std::vector<short>, std::vector<short>> sort_chs(long route_array[]) {
+		std::pair<std::vector<short>, std::vector<short>> out;
+
+		for (short i = 0; i < MAX_AUDIO_CHANNELS; i++) {
+			if (route_array[i] == -1) {
+				out.first.push_back(i);
+			}
+			else if (route_array[i] >= 0) {
+				out.second.push_back(i);
+			}
+		}
+	}
+
+	static std::vector<short> _get_muted_chs(long route_array[]) {
+		std::vector<short> silent_chs;
+		long max_size = 0;
+		for (short i = 0; i < MAX_AUDIO_CHANNELS; i++) {
+			if (route_array[i] == -1) {
+				silent_chs.push_back(i);
+			}
+		}
+		return silent_chs;
+	}
+
+	static std::vector<short> _get_unmuted_chs(long route_array[]) {
+		std::vector<short> unmuted_chs;
+		long max_size = 0;
+		for (short i = 0; i < MAX_AUDIO_CHANNELS; i++) {
+			if (route_array[i] >= 0) {
+				unmuted_chs.push_back(i);
+			}
+		}
+		return unmuted_chs;
+	}
+
+	static std::vector<short> make_silent_hash_map(long route_array[]) {
+		std::vector<short> out = std::vector<short>(256);
+		long max_size = 0;
+		for (short i = 0; i < MAX_AUDIO_CHANNELS; i++) {
+			long ch_index = route_array[i] + 1;
+			max_size = max(ch_index, max_size);
+			out.resize(max_size);
+			out[ch_index] = i;
+		}
+		return out;
+	}
+
+	static long* make_route(std::vector<short> hash_map) {
+		short mapped = 0;
+		long *arr = (long*)malloc(MAX_AUDIO_CHANNELS * sizeof(long));
+		memset(arr, -1, MAX_AUDIO_CHANNELS * sizeof(long));
+
+		for (size_t i = 0; i < hash_map.size(); i++) {
+			if (hash_map[i] >= 0 && hash_map[i] < MAX_AUDIO_CHANNELS) {
+				arr[hash_map[i]] = i;
+			}
+		}
+
+		return arr;
+	}
 };
 
 
@@ -591,7 +861,7 @@ void asio_init(struct asio_data *data)
 
 static void * asio_create(obs_data_t *settings, obs_source_t *source)
 {
-	struct asio_data *data = new asio_data;
+	asio_data *data = new asio_data;
 
 	data->source = source;
 	data->first_ts = 0;
