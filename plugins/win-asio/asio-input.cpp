@@ -189,7 +189,7 @@ public:
 					asio_source_audio* _source_audio = (asio_source_audio*)circlebuf_data(&audio_buffer, write_index * sizeof(asio_source_audio));
 					_source_audio->data[route_map[ch][i]] = data;
 					os_atomic_inc_long(&(_source_audio->speakers));
-					if (os_atomic_load_long(&(_source_audio->speakers)) == input_channels) {
+					if (os_atomic_load_long(&(_source_audio->speakers)) == unmuted_chs.size()) {
 						//write_info();
 						_source_audio->frames = buffer_size / bytedepth_format(BitDepth);
 						_source_audio->format = get_planar_format(BitDepth);
@@ -214,7 +214,7 @@ public:
 					asio_source_audio* _source_audio = (asio_source_audio*)circlebuf_data(&audio_buffer, write_index * sizeof(asio_source_audio));
 					_source_audio->data[silent_map[ch][i]] = data;
 					os_atomic_inc_long(&(_source_audio->speakers));
-					if (os_atomic_load_long(&(_source_audio->speakers)) == input_channels) {
+					if (os_atomic_load_long(&(_source_audio->speakers)) == unmuted_chs.size()) {
 						//write_info();
 						_source_audio->frames = buffer_size / bytedepth_format(BitDepth);
 						_source_audio->format = get_planar_format(BitDepth);
