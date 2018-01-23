@@ -112,11 +112,57 @@ int bytedepth_format(audio_format format);
 
 
 #define CAPTURE_INTERVAL INFINITE
+/*
+class device_buffer {
+private:
+	uint8_t *doubleBuffer[2];
+	bool index;
+	std::list<>
+public:
+	uint8_t * get_writable_buffer() {
+		return doubleBuffer[!index];
+	}
+
+	uint8_t * get_readable_buffer() {
+		return doubleBuffer[index];
+	}
+
+	bool processBuffers() {
+		for()
+	}
+
+	device_buffer() {
+
+	}
+};
+*/
+class asio_data;
+std::vector<std::list<asio_data*>> source_list;
+
+struct asio_settings {
+	const char *device = NULL;
+	uint8_t device_index;
+	BASS_ASIO_INFO *info = NULL;
+
+	audio_format bit_depth;
+	double sample_rate; //44100 or 48000 Hz
+	uint16_t buffer_size; // number of samples in buffer
+	uint64_t first_ts; //first timestamp
+
+	DWORD input_channels; //total number of input channels
+	DWORD output_channels; // number of output channels of device (not used)
+
+	long route[MAX_AUDIO_CHANNELS];
+};
+
 class asio_data {
 	size_t write_index;
 	size_t read_index;
+	asio_settings current_settings;
 public:
 	obs_source_t *source;
+
+	asio_settings new_settings;
 
 	/*asio device and info */
 	const char *device;
@@ -152,9 +198,16 @@ public:
 	bool previouslyFailed = false;
 	bool useDeviceTiming = false;
 
+	CRITICAL_SECTION buffer_section;
+
+	volatile bool settings_updated = false;
+	volatile bool route_updated = false;
+	volatile bool device_changed = false;
+
 	asio_data() : source(NULL), BitDepth(AUDIO_FORMAT_UNKNOWN),
 	SampleRate(0.0), BufferSize(0), first_ts(0), read_index(0),
 	write_index(0), device_index(-1){
+		InitializeCriticalSection(&buffer_section);
 		memset(&route[0], -1, sizeof(DWORD) * 8);
 		circlebuf_init(&audio_buffer);
 		circlebuf_reserve(&audio_buffer, 480 * sizeof(asio_source_audio));
@@ -170,6 +223,10 @@ public:
 		captureThread = CreateThread(nullptr, 0, asio_data::capture_thread, this, 0, nullptr);
 	}
 
+	~asio_data() {
+		DeleteCriticalSection(&buffer_section);
+	}
+
 	asio_source_audio* get_writeable_source_audio() {
 		return (asio_source_audio*)circlebuf_data(&audio_buffer, write_index * sizeof(asio_source_audio));
 	}
@@ -177,61 +234,145 @@ public:
 	asio_source_audio* get_readable_source_audio() {
 		return (asio_source_audio*)circlebuf_data(&audio_buffer, read_index * sizeof(asio_source_audio));
 	}
-
+/*
+	static const obs_audio_info obs_audio_information;
+	obs_get_audio_info(&obs_audio_information);
+*/
 	//obs_source_audio out
 	void write_buffer(DWORD ch, uint8_t* buffer, size_t buffer_size) {
+		static volatile long callback_count = 0;
+		static volatile long ignore_callbacks = 0;
 
-		if (ch < route_map.size()) {
-			for (size_t i = 0; i < route_map[ch].size(); i++) {
-				if (route_map[ch][i] >= 0 && route_map[ch][i] < MAX_AUDIO_CHANNELS) {
-					uint8_t* data = (uint8_t*)malloc(buffer_size);
-					memcpy(data, buffer, buffer_size);
-					asio_source_audio* _source_audio = (asio_source_audio*)circlebuf_data(&audio_buffer, write_index * sizeof(asio_source_audio));
-					_source_audio->data[route_map[ch][i]] = data;
-					os_atomic_inc_long(&(_source_audio->speakers));
-					if (os_atomic_load_long(&(_source_audio->speakers)) == unmuted_chs.size()) {
-						//write_info();
-						_source_audio->frames = buffer_size / bytedepth_format(BitDepth);
-						_source_audio->format = get_planar_format(BitDepth);
-						_source_audio->samples_per_sec = SampleRate;
-						_source_audio->timestamp = os_gettime_ns() - ((_source_audio->frames * NSEC_PER_SEC) / SampleRate);
+		if (os_atomic_load_long(&ignore_callbacks) > 0) {
+			os_atomic_dec_long(&ignore_callbacks);
+			return;
+		}
 
-						//move write_index one over
-						write_index++;
-						//wrap
-						write_index = write_index % 480;
+		//protect against a change of settings mid callbacks
+		if (!os_atomic_load_bool(&settings_updated)) {
+			//validate the device index is correct
+			if (current_settings.device_index < source_list.size()) {
+				//validate the incoming ch is within the size of the binned chs
+				if (ch < route_map.size()) {
+					//iterate through all the route locations that need this ch
+					for (size_t i = 0; i < route_map[ch].size(); i++) {
+						//validate the routing location fits within the needed routing numbers
+						if (route_map[ch][i] >= 0 && route_map[ch][i] < MAX_AUDIO_CHANNELS) {
+							uint8_t* data = (uint8_t*)malloc(buffer_size);
+							memcpy(data, buffer, buffer_size);
+							asio_source_audio* _source_audio = (asio_source_audio*)circlebuf_data(&audio_buffer, write_index * sizeof(asio_source_audio));
+							_source_audio->data[route_map[ch][i]] = data;
+							os_atomic_inc_long(&(_source_audio->speakers));
+							if (os_atomic_load_long(&(_source_audio->speakers)) == unmuted_chs.size()) {
+								//write_info();
+								_source_audio->frames = buffer_size / bytedepth_format(current_settings.bit_depth);//bytedepth_format(BitDepth);
+								_source_audio->format = get_planar_format(current_settings.bit_depth);
+								_source_audio->samples_per_sec = current_settings.sample_rate;//SampleRate;
+								_source_audio->timestamp = os_gettime_ns() - ((_source_audio->frames * NSEC_PER_SEC) / current_settings.sample_rate);
 
-						SetEvent(receiveSignal);
+								//move write_index one over
+								write_index++;
+								//wrap
+								write_index = write_index % 480;
+
+								SetEvent(receiveSignal);
+							}
+						}
 					}
 				}
 			}
 		}
-		else if (ch < silent_map.size()) {
-			for (size_t i = 0; i < silent_map[ch].size(); i++) {
-				if (silent_map[ch][i] >= 0 && silent_map[ch][i] < MAX_AUDIO_CHANNELS) {
-					uint8_t* data = (uint8_t*)malloc(buffer_size);
-					memcpy(data, buffer, buffer_size);
-					asio_source_audio* _source_audio = (asio_source_audio*)circlebuf_data(&audio_buffer, write_index * sizeof(asio_source_audio));
-					_source_audio->data[silent_map[ch][i]] = data;
-					os_atomic_inc_long(&(_source_audio->speakers));
-					if (os_atomic_load_long(&(_source_audio->speakers)) == unmuted_chs.size()) {
-						//write_info();
-						_source_audio->frames = buffer_size / bytedepth_format(BitDepth);
-						_source_audio->format = get_planar_format(BitDepth);
-						_source_audio->samples_per_sec = SampleRate;
-						_source_audio->timestamp = os_gettime_ns() - ((_source_audio->frames * NSEC_PER_SEC) / SampleRate);
+		else {
+			//settings updating force reset
+			asio_source_audio* _source_audio = (asio_source_audio*)circlebuf_data(&audio_buffer, write_index * sizeof(asio_source_audio));
+			os_atomic_set_long(&(_source_audio->speakers), 0);
+			apply_settings();
+			//ignore the remaining number of callbacks
+			os_atomic_set_long(&ignore_callbacks, current_settings.input_channels - os_atomic_load_long(&callback_count));
+			os_atomic_set_long(&callback_count, 0);
+		}
 
-						//move write_index one over
-						write_index++;
-						//wrap
-						write_index = write_index % 480;
-
-						SetEvent(receiveSignal);
-					}
-				}
-			}
+		os_atomic_inc_long(&callback_count);
+		if (os_atomic_load_long(&callback_count) >= current_settings.input_channels) {
+			os_atomic_set_long(&callback_count, 0);
 		}
 		//no need to write, wasn't 
+	}
+
+	void update_settings(asio_settings settings) {
+		if (settings.device == NULL || settings.device[0] == '\0') {
+			blog(LOG_INFO, "Device not yet set \n");
+		}
+		else if (new_settings.device == NULL || new_settings.device[0] == '\0') {
+			new_settings.device = bstrdup(settings.device);
+			os_atomic_set_bool(&settings_updated, true);
+		}
+		else {
+			if (strcmp(settings.device, new_settings.device) != 0) {
+				new_settings.device = bstrdup(settings.device);
+				os_atomic_set_bool(&device_changed, true);
+				os_atomic_set_bool(&settings_updated, true);
+			}
+		}
+
+		if (settings.bit_depth != current_settings.bit_depth) {
+			new_settings.bit_depth = settings.bit_depth;
+			os_atomic_set_bool(&settings_updated, true);
+		}
+		if (settings.buffer_size != current_settings.buffer_size) {
+			new_settings.buffer_size = settings.buffer_size;
+			os_atomic_set_bool(&settings_updated, true);
+		}
+		if (settings.info != current_settings.info) {
+			new_settings.info = settings.info;
+			if (settings.info != NULL && current_settings.info != NULL && strcmp(settings.info->name, current_settings.info->name) != 0) {
+				os_atomic_set_bool(&settings_updated, true);
+			}
+		} 
+		if (settings.sample_rate != current_settings.sample_rate) {
+			new_settings.sample_rate = settings.sample_rate;
+			os_atomic_set_bool(&settings_updated, true);
+		}
+		if (settings.input_channels != current_settings.input_channels) {
+			new_settings.input_channels = settings.input_channels;
+			os_atomic_set_bool(&settings_updated, true);
+		}
+		if (settings.output_channels != current_settings.output_channels) {
+			new_settings.output_channels = settings.output_channels;
+			os_atomic_set_bool(&settings_updated, true);
+		}
+
+
+		for (short i = 0; i < MAX_AUDIO_CHANNELS; i++) {
+			if (settings.route[i] != current_settings.route[i]) {
+				new_settings.route[i] = settings.route[i];
+				os_atomic_set_bool(&route_updated, true);
+				os_atomic_set_bool(&settings_updated, true);
+			}
+		}
+
+		new_settings = settings;
+	}
+
+	void apply_settings() {
+		if (os_atomic_load_bool(&settings_updated)) {
+			//find our data in the device list
+			if (os_atomic_load_bool(&device_changed)) {
+				std::list<asio_data*>::iterator src;
+				src = std::find(source_list[current_settings.device_index].begin(), source_list[current_settings.device_index].end(), this);
+				//splice into the new location
+				source_list[new_settings.device_index].splice(source_list[new_settings.device_index].end(), source_list[current_settings.device_index], src);
+			}
+			else {
+				source_list[new_settings.device_index].push_back(this);
+			}
+			current_settings = new_settings;
+			route_map = _bin_map_unmuted(current_settings.route);
+			silent_map = _bin_map_muted(current_settings.route);
+			unmuted_chs = _get_unmuted_chs(current_settings.route);
+			muted_chs = _get_muted_chs(current_settings.route);
+		}
+		os_atomic_set_bool(&settings_updated, false);
 	}
 
 	bool read_buffer() {
@@ -239,6 +380,11 @@ public:
 			obs_source_audio data;
 			//PLANAR DATA NEEDS TO BE SET UP AHEAD OF TIME
 			asio_source_audio* asiobuf = get_readable_source_audio();
+			if (!asiobuf) {
+				read_index++;
+				continue;
+			}
+
 			data.format = asiobuf->format;
 			if (data.format == AUDIO_FORMAT_UNKNOWN) {
 				//we can't output this...this'll be junk
@@ -278,6 +424,8 @@ public:
 			//reset the speaker count (the only thing we need to do w/ this frame to "delete") it
 			os_atomic_set_long(&(asiobuf->speakers), 0);
 			//cleanup
+
+			//apply_settings();
 			/*
 			for (short i = 0; i < MAX_AUDIO_CHANNELS; i++) {
 				if (asiobuf->data[i]) {
@@ -418,7 +566,6 @@ public:
 };
 
 CRITICAL_SECTION source_list_mutex;
-std::vector<std::list<asio_data*>> source_list;
 
 /* ======================================================================= */
 
@@ -780,9 +927,7 @@ DWORD CALLBACK create_asio_buffer(BOOL input, DWORD channel, void *buffer, DWORD
 	//BASS_ASIO_GetInfo(&info); 
 	for (std::list<asio_data*>::iterator it = sources->begin(); it != sources->end(); it++) {
 		asio_data* source = *it;
-		if (source->device_index >= 0) {
-			source->write_buffer(channel, (uint8_t*)buffer, BufSize);
-		}
+		source->write_buffer(channel, (uint8_t*)buffer, BufSize);
 	}
 
 	return 0;
@@ -912,6 +1057,7 @@ void asio_update(void *vptr, obs_data_t *settings)
 	bool device_changed = false;
 	const char *prev_device;
 	DWORD prev_device_index;
+	asio_settings new_settings = asio_settings();
 
 	// get channel number from output speaker layout set by obs
 	DWORD recorded_channels = get_obs_output_channels();
@@ -923,11 +1069,13 @@ void asio_update(void *vptr, obs_data_t *settings)
 	if (device == NULL || device[0] == '\0') {
 		blog(LOG_INFO, "Device not yet set \n");
 	} else if (data->device == NULL || data->device[0] == '\0') {
-		data->device = bstrdup(device);
+		//data->device = bstrdup(device);
+		new_settings.device = bstrdup(device);
 	} else {
 		if (strcmp(device, data->device) != 0) {
 			prev_device = bstrdup(data->device);
 			data->device = bstrdup(device);
+			new_settings.device = bstrdup(device);
 			device_changed = true;
 		}
 	}
@@ -978,7 +1126,6 @@ void asio_update(void *vptr, obs_data_t *settings)
 			blog(LOG_ERROR, "Unable to retrieve info on the current driver \n"
 				"driver is not initialized\n");
 		}
-
 		// DEBUG: check that the current device in bass thread is the correct one
 		// once code is fine the check can be removed
 		if (!strcmp(device, info.name)) {
@@ -989,6 +1136,7 @@ void asio_update(void *vptr, obs_data_t *settings)
 		for (unsigned int i = 0; i < recorded_channels; i++) {
 			std::string route_str = "route " + std::to_string(i);
 			route[i] = (int)obs_data_get_int(settings, route_str.c_str());
+			new_settings.route[i] = route[i];
 			if (data->route[i] != route[i]) {
 				data->route[i] = route[i];
 				route_changed = true;
@@ -1008,23 +1156,31 @@ void asio_update(void *vptr, obs_data_t *settings)
 				blog(LOG_ERROR, "Unknown error when trying to set the sample rate\n");
 			}
 		}
+		new_settings.sample_rate = rate;
 
 		BufferSize = (uint16_t)obs_data_get_int(settings, "buffer");
 		if (data->BufferSize != BufferSize) {
 			data->BufferSize = BufferSize;
 		}
+		new_settings.buffer_size = BufferSize;
 
 		BitDepth = (audio_format)obs_data_get_int(settings, "bit depth");
 		if (data->BitDepth != BitDepth) {
 			data->BitDepth = BitDepth;
 		}
+		new_settings.bit_depth = BitDepth;
 
 		data->info = &info;
+		new_settings.info = &info;
 		data->input_channels = info.inputs;
+		new_settings.input_channels = info.inputs;
 		data->output_channels = info.outputs;
+		new_settings.output_channels = info.outputs;
 		data->device_index = device_index;//get_device_index(device);
+		new_settings.device_index = device_index;
 		//move the data to the device appropriate list
 		EnterCriticalSection(&source_list_mutex);
+		data->update_settings(new_settings);
 		if (device_changed) {
 			std::list<asio_data*>::iterator src;
 			src = std::find(source_list[prev_device_index].begin(), source_list[prev_device_index].end(), data);
@@ -1036,10 +1192,10 @@ void asio_update(void *vptr, obs_data_t *settings)
 		else {
 			source_list[device_index].push_back(data);
 		}
-		data->route_map = data->_bin_map_unmuted(data->route);
-		data->silent_map = data->_bin_map_muted(data->route);
-		data->muted_chs = data->_get_muted_chs(data->route);
-		data->unmuted_chs = data->_get_unmuted_chs(data->route);
+		//data->route_map = data->_bin_map_unmuted(data->route);
+		//data->silent_map = data->_bin_map_muted(data->route);
+		//data->muted_chs = data->_get_muted_chs(data->route);
+		//data->unmuted_chs = data->_get_unmuted_chs(data->route);
 		LeaveCriticalSection(&source_list_mutex);
 
 		asio_init(data);
