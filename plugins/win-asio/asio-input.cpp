@@ -544,7 +544,7 @@ public:
 		format = audioformat;
 		write_index = 0;
 		read_index = 0;
-		buffer_count = buffers;
+		buffer_count = buffers ? buffers : 32;
 
 		circlebuf_init(&audio_buffer);
 		circlebuf_reserve(&audio_buffer, buffer_count * sizeof(device_source_audio));
@@ -616,7 +616,10 @@ public:
 
 	void write_buffer(DWORD ch, uint8_t* buffer, size_t buffer_size) {
 		static volatile long callback_count = 0;
-		blog(LOG_INFO, "Writing Buffer %ul", ch);
+		BASS_ASIO_INFO info;
+		BASS_ASIO_GetInfo(&info);
+
+		blog(LOG_INFO, "Writing Buffer %lu", ch);
 		if (!prepped) {
 			return;
 		}
@@ -1099,7 +1102,12 @@ int mix(uint8_t *inputBuffer, obs_source_audio *out, size_t bytes_per_ch, int ro
 }
 
 DWORD CALLBACK create_asio_buffer(BOOL input, DWORD channel, void *buffer, DWORD BufSize, void *device_ptr) {
+	//DWORD BASS_ASIO_GetDevice()
+	BASS_ASIO_INFO info;
+	BASS_ASIO_GetInfo(&info);
+
 	device_data *device = (device_data*)device_ptr;
+
 	device->write_buffer(channel, (uint8_t*)buffer, BufSize);
 
 	return 0;
@@ -1141,7 +1149,7 @@ void asio_init(struct asio_data *data)
 	//&source_list[device_index]
 	DWORD device_index = get_device_index(info.name);
 	for (DWORD i = 0; i < info.inputs; i++) {
-		ret = BASS_ASIO_ChannelEnable(true, i, &create_asio_buffer, &device_list[device_index]);//data
+		ret = BASS_ASIO_ChannelEnable(true, i, &create_asio_buffer, device_list[device_index]);//data
 		if (!ret)
 		{
 			blog(LOG_ERROR, "Could not enable channel %i; error code : %i", i, BASS_ASIO_ErrorGetCode());
