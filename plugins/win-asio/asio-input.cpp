@@ -327,7 +327,11 @@ private:
 	WinHandle *receive_signals;
 	WinHandle all_recieved_signal;
 
-	bool prepped = false;
+	bool all_prepped = false;
+	bool buffer_prepped = false;
+	bool circle_buffer_prepped = false;
+	bool reallocate_buffer = false;
+	bool events_prepped = false;
 public:
 	long device_index;
 
@@ -340,38 +344,63 @@ public:
 	}
 
 	device_data() {
-		prepped = false;
+		all_prepped = false;
+		buffer_prepped = false;
+		circle_buffer_prepped = false;
+		reallocate_buffer = false;
+		events_prepped = false;
 		format = AUDIO_FORMAT_UNKNOWN;
 		write_index = 0;
 		read_index = 0;
 		buffer_count = 32;
-
-		circlebuf_init(&audio_buffer);
-		circlebuf_reserve(&audio_buffer, buffer_count * sizeof(device_source_audio));
-		for (int i = 0; i < buffer_count; i++) {
-			circlebuf_push_back(&audio_buffer, &device_source_audio(), sizeof(device_source_audio));
-			//initialize # of buffers
-		}
 	}
 
 	device_data(size_t buffers, audio_format audioformat) {
-		prepped = false;
+		all_prepped = false;
+		buffer_prepped = false;
+		circle_buffer_prepped = false;
+		reallocate_buffer = false;
+		events_prepped = false;
+
 		format = audioformat;
 		write_index = 0;
 		read_index = 0;
 		buffer_count = buffers ? buffers : 32;
+	}
 
-		circlebuf_init(&audio_buffer);
-		circlebuf_reserve(&audio_buffer, buffer_count * sizeof(device_source_audio));
-		for (int i = 0; i < buffer_count; i++) {
-			circlebuf_push_back(&audio_buffer, &device_source_audio(), sizeof(device_source_audio));
-			//initialize # of buffers
+	void check_all() {
+		if (buffer_prepped && circle_buffer_prepped && events_prepped) {
+			all_prepped = true;
 		}
-		//all_recieved_signal = CreateEvent()
+		else {
+			all_prepped = false;
+		}
+	}
+
+	void prep_circle_buffer(BASS_ASIO_INFO &info) {
+		prep_circle_buffer(info.bufpref);
+	}
+
+	void prep_circle_buffer(DWORD bufpref) {
+		if (!circle_buffer_prepped) {
+			//info.bufpref
+			//BASS_ASIO_ChannelGetFormat
+			buffer_count = max(4, ceil(2048 / bufpref));
+			circlebuf_init(&audio_buffer);
+			circlebuf_reserve(&audio_buffer, buffer_count * sizeof(device_source_audio));
+			for (int i = 0; i < buffer_count; i++) {
+				circlebuf_push_back(&audio_buffer, &device_source_audio(), sizeof(device_source_audio));
+				//initialize # of buffers
+			}
+			circle_buffer_prepped = true;
+		}
+	}
+
+	void prep_events(BASS_ASIO_INFO &info) {
+		prep_events(info.inputs);
 	}
 
 	void prep_events(long input_chs) {
-		static bool events_prepped = false;
 		if (!events_prepped) {
 			receive_signals = (WinHandle*)calloc(input_chs, sizeof(WinHandle));
 			for (int i = 0; i < input_chs; i++) {
@@ -381,15 +410,21 @@ public:
 		}
 	}
 
+	void prep_buffers(BASS_ASIO_INFO &info, audio_format in_format, uint32_t in_samples_per_sec) {
+		prep_buffers(info.bufpref, info.inputs, in_format, in_samples_per_sec);
+	}
+
 	void prep_buffers(uint32_t frames, long in_chs, audio_format format, uint32_t samples_per_sec) {
-		static bool reallocate = false;
 		if (frames * bytedepth_format(format) > this->buffer_size) {
-			if (prepped) {
-				reallocate = true;
+			if (buffer_prepped) {
+				reallocate_buffer = true;
 			}
 		}
+		else {
+			reallocate_buffer = false;
+		}
 		prep_events(in_chs);
-		if (!prepped || reallocate) {
+		if (circle_buffer_prepped && (!buffer_prepped || reallocate_buffer)) {
 			this->frames = frames;
 			this->input_chs = in_chs;
 			this->format = format;
@@ -400,14 +435,14 @@ public:
 				device_source_audio* _source_audio = get_source_audio(i);
 				_source_audio->data = (uint8_t **)calloc(input_chs, sizeof(uint8_t*));
 				for (int j = 0; j < input_chs; j++) {
-					if (!prepped) {
+					if (!buffer_prepped) {
 						_source_audio->data[j] = (uint8_t*)calloc(buffer_size, 1);
 					}
-					else if (reallocate) {
+					else if (reallocate_buffer) {
 						uint8_t* tmp = (uint8_t*)realloc(_source_audio->data[j], buffer_size);
 						if (tmp == NULL) {
-							prepped = false;
-							reallocate = true;
+							buffer_prepped = false;
+							all_prepped = false;
 							return;
 						}
 						else if (tmp == _source_audio->data[j]) {
@@ -424,17 +459,16 @@ public:
 				_source_audio->format = format;
 				_source_audio->samples_per_sec = samples_per_sec;
 			}
-			prepped = true;
-			reallocate = false;
+			buffer_prepped = true;
 		}
+		check_all();
 	}
 
 	void write_buffer(DWORD ch, uint8_t* buffer, size_t buffer_size) {
 		static volatile long callback_count = 0;
 		static BASS_ASIO_INFO info;
 		BASS_ASIO_GetInfo(&info);
-		blog(LOG_INFO, "Ch %lu/%lu: %s, %lu samples", ch, info.inputs, info.name, info.bufpref);
-		if (!prepped) {
+		if (!all_prepped) {
 			return;
 		}
 		if (os_atomic_load_long(&callback_count) == 0) {
@@ -463,19 +497,22 @@ public:
 		if (_source_audio && _source_audio->data[ch]) {
 			memcpy(_source_audio->data[ch], buffer, buffer_size);
 			SetEvent(receive_signals[ch]);
+			blog(LOG_INFO, "Ch %lu/%lu: %s, %lu samples", ch, info.inputs, info.name, info.bufpref);
 		}
 
 		//loop
 		os_atomic_inc_long(&callback_count);
-		if (os_atomic_load_long(&callback_count) == input_chs) {
+		//os_atomic_set_long(&callback_count, (os_atomic_load_long(&callback_count)+1) % input_chs);
+		if (os_atomic_load_long(&callback_count) >= input_chs) {
 			write_index++;
 			write_index = write_index % buffer_count;
+			//os_atomic_set_long(&callback_count, (os_atomic_load_long(&callback_count)) % input_chs);
 			/*
 			for (int i = 0; i < input_chs; i++) {
 			ResetEvent(receive_signals[ch]);
 			}
 			*/
-			os_atomic_set_long(&callback_count, 0);
+			//os_atomic_set_long(&callback_count, 0);
 		}
 	}
 
@@ -937,56 +974,16 @@ void asio_init(struct asio_data *data)
 			"error number is : %i \n; check BASS_ASIO_ErrorGetCode\n",
 			BASS_ASIO_ErrorGetCode());
 	}
-	//data->info = &info;
-	//audio_format BitDepth = data->BitDepth;
-	//DWORD bassBitdepth = obs_to_asio_audio_format(BitDepth);
 
 	uint8_t deviceNumber = getDeviceCount();
 	if (deviceNumber < 1) {
 		blog(LOG_INFO, "\nNo audio devices found!\n");
+		return;
 	}
 
 	// get channel number from output speaker layout set by obs
-	DWORD recorded_channels = get_obs_output_channels();
+	DWORD recorded_channels = info.inputs;//get_obs_output_channels();
 
-	// initialize channels: enable first channel, join all the others
-	// we initialize ALL the device input channels
-	// First : enable channel 0
-
-	// start the device w/ the best possible setting
-	ret = BASS_ASIO_ChannelSetFormat(true, 0, BASS_ASIO_FORMAT_FLOAT);
-	if (!ret)
-	{
-		blog(LOG_ERROR, "Could not set channel bitdepth; error code : %i", BASS_ASIO_ErrorGetCode());
-		ret = BASS_ASIO_ChannelSetFormat(true, 0, BASS_ASIO_FORMAT_32BIT);
-		if (!ret) {
-			blog(LOG_ERROR, "Could not set channel bitdepth; error code : %i", BASS_ASIO_ErrorGetCode());
-			ret = BASS_ASIO_ChannelSetFormat(true, 0, BASS_ASIO_FORMAT_16BIT);
-			if (!ret) {
-				blog(LOG_ERROR, "Could not set channel bitdepth; error code : %i", BASS_ASIO_ErrorGetCode());
-				//critical failure! exit
-				blog(LOG_ERROR, "Could not set channel bitdepth to any supported OBS Format!");
-				return;
-			}
-		}
-	}
-
-	// enable all chs and link to callback w/ the device buffer class
-	DWORD device_index = get_device_index(info.name);
-	for (DWORD i = 0; i < info.inputs; i++) {
-		ret = BASS_ASIO_ChannelEnable(true, i, &create_asio_buffer, device_list[device_index]);//data
-		if (!ret)
-		{
-			blog(LOG_ERROR, "Could not enable channel %i; error code : %i", i, BASS_ASIO_ErrorGetCode());
-		}
-	}
-
-	//don't join the other channels
-	/*
-	for (DWORD i = 1; i < data->channels; i++) {
-	BASS_ASIO_ChannelJoin(true, i, 0);
-	}
-	*/
 	// check buffer size is legit; if not set it to bufpref
 	// to be implemented : to avoid issues, force to bufpref
 	// this ignores any setting; bufpref is most likely set in asio control panel
@@ -996,11 +993,71 @@ void asio_init(struct asio_data *data)
 	blog(LOG_INFO, "sample rate is set in device to %i.\n", checkrate);
 	DWORD checkbitdepth = BASS_ASIO_ChannelGetFormat(true, 0);
 	blog(LOG_INFO, "bitdepth is set in device to %i.\n", checkbitdepth);
-	audio_format format = asio_to_obs_audio_format(checkbitdepth);
+	//audio_format format = asio_to_obs_audio_format(checkbitdepth);
 
-	//start asio device
+	//get the device_index
+	DWORD device_index = get_device_index(info.name);
+
+	//start asio device if it hasn't already been
 	if (!BASS_ASIO_IsStarted()) {
+		DWORD obs_optimal_format = BASS_ASIO_FORMAT_FLOAT;
+		DWORD asio_native_format = BASS_ASIO_ChannelGetFormat(true, 0);
+		DWORD selected_format;
+		if (obs_optimal_format == asio_native_format) {
+			//all good...I don't think this needs to happen
+			for (DWORD i = 0; i < info.inputs; i++) {
+				ret = BASS_ASIO_ChannelSetFormat(true, i, asio_native_format);
+				if (!ret) {
+					blog(LOG_ERROR, "ASIO: unable to use native format\n"
+						"error number: %i \n; check BASS_ASIO_ErrorGetCode\n",
+						BASS_ASIO_ErrorGetCode());
+					return;
+				}
+			}
+			selected_format = asio_native_format;
+		}
+		else {
+			for (DWORD i = 0; i < info.inputs; i++) {
+				ret = BASS_ASIO_ChannelSetFormat(true, i, obs_optimal_format);
+				if (!ret) {
+					blog(LOG_ERROR, "ASIO: unable to use optimal format (float)\n"
+						"error number: %i \n; check BASS_ASIO_ErrorGetCode\n",
+						BASS_ASIO_ErrorGetCode());
+					break;
+				}
+			}
+			if (!ret) {
+				for (DWORD i = 0; i < info.inputs; i++) {
+					ret = BASS_ASIO_ChannelSetFormat(true, i, asio_native_format);
+					if (!ret) {
+						blog(LOG_ERROR, "ASIO: unable to use native format\n"
+							"error number: %i \n; check BASS_ASIO_ErrorGetCode\n",
+							BASS_ASIO_ErrorGetCode());
+						return;
+					}
+				}
+				selected_format = asio_native_format;
+			}
+			else {
+				selected_format = obs_optimal_format;
+			}
+		}
+
+		blog(LOG_INFO, "(best) bitdepth supported %i", selected_format);
+		audio_format format = asio_to_obs_audio_format(selected_format);
+
+		// enable all chs and link to callback w/ the device buffer class
+		for (DWORD i = 0; i < info.inputs; i++) {
+			ret = BASS_ASIO_ChannelEnable(true, i, &create_asio_buffer, device_list[device_index]);//data
+			if (!ret)
+			{
+				blog(LOG_ERROR, "Could not enable channel %i; error code : %i", i, BASS_ASIO_ErrorGetCode());
+			}
+		}
+
 		/*prep the device buffers*/
+		device_list[device_index]->prep_circle_buffer(info);
+		device_list[device_index]->prep_events(info);
 		device_list[device_index]->prep_buffers(info.bufpref, info.inputs, format, checkrate);
 
 		BASS_ASIO_Start(info.bufpref, recorded_channels);
@@ -1018,9 +1075,10 @@ void asio_init(struct asio_data *data)
 			blog(LOG_ERROR, "ASIO init: Unknown error when trying to start the device\n");
 		}
 	}
-	else {
 
-	}
+	//Connect listener thread
+	//data->captureThread =  device_list[device_index]->capture_thread();
+	device_list[device_index]->add_listener(data);
 }
 
 static void * asio_create(obs_data_t *settings, obs_source_t *source)
