@@ -60,7 +60,65 @@ OBS_MODULE_USE_DEFAULT_LOCALE("win-asio", "en-US")
 #define TEXT_BUFFER_1024_SAMPLES        obs_module_text("1024_samples")
 #define TEXT_BITDEPTH                   obs_module_text("BitDepth")
 
-//obs_source_audio
+/* ======================================================================= */
+/* conversion between BASS_ASIO and obs */
+
+enum audio_format asio_to_obs_audio_format(DWORD format)
+{
+	switch (format) {
+	case BASS_ASIO_FORMAT_16BIT:   return AUDIO_FORMAT_16BIT;
+	case BASS_ASIO_FORMAT_32BIT:   return AUDIO_FORMAT_32BIT;
+	case BASS_ASIO_FORMAT_FLOAT:   return AUDIO_FORMAT_FLOAT;
+	default:                       break;
+	}
+
+	return AUDIO_FORMAT_UNKNOWN;
+}
+
+int bytedepth_format(audio_format format)
+{
+	return (int)get_audio_bytes_per_channel(format);
+}
+
+int bytedepth_format(DWORD format) {
+	return bytedepth_format(asio_to_obs_audio_format(format));
+}
+
+DWORD obs_to_asio_audio_format(audio_format format)
+{
+	switch (format) {
+
+	case AUDIO_FORMAT_16BIT:
+		return BASS_ASIO_FORMAT_16BIT;
+		// obs doesn't have 24 bit
+	case AUDIO_FORMAT_32BIT:
+		return BASS_ASIO_FORMAT_32BIT;
+
+	case AUDIO_FORMAT_FLOAT:
+	default:
+		return BASS_ASIO_FORMAT_FLOAT;
+	}
+	// default to 32 float samples for best quality
+
+}
+
+enum speaker_layout asio_channels_to_obs_speakers(unsigned int channels)
+{
+	switch (channels) {
+	case 1:   return SPEAKERS_MONO;
+	case 2:   return SPEAKERS_STEREO;
+	case 3:   return SPEAKERS_2POINT1;
+	case 4:   return SPEAKERS_4POINT0;
+	case 5:   return SPEAKERS_4POINT1;
+	case 6:   return SPEAKERS_5POINT1;
+		/* no layout for 7 channels */
+	case 8:   return SPEAKERS_7POINT1;
+	}
+	return SPEAKERS_UNKNOWN;
+}
+
+/* ======================================================================= */
+/* asio structs and classes */
 
 struct asio_source_audio {
 	uint8_t       *data[MAX_AUDIO_CHANNELS];
@@ -469,6 +527,24 @@ public:
 		static BASS_ASIO_INFO info;
 		BASS_ASIO_GetInfo(&info);
 		if (!all_prepped) {
+			/* this should've happened in advance of the device callbacks... */
+			//init the device for proper use from the callback (we should have enough info)
+			/*
+			if (!circle_buffer_prepped) {
+				prep_circle_buffer(info);
+			}
+			if (!events_prepped) {
+				prep_events(info);
+			}
+			if (!buffer_prepped) {
+				BASS_ASIO_CHANNELINFO ch_info;
+				BASS_ASIO_ChannelGetInfo(1, 0, &ch_info);
+
+				double sample_rate = BASS_ASIO_ChannelGetRate(1, 0);
+
+				prep_buffers(info, asio_to_obs_audio_format(ch_info.format), (DWORD)sample_rate);
+			}
+			*/
 			return;
 		}
 		if (os_atomic_load_long(&callback_count) == 0) {
@@ -598,63 +674,6 @@ std::vector<device_data*> device_list;
 
 CRITICAL_SECTION source_list_mutex;
 std::vector<std::list<asio_data*>> source_list;
-
-/* ======================================================================= */
-/* conversion between BASS_ASIO and obs */
-
-enum audio_format asio_to_obs_audio_format(DWORD format)
-{
-	switch (format) {
-	case BASS_ASIO_FORMAT_16BIT:   return AUDIO_FORMAT_16BIT;
-	case BASS_ASIO_FORMAT_32BIT:   return AUDIO_FORMAT_32BIT;
-	case BASS_ASIO_FORMAT_FLOAT:   return AUDIO_FORMAT_FLOAT;
-	default:                       break;
-	}
-
-	return AUDIO_FORMAT_UNKNOWN;
-}
-
-int bytedepth_format(audio_format format)
-{
-	return (int)get_audio_bytes_per_channel(format);
-}
-
-int bytedepth_format(DWORD format) {
-	return bytedepth_format(asio_to_obs_audio_format(format));
-}
-
-DWORD obs_to_asio_audio_format(audio_format format)
-{
-	switch (format) {
-
-	case AUDIO_FORMAT_16BIT:
-		return BASS_ASIO_FORMAT_16BIT;
-		// obs doesn't have 24 bit
-	case AUDIO_FORMAT_32BIT:
-		return BASS_ASIO_FORMAT_32BIT;
-
-	case AUDIO_FORMAT_FLOAT:
-	default:
-		return BASS_ASIO_FORMAT_FLOAT;
-	}
-	// default to 32 float samples for best quality
-
-}
-
-enum speaker_layout asio_channels_to_obs_speakers(unsigned int channels)
-{
-	switch (channels) {
-	case 1:   return SPEAKERS_MONO;
-	case 2:   return SPEAKERS_STEREO;
-	case 3:   return SPEAKERS_2POINT1;
-	case 4:   return SPEAKERS_4POINT0;
-	case 5:   return SPEAKERS_4POINT1;
-	case 6:   return SPEAKERS_5POINT1;
-		/* no layout for 7 channels */
-	case 8:   return SPEAKERS_7POINT1;
-	}
-	return SPEAKERS_UNKNOWN;
-}
 
 /*****************************************************************************/
 // get number of output channels
