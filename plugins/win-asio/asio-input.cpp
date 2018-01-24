@@ -610,6 +610,8 @@ public:
 		size_t read_index = 0;
 		source->isASIOActive = true;
 
+		blog(LOG_INFO, "listener for device %lu created", device->device_index );
+
 		while (true) {
 			//set the chs we need to wait on
 			for (short i = 0; i < source->unmuted_chs.size(); i++) {
@@ -661,9 +663,10 @@ public:
 		parameters->asio_listener = listener;
 		parameters->device = this;
 
+		blog(LOG_INFO, "adding listener for %lu (source: %lu)", device_index, listener->device_index);
 		listener->isASIOActive = false;
 		//wait on the ch to return, signaling the previous listener should've disconnected by now;
-		//WaitForSingleObject(this->receive_signals[0], 100);
+		WaitForSingleObject(this->receive_signals[0], 200);
 
 
 		listener->captureThread = CreateThread(nullptr, 0, this->capture_thread, parameters, 0, nullptr);
@@ -1075,10 +1078,12 @@ void asio_init(struct asio_data *data)
 		}
 
 		/*prep the device buffers*/
+		blog(LOG_INFO, "prepping device %lu", device_index);
 		device_list[device_index]->prep_circle_buffer(info);
 		device_list[device_index]->prep_events(info);
 		device_list[device_index]->prep_buffers(info.bufpref, info.inputs, format, checkrate);
 
+		blog(LOG_INFO, "starting device %lu", device_index);
 		BASS_ASIO_Start(info.bufpref, recorded_channels);
 		switch (BASS_ASIO_ErrorGetCode()) {
 		case BASS_ERROR_INIT:
@@ -1097,6 +1102,7 @@ void asio_init(struct asio_data *data)
 
 	//Connect listener thread
 	//data->captureThread =  device_list[device_index]->capture_thread();
+	blog(LOG_INFO, "starting listener thread for: %lu", device_index);
 	device_list[device_index]->add_listener(data);
 }
 
