@@ -131,21 +131,14 @@ struct listener_pair {
 };
 
 class asio_data {
-	size_t write_index;
-	size_t read_index;
 public:
 	obs_source_t *source;
 
 	/*asio device and info */
 	const char *device;
 	uint8_t device_index;
-	BASS_ASIO_INFO *info;
 
-	audio_format BitDepth;  //32 bit float only
-	double SampleRate;       //44100 or 48000 Hz
-	uint16_t BufferSize;     // number of samples in buffer
 	uint64_t first_ts;       //first timestamp
-
 							 /* channels info */
 	DWORD input_channels; //total number of input channels
 	DWORD output_channels; // number of output channels of device (not used)
@@ -155,8 +148,6 @@ public:
 	std::vector<std::vector<short>> silent_map;
 	std::vector<short> unmuted_chs;
 	std::vector<short> muted_chs;
-	//circlebuf buffers[MAX_AUDIO_CHANNELS];
-	circlebuf audio_buffer;
 
 	//signals
 	WinHandle stopSignal;
@@ -170,189 +161,13 @@ public:
 	bool previouslyFailed = false;
 	bool useDeviceTiming = false;
 
-	asio_data() : source(NULL), BitDepth(AUDIO_FORMAT_UNKNOWN),
-		SampleRate(0.0), BufferSize(0), first_ts(0), read_index(0),
-		write_index(0), device_index(-1) {
+	asio_data() : source(NULL), first_ts(0), device_index(-1) {
 		memset(&route[0], -1, sizeof(DWORD) * 8);
-		circlebuf_init(&audio_buffer);
-		circlebuf_reserve(&audio_buffer, 480 * sizeof(asio_source_audio));
-		//0 out everything
-		//memset(audio_buffer.data, 0, 480 * sizeof(asio_source_audio));
-		for (int i = 0; i < 480; i++) {
-			circlebuf_push_back(&audio_buffer, &asio_source_audio(), sizeof(asio_source_audio));
-		}
 
 		stopSignal = CreateEvent(nullptr, true, false, nullptr);
 		receiveSignal = CreateEvent(nullptr, false, false, nullptr);
 
 		//captureThread = CreateThread(nullptr, 0, asio_data::capture_thread, this, 0, nullptr);
-	}
-
-	asio_source_audio* get_writeable_source_audio() {
-		return (asio_source_audio*)circlebuf_data(&audio_buffer, write_index * sizeof(asio_source_audio));
-	}
-
-	asio_source_audio* get_readable_source_audio() {
-		return (asio_source_audio*)circlebuf_data(&audio_buffer, read_index * sizeof(asio_source_audio));
-	}
-
-	//obs_source_audio out
-	void write_buffer(DWORD ch, uint8_t* buffer, size_t buffer_size) {
-		if (ch < route_map.size()) {
-			for (size_t i = 0; i < route_map[ch].size(); i++) {
-				if (route_map[ch][i] >= 0 && route_map[ch][i] < MAX_AUDIO_CHANNELS) {
-					uint8_t* data = (uint8_t*)malloc(buffer_size);
-					memcpy(data, buffer, buffer_size);
-					asio_source_audio* _source_audio = (asio_source_audio*)circlebuf_data(&audio_buffer, write_index * sizeof(asio_source_audio));
-					_source_audio->data[route_map[ch][i]] = data;
-					os_atomic_inc_long(&(_source_audio->speakers));
-					if (os_atomic_load_long(&(_source_audio->speakers)) == unmuted_chs.size()) {
-						//write_info();
-						_source_audio->frames = buffer_size / bytedepth_format(BitDepth);
-						_source_audio->format = get_planar_format(BitDepth);
-						_source_audio->samples_per_sec = SampleRate;
-						_source_audio->timestamp = os_gettime_ns() - ((_source_audio->frames * NSEC_PER_SEC) / SampleRate);
-
-						//move write_index one over
-						write_index++;
-						//wrap
-						write_index = write_index % 480;
-
-						SetEvent(receiveSignal);
-					}
-				}
-			}
-		}
-		/*
-		else if (ch < silent_map.size()) {
-		for (size_t i = 0; i < silent_map[ch].size(); i++) {
-		if (silent_map[ch][i] >= 0 && silent_map[ch][i] < MAX_AUDIO_CHANNELS) {
-		uint8_t* data = (uint8_t*)malloc(buffer_size);
-		memcpy(data, buffer, buffer_size);
-		asio_source_audio* _source_audio = (asio_source_audio*)circlebuf_data(&audio_buffer, write_index * sizeof(asio_source_audio));
-		_source_audio->data[silent_map[ch][i]] = data;
-		os_atomic_inc_long(&(_source_audio->speakers));
-		if (os_atomic_load_long(&(_source_audio->speakers)) == unmuted_chs.size()) {
-		//write_info();
-		_source_audio->frames = buffer_size / bytedepth_format(BitDepth);
-		_source_audio->format = get_planar_format(BitDepth);
-		_source_audio->samples_per_sec = SampleRate;
-		_source_audio->timestamp = os_gettime_ns() - ((_source_audio->frames * NSEC_PER_SEC) / SampleRate);
-
-		//move write_index one over
-		write_index++;
-		//wrap
-		write_index = write_index % 480;
-
-		SetEvent(receiveSignal);
-		}
-		}
-		}
-		}
-		*/
-		//no need to write, wasn't 
-	}
-
-	bool read_buffer() {
-		struct obs_audio_info aoi;
-		obs_get_audio_info(&aoi);
-
-		while ((read_index % 480) != (write_index % 480)) {
-			obs_source_audio data;
-			//PLANAR DATA NEEDS TO BE SET UP AHEAD OF TIME
-			asio_source_audio* asiobuf = get_readable_source_audio();
-			data.format = asiobuf->format;
-			if (data.format == AUDIO_FORMAT_UNKNOWN) {
-				//we can't output this...this'll be junk
-				read_index++;
-				continue;
-			}
-
-			data.frames = asiobuf->frames;
-			data.samples_per_sec = asiobuf->samples_per_sec;
-			data.timestamp = asiobuf->timestamp;
-			if (!first_ts) {
-				first_ts = data.timestamp;
-				read_index;
-				continue;
-			}
-			//HANDLING PLANAR ONLY FROM THIS POINT FORWARD!
-
-			if (unmuted_chs.size() == 0) {
-				//also can't output this...this'll be junk (no speakers)
-				read_index++;
-				continue;
-			}
-			for (short i = 0; i < unmuted_chs.size(); i++) {
-				data.data[unmuted_chs[i]] = asiobuf->data[unmuted_chs[i]];
-			}
-			for (short i = 0; i < muted_chs.size(); i++) {
-				data.data[muted_chs[i]] = (uint8_t*)calloc(data.frames, sizeof(bytedepth_format(data.format)));//asiobuf->data[muted_chs[i]];
-			}
-
-			long speakers = aoi.speakers;//unmuted_chs.size();//input_channels;//os_atomic_load_long(&(asiobuf->speakers));
-										 //upscale if needed
-			if (speakers == 7) {
-				speakers = 8;
-				data.data[7] = (uint8_t*)calloc(data.frames, bytedepth_format(BitDepth));
-			}
-			data.speakers = (speaker_layout)speakers;
-			//so long as the data's properly formatted, we're good to go
-
-			obs_source_output_audio(source, &data);
-			//obs is done processing the audio
-
-			//reset the speaker count (the only thing we need to do w/ this frame to "delete") it
-			os_atomic_set_long(&(asiobuf->speakers), 0);
-			//cleanup
-			for (short i = 0; i < muted_chs.size(); i++) {
-				if (asiobuf->data[muted_chs[i]]) {
-					free(asiobuf->data[muted_chs[i]]);
-				}
-			}
-			/*
-			for (short i = 0; i < MAX_AUDIO_CHANNELS; i++) {
-			if (asiobuf->data[i]) {
-			free(asiobuf->data[i]);
-			}
-			}
-			*/
-
-			read_index++;
-		}
-		//
-		read_index = read_index % 480;
-		write_index = write_index % 480;
-
-		return true;
-	}
-
-	static DWORD WINAPI capture_thread(void *data) {
-		asio_data *source = static_cast<asio_data*>(data);
-		std::string thread_name = "asio capture thread";//source->device;
-														//thread_name += " capture thread";
-		os_set_thread_name(thread_name.c_str());
-
-		HANDLE signals[2] = { source->receiveSignal, source->stopSignal };
-
-		source->route_map = _bin_map_unmuted(source->route);
-		source->silent_map = _bin_map_muted(source->route);
-
-		while (true) {
-			int waitResult = WaitForMultipleObjects(2, signals, false, CAPTURE_INTERVAL);
-			if (waitResult == WAIT_OBJECT_0 || waitResult == WAIT_TIMEOUT) {
-				source->read_buffer();
-			}
-			else if (waitResult == WAIT_OBJECT_0 + 1) {
-				break;
-			}
-			else {
-				blog(LOG_ERROR, "[%s::%s] Abnormal termination of %s", typeid(*source).name(), __FUNCTION__, thread_name.c_str());
-				break;
-			}
-		}
-
-		return 0;
 	}
 
 	bool render_audio(device_source_audio *asio_buffer, long route[]) {
@@ -616,10 +431,9 @@ public:
 
 	void write_buffer(DWORD ch, uint8_t* buffer, size_t buffer_size) {
 		static volatile long callback_count = 0;
-		BASS_ASIO_INFO info;
+		static BASS_ASIO_INFO info;
 		BASS_ASIO_GetInfo(&info);
-
-		blog(LOG_INFO, "Writing Buffer %lu", ch);
+		blog(LOG_INFO, "Ch %lu/%lu: %s, %lu samples", ch, info.inputs, info.name, info.bufpref);
 		if (!prepped) {
 			return;
 		}
@@ -669,30 +483,30 @@ public:
 		listener_pair *pair = static_cast<listener_pair*>(data);
 		asio_data *source = pair->asio_listener;//static_cast<asio_data*>(data);
 		device_data *device = pair->device;//static_cast<device_data*>(data);
+		struct obs_audio_info aoi;
+		obs_get_audio_info(&aoi);
 
 		std::string thread_name = "asio capture thread";//source->device;
 														//thread_name += " capture thread";
 		os_set_thread_name(thread_name.c_str());
-		size_t ch_count = source->unmuted_chs.size();
-		HANDLE *signals = (HANDLE*)calloc(ch_count, sizeof(HANDLE));
-
-		//struct obs_audio_info aoi;
-		//obs_get_audio_info(&aoi);
-
+		//size_t ch_count = source->unmuted_chs.size();
+		//HANDLE *signals = (HANDLE*)calloc(ch_count, sizeof(HANDLE));
+		HANDLE signals[MAX_AUDIO_CHANNELS];
 		long route[MAX_AUDIO_CHANNELS];
-
-		for (short i = 0; i < source->unmuted_chs.size(); i++) {
-			signals[i] = device->receive_signals[source->route[source->unmuted_chs[i]]];
-		}
-		for (short i = 0; i < MAX_AUDIO_CHANNELS; i++) {
-			route[i] = source->route[i];
-		}
 
 		size_t read_index = 0;
 		source->isASIOActive = true;
 
-		while (source && device) {
-			int waitResult = WaitForMultipleObjects(ch_count, signals, true, 100);
+		while (true) {
+			//set the chs we need to wait on
+			for (short i = 0; i < source->unmuted_chs.size(); i++) {
+				signals[i] = device->receive_signals[source->route[source->unmuted_chs[i]]];
+			}
+			for (short i = 0; i < aoi.speakers; i++) {
+				route[i] = source->route[i];
+			}
+
+			int waitResult = WaitForMultipleObjects(source->unmuted_chs.size(), signals, true, 100);
 			if (waitResult == WAIT_OBJECT_0) {
 				//device->read_index()
 				if (!source->isASIOActive) {
@@ -1123,9 +937,9 @@ void asio_init(struct asio_data *data)
 			"error number is : %i \n; check BASS_ASIO_ErrorGetCode\n",
 			BASS_ASIO_ErrorGetCode());
 	}
-	data->info = &info;
-	audio_format BitDepth = data->BitDepth;
-	DWORD bassBitdepth = obs_to_asio_audio_format(BitDepth);
+	//data->info = &info;
+	//audio_format BitDepth = data->BitDepth;
+	//DWORD bassBitdepth = obs_to_asio_audio_format(BitDepth);
 
 	uint8_t deviceNumber = getDeviceCount();
 	if (deviceNumber < 1) {
@@ -1139,14 +953,25 @@ void asio_init(struct asio_data *data)
 	// we initialize ALL the device input channels
 	// First : enable channel 0
 
-	// convert all samples to float irrespective of what the user sets in the settings ==> disable this setting later
-	ret = BASS_ASIO_ChannelSetFormat(true, 0, bassBitdepth);
+	// start the device w/ the best possible setting
+	ret = BASS_ASIO_ChannelSetFormat(true, 0, BASS_ASIO_FORMAT_FLOAT);
 	if (!ret)
 	{
 		blog(LOG_ERROR, "Could not set channel bitdepth; error code : %i", BASS_ASIO_ErrorGetCode());
+		ret = BASS_ASIO_ChannelSetFormat(true, 0, BASS_ASIO_FORMAT_32BIT);
+		if (!ret) {
+			blog(LOG_ERROR, "Could not set channel bitdepth; error code : %i", BASS_ASIO_ErrorGetCode());
+			ret = BASS_ASIO_ChannelSetFormat(true, 0, BASS_ASIO_FORMAT_16BIT);
+			if (!ret) {
+				blog(LOG_ERROR, "Could not set channel bitdepth; error code : %i", BASS_ASIO_ErrorGetCode());
+				//critical failure! exit
+				blog(LOG_ERROR, "Could not set channel bitdepth to any supported OBS Format!");
+				return;
+			}
+		}
 	}
-	// enable channels 0 and link to callback
-	//&source_list[device_index]
+
+	// enable all chs and link to callback w/ the device buffer class
 	DWORD device_index = get_device_index(info.name);
 	for (DWORD i = 0; i < info.inputs; i++) {
 		ret = BASS_ASIO_ChannelEnable(true, i, &create_asio_buffer, device_list[device_index]);//data
@@ -1165,7 +990,7 @@ void asio_init(struct asio_data *data)
 	// check buffer size is legit; if not set it to bufpref
 	// to be implemented : to avoid issues, force to bufpref
 	// this ignores any setting; bufpref is most likely set in asio control panel
-	data->BufferSize = info.bufpref;
+	//data->BufferSize = info.bufpref;
 	//check channel setup
 	DWORD checkrate = BASS_ASIO_GetRate();
 	blog(LOG_INFO, "sample rate is set in device to %i.\n", checkrate);
@@ -1178,7 +1003,7 @@ void asio_init(struct asio_data *data)
 		/*prep the device buffers*/
 		device_list[device_index]->prep_buffers(info.bufpref, info.inputs, format, checkrate);
 
-		BASS_ASIO_Start(data->BufferSize, recorded_channels);
+		BASS_ASIO_Start(info.bufpref, recorded_channels);
 		switch (BASS_ASIO_ErrorGetCode()) {
 		case BASS_ERROR_INIT:
 			blog(LOG_ERROR, "Error: Bass asio not initialized.\n");
@@ -1193,6 +1018,9 @@ void asio_init(struct asio_data *data)
 			blog(LOG_ERROR, "ASIO init: Unknown error when trying to start the device\n");
 		}
 	}
+	else {
+
+	}
 }
 
 static void * asio_create(obs_data_t *settings, obs_source_t *source)
@@ -1202,7 +1030,6 @@ static void * asio_create(obs_data_t *settings, obs_source_t *source)
 	data->source = source;
 	data->first_ts = 0;
 	data->device = NULL;
-	data->info = NULL;
 
 	asio_update(data, settings);
 
@@ -1333,31 +1160,6 @@ void asio_update(void *vptr, obs_data_t *settings)
 			}
 		}
 
-		rate = (double)obs_data_get_int(settings, "sample rate");
-		if (data->SampleRate != rate) {
-			data->SampleRate = rate;
-			bool ret = BASS_ASIO_SetRate(rate);
-			switch (BASS_ASIO_ErrorGetCode()) {
-			case BASS_ERROR_NOTAVAIL:
-				blog(LOG_ERROR, "Selected sample rate not supported by device\n");
-			case BASS_ERROR_INIT:
-				blog(LOG_ERROR, "Device not initialized; sample rate can not be set\n");
-			case BASS_ERROR_UNKNOWN:
-				blog(LOG_ERROR, "Unknown error when trying to set the sample rate\n");
-			}
-		}
-
-		BufferSize = (uint16_t)obs_data_get_int(settings, "buffer");
-		if (data->BufferSize != BufferSize) {
-			data->BufferSize = BufferSize;
-		}
-
-		BitDepth = (audio_format)obs_data_get_int(settings, "bit depth");
-		if (data->BitDepth != BitDepth) {
-			data->BitDepth = BitDepth;
-		}
-
-		data->info = &info;
 		data->input_channels = info.inputs;
 		data->output_channels = info.outputs;
 		data->device_index = device_index;//get_device_index(device);
