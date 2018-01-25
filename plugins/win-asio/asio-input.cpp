@@ -700,9 +700,9 @@ public:
 		bool ret = BASS_ASIO_GetInfo(&info);
 		uint8_t * input_buffer = (uint8_t*)buffer;
 		size_t ch_buffer_size = BufSize / info.inputs; //buffer_size;
-		BASS_ASIO_CHANNELINFO ch_info;
-		BASS_ASIO_ChannelGetInfo(1, 0, &ch_info);
-		int byte_depth = bytedepth_format(ch_info.format);
+		//BASS_ASIO_CHANNELINFO ch_info;
+		//BASS_ASIO_ChannelGetInfo(1, 0, &ch_info);
+		int byte_depth = bytedepth_format(format);//bytedepth_format(ch_info.format);
 		size_t interleaved_frame_size = info.inputs * byte_depth;
 		size_t frames_count = BufSize / interleaved_frame_size;
 		
@@ -712,14 +712,14 @@ public:
 			return;
 		}
 
-		audio_format format = get_planar_format(asio_to_obs_audio_format(ch_info.format));
+		audio_format planar_format = get_planar_format(format);
 		//deinterleave directly into buffer (planar)
-		for (short i = 0; i < frames_count; i++) {
-			for (short j = 0; j < info.inputs; j++) {
-				memcpy(_source_audio->data[j] + i, input_buffer + j + (i * interleaved_frame_size), byte_depth);
+		for (size_t i = 0; i < frames_count; i++) {
+			for (size_t j = 0; j < info.inputs; j++) {
+				memcpy(_source_audio->data[j] + (i * byte_depth), input_buffer + (j * byte_depth) + (i * interleaved_frame_size), byte_depth);
 			}
 		}
-		_source_audio->format = format;
+		_source_audio->format = planar_format;
 		_source_audio->frames = frames_count;
 		_source_audio->input_chs = info.inputs;
 		_source_audio->samples_per_sec = samples_per_sec;
