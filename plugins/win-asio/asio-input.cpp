@@ -361,6 +361,7 @@ public:
 				free(silent_buffer);
 			}
 			silent_buffer = (uint8_t*)calloc(buffer_size, sizeof(uint8_t));
+			silent_buffer_size = buffer_size;
 		}
 
 		for (short i = 0; i < aoi.speakers; i++) {
@@ -437,7 +438,7 @@ public:
 
 	static std::vector<short> _get_muted_chs(long route_array[]) {
 		std::vector<short> silent_chs;
-		long max_size = 0;
+		silent_chs.reserve(MAX_AUDIO_CHANNELS);
 		for (short i = 0; i < MAX_AUDIO_CHANNELS; i++) {
 			if (route_array[i] == -1) {
 				silent_chs.push_back(i);
@@ -448,7 +449,7 @@ public:
 
 	static std::vector<short> _get_unmuted_chs(long route_array[]) {
 		std::vector<short> unmuted_chs;
-		long max_size = 0;
+		unmuted_chs.reserve(MAX_AUDIO_CHANNELS);
 		for (short i = 0; i < MAX_AUDIO_CHANNELS; i++) {
 			if (route_array[i] >= 0) {
 				unmuted_chs.push_back(i);
@@ -458,27 +459,24 @@ public:
 	}
 
 	static std::vector<long> _get_required_chs(long route_array[]) {
-		long tmpArray[MAX_AUDIO_CHANNELS];
-		memcpy(tmpArray, route_array, MAX_AUDIO_CHANNELS * sizeof(long));
-
-		std::vector<long> route_vector(tmpArray,tmpArray+ MAX_AUDIO_CHANNELS);
-		//radix_sort((unsigned long*)tmpArray, (unsigned long*)tmpArray[MAX_AUDIO_CHANNELS]);
-		//std::vector<long> ordered_chs (tmpArray,tmpArray+MAX_AUDIO_CHANNELS);
-
 		std::unordered_map<long, short> hash_map;
 		hash_map.reserve(MAX_AUDIO_CHANNELS);
-		for (size_t i = 0; i < route_vector.size(); i++) {
-			hash_map[route_vector[i]] = i;
+		for (short i = 0; i < MAX_AUDIO_CHANNELS; i++) {
+			if (route_array[i] >= 0) {
+				hash_map[route_array[i]] = i;//.push_back(route_array[i]);
+			}
 		}
-		route_vector.clear();
-		route_vector.reserve(hash_map.size());
+		//radix_sort((unsigned long*)tmpArray, (unsigned long*)tmpArray[MAX_AUDIO_CHANNELS]);
+		//std::vector<long> ordered_chs (tmpArray,tmpArray+MAX_AUDIO_CHANNELS);
+		std::vector<long> selected_chs;
+		selected_chs.reserve(hash_map.size());
 		std::unordered_map<long, short>::iterator it;
 		for (it = hash_map.begin(); it != hash_map.end(); it++) {
 			//(key,value) (it->first, it->second)
-			route_vector.push_back(it->first);
+			selected_chs.push_back(it->first);
 		}
 
-		return route_vector;
+		return selected_chs;
 	}
 
 	static long* make_route(std::vector<short> hash_map) {
@@ -703,13 +701,14 @@ public:
 		if (_source_audio && _source_audio->data[ch]) {
 			memcpy(_source_audio->data[ch], buffer, buffer_size);
 			SetEvent(receive_signals[ch]);
-			blog(LOG_INFO, "Ch %lu/%lu: %s, %lu samples", ch, info.inputs, info.name, info.bufpref);
+			//blog(LOG_INFO, "Ch %lu/%lu: %s, %lu samples", ch, info.inputs, info.name, info.bufpref);
 		}
 
 		//loop
 		os_atomic_inc_long(&callback_count);
 		//os_atomic_set_long(&callback_count, (os_atomic_load_long(&callback_count)+1) % input_chs);
 		if (os_atomic_load_long(&callback_count) >= input_chs) {
+			_source_audio->timestamp = os_gettime_ns() - ((_source_audio->frames * NSEC_PER_SEC) / _source_audio->samples_per_sec);
 			write_index++;
 			write_index = write_index % buffer_count;
 			//os_atomic_set_long(&callback_count, (os_atomic_load_long(&callback_count)) % input_chs);
