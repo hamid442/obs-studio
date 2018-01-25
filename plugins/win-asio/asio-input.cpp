@@ -61,110 +61,6 @@ OBS_MODULE_USE_DEFAULT_LOCALE("win-asio", "en-US")
 #define TEXT_BUFFER_1024_SAMPLES        obs_module_text("1024_samples")
 #define TEXT_BITDEPTH                   obs_module_text("BitDepth")
 
-
-/* radix sort from: https://www.geeksforgeeks.org/radix-sort/*/
-/* radix sort from: https://github.com/gorset/radix/blob/master/radix.cc*/
-/* radix sort from: https://www.quora.com/What-is-the-most-efficient-way-to-sort-a-million-32-bit-integers*/
-/* radix sort from: http://pseudoprogrammer.blogspot.com/2012/05/binary-radix-sort.html*/
-/*
-void radix_sort(unsigned *begin, unsigned *end)
-{
-	unsigned *begin1 = new unsigned[end - begin];
-	unsigned *end1 = begin1 + (end - begin);
-	for (unsigned shift = 0; shift < 32; shift += 8) {
-		size_t count[0x100] = {};
-		for (unsigned *p = begin; p != end; p++)
-			count[(*p >> shift) & 0xFF]++;
-		unsigned *bucket[0x100], *q = begin1;
-		for (int i = 0; i < 0x100; q += count[i++])
-			bucket[i] = q;
-		for (unsigned *p = begin; p != end; p++)
-			*bucket[(*p >> shift) & 0xFF]++ = *p;
-		std::swap(begin, begin1);
-		std::swap(end, end1);
-	}
-	delete[] begin1;
-}
-*/
-void radix_sort(unsigned char* begin, unsigned char* end) {
-	unsigned char *begin1 = new unsigned char[end - begin];
-	unsigned char *end1 = begin1 + (end - begin);
-	unsigned bit_depth = sizeof(unsigned char) * 8;
-	//technically...this only runs once... (unsigned char is 8 bits and all)
-	for (unsigned long shift = 0; shift < bit_depth; shift += 8) {
-		size_t count[0x100] = {};
-		for (unsigned char *p = begin; p != end; p++)
-			count[(*p >> shift) & 0xFF]++;
-		unsigned char *bucket[0x100];
-		unsigned char *q = begin1;
-		for (int i = 0; i < 0x100; q += count[i++])
-			bucket[i] = q;
-		for (unsigned char*p = begin; p != end; p++)
-			*bucket[(*p >> shift) & 0xFF]++ = *p;
-		std::swap(begin, begin1);
-		std::swap(end, end1);
-	}
-}
-
-void radix_sort(unsigned short *begin, unsigned short *end) {
-	unsigned short *begin1 = new unsigned short[end - begin];
-	unsigned short *end1 = begin1 + (end - begin);
-	unsigned bit_depth = sizeof(unsigned short) * 8;
-	for (unsigned long shift = 0; shift < bit_depth; shift += 8) {
-		size_t count[0x100] = {};
-		for (unsigned short *p = begin; p != end; p++)
-			count[(*p >> shift) & 0xFF]++;
-		unsigned short *bucket[0x100];
-		unsigned short *q = begin1;
-		for (int i = 0; i < 0x100; q += count[i++])
-			bucket[i] = q;
-		for (unsigned short*p = begin; p != end; p++)
-			*bucket[(*p >> shift) & 0xFF]++ = *p;
-		std::swap(begin, begin1);
-		std::swap(end, end1);
-	}
-}
-
-void radix_sort(unsigned long *begin, unsigned long *end) {
-	unsigned long *begin1 = new unsigned long[end - begin];
-	unsigned long *end1 = begin1 + (end - begin);
-	unsigned bit_depth = sizeof(unsigned long) * 8;
-	for (unsigned long shift = 0; shift < bit_depth; shift += 8) {
-		size_t count[0x100] = {};
-		for (unsigned long *p = begin; p != end; p++)
-			count[(*p >> shift) & 0xFF]++;
-		unsigned long *bucket[0x100];
-		unsigned long *q = begin1;
-		for (int i = 0; i < 0x100; q += count[i++])
-			bucket[i] = q;
-		for (unsigned long*p = begin; p != end; p++)
-			*bucket[(*p >> shift) & 0xFF]++ = *p;
-		std::swap(begin, begin1);
-		std::swap(end, end1);
-	}
-	delete[] begin1;
-}
-
-void radix_sort(unsigned long long *begin, unsigned long long *end) {
-	unsigned long long *begin1 = new unsigned long long[end - begin];
-	unsigned long long *end1 = begin1 + (end - begin);
-	unsigned bit_depth = sizeof(unsigned long long) * 8;
-	for (unsigned shift = 0; shift < bit_depth; shift += 8) {
-		size_t count[0x100] = {};
-		for (unsigned long long *p = begin; p != end; p++)
-			count[(*p >> shift) & 0xFF]++;
-		unsigned long long *bucket[0x100], *q = begin1;
-		for (int i = 0; i < 0x100; q += count[i++])
-			bucket[i] = q;
-		for (unsigned long long*p = begin; p != end; p++)
-			*bucket[(*p >> shift) & 0xFF]++ = *p;
-		std::swap(begin, begin1);
-		std::swap(end, end1);
-	}
-	delete[] begin1;
-}
-
-
 /* ======================================================================= */
 /* conversion between BASS_ASIO and obs */
 
@@ -294,6 +190,9 @@ struct listener_pair {
 };
 
 class asio_data {
+private:
+	uint8_t* silent_buffer = NULL;
+	size_t silent_buffer_size = 0;
 public:
 	CRITICAL_SECTION settings_mutex;
 
@@ -309,8 +208,7 @@ public:
 	DWORD output_channels; // number of output channels of device (not used)
 	DWORD recorded_channels; // number of channels passed from device (including muted) to OBS; is at most 8
 	long route[MAX_AUDIO_CHANNELS]; // stores the channel re-ordering info
-	std::vector<std::vector<short>> route_map;
-	std::vector<std::vector<short>> silent_map;
+
 	std::vector<short> unmuted_chs;
 	std::vector<short> muted_chs;
 	std::vector<long> required_signals;
@@ -318,7 +216,7 @@ public:
 	//signals
 	WinHandle stop_listening_signal;
 
-	WinHandle reconnectThread;
+	//WinHandle reconnectThread;
 	WinHandle captureThread;
 
 	bool isASIOActive = false;
@@ -340,13 +238,16 @@ public:
 		memset(&route[0], -1, sizeof(DWORD) * 8);
 
 		stop_listening_signal = CreateEvent(nullptr, true, false, nullptr);
+	}
 
-		//captureThread = CreateThread(nullptr, 0, asio_data::capture_thread, this, 0, nullptr);
+	~asio_data() {
+		DeleteCriticalSection(&settings_mutex);
+		if (silent_buffer) {
+			free(silent_buffer);
+		}
 	}
 
 	bool render_audio(device_source_audio *asio_buffer, long route[]) {
-		static uint8_t* silent_buffer = NULL;
-		static size_t silent_buffer_size = 0;
 
 		struct obs_audio_info aoi;
 		obs_get_audio_info(&aoi);
@@ -405,63 +306,6 @@ public:
 		return true;
 	}
 
-	static std::vector<std::vector<short>> _bin_map_unmuted(long route_array[]) {
-		std::vector<std::vector<short>> bins;
-		//std::vector<short> out;// = std::vector<short>(256);
-		long max_size = 0;
-
-		for (short i = 0; i < MAX_AUDIO_CHANNELS; i++) {
-			long ch_index = route_array[i] + 1;
-			max_size = max(ch_index, max_size);
-		}
-		bins.resize(max_size);
-
-		for (short i = 0; i < MAX_AUDIO_CHANNELS; i++) {
-			if (route_array[i] >= 0) {
-				bins[route_array[i]].push_back(i);
-			}
-		}
-
-		return bins;
-	}
-
-	static std::vector<std::vector<short>> _bin_map_muted(long route_array[]) {
-		std::vector<std::vector<short>> bins;
-		//std::vector<short> out;// = std::vector<short>(256);
-		std::vector<short> unmuted_chs;
-		std::vector<short> muted_chs;
-
-		long max_size = 0;
-		for (short i = 0; i < MAX_AUDIO_CHANNELS; i++) {
-			long ch_index = route_array[i] + 1;
-			max_size = max(ch_index, max_size);
-			if (route_array[i] == -1) {
-				muted_chs.push_back(i);
-			}
-			else if (route_array[i] >= 0) {
-				unmuted_chs.push_back(i);
-			}
-		}
-		bins.resize(max_size);
-
-		for (size_t j = 0; j < max_size; j++) {
-			bool found = false;
-			for (size_t k = 0; k < unmuted_chs.size(); k++) {
-				if (unmuted_chs[k] == j) {
-					found = true;
-					break;
-				}
-			}
-			if (!found) {
-				short index = muted_chs.back();
-				muted_chs.pop_back();
-				bins[j].push_back(index);
-			}
-		}
-
-		return bins;
-	}
-
 	static std::vector<short> _get_muted_chs(long route_array[]) {
 		std::vector<short> silent_chs;
 		silent_chs.reserve(MAX_AUDIO_CHANNELS);
@@ -484,46 +328,11 @@ public:
 		return unmuted_chs;
 	}
 
-	static std::vector<long> _get_required_chs(long route_array[]) {
-		std::unordered_map<long, short> hash_map;
-		hash_map.reserve(MAX_AUDIO_CHANNELS);
-		for (short i = 0; i < MAX_AUDIO_CHANNELS; i++) {
-			if (route_array[i] >= 0) {
-				hash_map[route_array[i]] = i;//.push_back(route_array[i]);
-			}
-		}
-		//radix_sort((unsigned long*)tmpArray, (unsigned long*)tmpArray[MAX_AUDIO_CHANNELS]);
-		//std::vector<long> ordered_chs (tmpArray,tmpArray+MAX_AUDIO_CHANNELS);
-		std::vector<long> selected_chs;
-		selected_chs.reserve(hash_map.size());
-		std::unordered_map<long, short>::iterator it;
-		for (it = hash_map.begin(); it != hash_map.end(); it++) {
-			//(key,value) (it->first, it->second)
-			selected_chs.push_back(it->first);
-		}
-
-		return selected_chs;
-	}
-
-	static long* make_route(std::vector<short> hash_map) {
-		short mapped = 0;
-		long *arr = (long*)malloc(MAX_AUDIO_CHANNELS * sizeof(long));
-		memset(arr, -1, MAX_AUDIO_CHANNELS * sizeof(long));
-
-		for (size_t i = 0; i < hash_map.size(); i++) {
-			if (hash_map[i] >= 0 && hash_map[i] < MAX_AUDIO_CHANNELS) {
-				arr[hash_map[i]] = i;
-			}
-		}
-
-		return arr;
-	}
 };
 
 class device_data {
 private:
 	size_t write_index;
-	size_t read_index;
 	size_t buffer_count;
 
 	uint32_t frames;
@@ -532,8 +341,7 @@ private:
 	uint32_t samples_per_sec;
 
 	size_t buffer_size;
-	//uint64_t first_timestamp;
-
+	//not in use...
 	WinHandle *receive_signals;
 	WinHandle all_recieved_signal;
 	WinHandle stop_listening_signal;
@@ -543,16 +351,21 @@ private:
 	bool circle_buffer_prepped = false;
 	bool reallocate_buffer = false;
 	bool events_prepped = false;
+
+	circlebuf audio_buffer;
 public:
 	const WinHandle * get_handles() {
 		return receive_signals;
+	}
+
+	WinHandle on_buffer() {
+		return all_recieved_signal;
 	}
 
 	long get_input_channels() {
 		return input_chs;
 	}
 
-	circlebuf audio_buffer;
 	long device_index;
 
 	device_source_audio* get_writeable_source_audio() {
@@ -572,7 +385,6 @@ public:
 
 		format = AUDIO_FORMAT_UNKNOWN;
 		write_index = 0;
-		read_index = 0;
 		buffer_count = 32;
 
 		all_recieved_signal = CreateEvent(nullptr, true, false, nullptr);
@@ -587,10 +399,13 @@ public:
 
 		format = audioformat;
 		write_index = 0;
-		read_index = 0;
 		buffer_count = buffers ? buffers : 32;
 
 		all_recieved_signal = CreateEvent(nullptr, true, false, nullptr);
+	}
+
+	~device_data() {
+		//free resources?
 	}
 
 	void check_all() {
@@ -695,16 +510,17 @@ public:
 			return;
 		}
 		ResetEvent(all_recieved_signal);
-
+		//get as much information from the device that called this function
 		BASS_ASIO_INFO info;
 		bool ret = BASS_ASIO_GetInfo(&info);
 		uint8_t * input_buffer = (uint8_t*)buffer;
-		size_t ch_buffer_size = BufSize / info.inputs; //buffer_size;
-		//BASS_ASIO_CHANNELINFO ch_info;
-		//BASS_ASIO_ChannelGetInfo(1, 0, &ch_info);
-		int byte_depth = bytedepth_format(format);//bytedepth_format(ch_info.format);
+		//size_t ch_buffer_size = BufSize / info.inputs;
+		int byte_depth = bytedepth_format(format);
 		size_t interleaved_frame_size = info.inputs * byte_depth;
+		//calculate on the spot
 		size_t frames_count = BufSize / interleaved_frame_size;
+		//use cached value
+		//size_t frames_count = frames;
 		
 		device_source_audio* _source_audio = get_writeable_source_audio();
 		if (!_source_audio) {
@@ -730,81 +546,6 @@ public:
 		SetEvent(all_recieved_signal);
 	}
 
-	void write_buffer(DWORD ch, uint8_t* buffer, size_t buffer_size) {
-		static volatile long callback_count = 0;
-		static BASS_ASIO_INFO info;
-		BASS_ASIO_GetInfo(&info);
-		if (!all_prepped) {
-			/* this should've happened in advance of the device callbacks... */
-			//init the device for proper use from the callback (we should have enough info)
-			/*
-			if (!circle_buffer_prepped) {
-				prep_circle_buffer(info);
-			}
-			if (!events_prepped) {
-				prep_events(info);
-			}
-			if (!buffer_prepped) {
-				BASS_ASIO_CHANNELINFO ch_info;
-				BASS_ASIO_ChannelGetInfo(1, 0, &ch_info);
-
-				double sample_rate = BASS_ASIO_ChannelGetRate(1, 0);
-
-				prep_buffers(info, asio_to_obs_audio_format(ch_info.format), (DWORD)sample_rate);
-			}
-			*/
-			return;
-		}
-		if (os_atomic_load_long(&callback_count) == 0) {
-			for (int i = 0; i < input_chs; i++) {
-				ResetEvent(receive_signals[ch]);
-			}
-			//apply settings
-		}
-
-		device_source_audio* _source_audio = get_writeable_source_audio();
-		/*
-		size_t source_audio_buffer_size = _source_audio->frames * bytedepth_format(_source_audio->format);
-		if(buffer_size > source_audio_buffer_size){
-		uint8_t *tmp = (uint8_t*)realloc(_source_audio->data[ch], buffer_size);
-		if(tmp == NULL){
-		//problem
-		_source_audio->data[ch] = NULL;
-		} else if(tmp == _source_audio->data[ch]){
-		tmp = NULL;
-		} else {
-		_source_audio->data[ch] = tmp;
-		tmp = NULL;
-		}
-		}
-		*/
-		if (_source_audio && _source_audio->data[ch]) {
-			memcpy(_source_audio->data[ch], buffer, buffer_size);
-			SetEvent(receive_signals[ch]);
-			//blog(LOG_INFO, "Ch %lu/%lu: %s, %lu samples", ch, info.inputs, info.name, info.bufpref);
-		}
-		else {
-			blog(LOG_INFO, "Ch %lu dropped", ch);
-		}
-
-		//loop
-		os_atomic_inc_long(&callback_count);
-		//os_atomic_set_long(&callback_count, (os_atomic_load_long(&callback_count)+1) % input_chs);
-		if (os_atomic_load_long(&callback_count) >= input_chs) {
-			//_source_audio->timestamp = os_gettime_ns() - ((_source_audio->frames * NSEC_PER_SEC) / _source_audio->samples_per_sec);
-			_source_audio->timestamp = os_gettime_ns();
-			write_index++;
-			write_index = write_index % buffer_count;
-			//os_atomic_set_long(&callback_count, (os_atomic_load_long(&callback_count)) % input_chs);
-			/*
-			for (int i = 0; i < input_chs; i++) {
-			ResetEvent(receive_signals[ch]);
-			}
-			*/
-			//os_atomic_set_long(&callback_count, 0);
-		}
-	}
-
 	static DWORD WINAPI capture_thread(void *data) {
 		listener_pair *pair = static_cast<listener_pair*>(data);
 		asio_data *source = pair->asio_listener;//static_cast<asio_data*>(data);
@@ -815,13 +556,13 @@ public:
 		std::string thread_name = "asio capture: ";//source->device;
 		thread_name += source->get_id();			//thread_name += " capture thread";
 		os_set_thread_name(thread_name.c_str());
-		//size_t ch_count = source->unmuted_chs.size();
-		//HANDLE *signals = (HANDLE*)calloc(ch_count, sizeof(HANDLE));
+
 		HANDLE signals[3] = { device->all_recieved_signal, device->stop_listening_signal, source->stop_listening_signal };
 
 		long route[MAX_AUDIO_CHANNELS];
 
 		source->isASIOActive = true;
+		ResetEvent(source->stop_listening_signal);
 
 		blog(LOG_INFO, "listener for device %lu created: source: %s", device->device_index, source->get_id());
 
@@ -833,6 +574,7 @@ public:
 			}
 			LeaveCriticalSection(&source->settings_mutex);
 			int waitResult = WaitForMultipleObjects(1, signals, false, INFINITE);
+			//not entirely sure that all of these conditions are correct (at the very least this is)
 			if (waitResult == WAIT_OBJECT_0) {
 				while (read_index != device->write_index) {
 					device_source_audio* in = device->get_source_audio(read_index);//device->get_writeable_source_audio();
@@ -849,6 +591,7 @@ public:
 					blog(LOG_INFO, "%s closing", thread_name.c_str());
 					return 0;
 				}
+			//microsoft docs on the return codes gives the impression that you're supposed to subtract wait_object_0
 			} else if (waitResult == WAIT_OBJECT_0 + 1) {
 				blog(LOG_INFO, "device %l indicated it wanted to disconnect", device->device_index);
 				blog(LOG_INFO, "%s closing", thread_name.c_str());
@@ -888,6 +631,7 @@ public:
 		return 0;
 	}
 
+	//adds a listener thread between an asio_data object and this device
 	void add_listener(asio_data *listener) {
 		if (!events_prepped) {
 			return;
@@ -899,17 +643,16 @@ public:
 
 		blog(LOG_INFO, "adding listener for %lu (source: %lu)", device_index, listener->device_index);
 		listener->isASIOActive = false;
-		//wait on the ch to return, signaling the previous listener should've disconnected by now;
-		WaitForSingleObject(this->receive_signals[0], 200);
+		SetEvent(listener->stop_listening_signal);
+
+		//wait for a tick before adding a listener (should stall long enough to close previous thread)
+		WaitForSingleObject(this->all_recieved_signal, 200);
 
 		listener->captureThread = CreateThread(nullptr, 0, this->capture_thread, parameters, 0, nullptr);
 	}
 };
 
 std::vector<device_data*> device_list;
-
-CRITICAL_SECTION source_list_mutex;
-std::vector<std::list<asio_data*>> source_list;
 
 /*****************************************************************************/
 // get number of output channels
@@ -936,15 +679,13 @@ uint8_t getDeviceCount() {
 // get the device index from a device name : the current index can be retrieved from DWORD BASS_ASIO_GetDevice();
 DWORD get_device_index(const char *device) {
 	DWORD device_index = 0;
-	int i, res;
+	int res;
 	BASS_ASIO_SetUnicode(false);
 	BASS_ASIO_DEVICEINFO info;
 	bool ret;
-	int numOfDevices = getDeviceCount();
-	for (i = 0; i < numOfDevices; i++) {
-		ret = BASS_ASIO_GetDeviceInfo(i, &info);
-		if (!ret)
-			blog(LOG_ERROR, "Invalid device index");
+	//int numOfDevices = getDeviceCount();
+	uint8_t i;
+	for (i = 0; BASS_ASIO_GetDeviceInfo(i, &info); i++) {
 		res = strcmp(info.name, device);
 		if (res == 0) {
 			device_index = i;
@@ -1102,6 +843,8 @@ static bool fill_out_bit_depths(obs_properties_t *props, obs_property_t *list, o
 	}
 
 	obs_property_list_clear(list);
+	//these settings are ignored, optimal is picked between float and native for least
+	//amount of processing possible
 	if (channelInfo.format == BASS_ASIO_FORMAT_16BIT) {
 		obs_property_list_add_int(list, "16 bit (native)", AUDIO_FORMAT_16BIT);
 		obs_property_list_add_int(list, "32 bit", AUDIO_FORMAT_32BIT);
@@ -1128,12 +871,80 @@ static bool fill_out_bit_depths(obs_properties_t *props, obs_property_t *list, o
 	return true;
 }
 
+//create list of device supported buffer sizes
+static bool fill_out_buffer_sizes(obs_properties_t *props, obs_property_t *list, obs_data_t *settings) {
+	BASS_ASIO_INFO info;
+	bool ret = BASS_ASIO_GetInfo(&info);
+	if (!ret) {
+		blog(LOG_ERROR, "Unable to retrieve info on the current driver \n"
+			"error number is : %i \n; check BASS_ASIO_ErrorGetCode\n",
+			BASS_ASIO_ErrorGetCode());
+	}
+
+	obs_property_list_clear(list);
+
+	if (info.bufgran == -1) {
+		size_t gran_buffer = info.bufmin;
+		while (gran_buffer <= info.bufmax) {
+			int n = snprintf(NULL, 0, "%llu%s", gran_buffer, (gran_buffer == info.bufpref ? " (preferred)" : ""));
+			if (n <= 0) {
+				//problem...continuing on the loop
+				gran_buffer *= 2;
+				continue;
+			}
+			char * buf = (char*)malloc((n + 1) * sizeof(char));
+			if (!buf) {
+				//problem...continuing on the loop
+				gran_buffer *= 2;
+				continue;
+			}
+			int c = snprintf(buf, n + 1, "%llu%s", gran_buffer, (gran_buffer == info.bufpref ? " (preferred)" : ""));
+			buf[n] = '\0';
+			obs_property_list_add_int(list, buf, gran_buffer);
+			free(buf);
+			gran_buffer *= 2;
+		}
+	}
+	else if (info.bufgran == 0) {
+		size_t gran_buffer = info.bufmin;
+		int n = snprintf(NULL, 0, "%llu%s", gran_buffer, (gran_buffer == info.bufpref ? " (preferred)" : ""));
+		char * buf = (char*)malloc((n + 1) * sizeof(char));
+		int c = snprintf(buf, n + 1, "%llu%s", gran_buffer, (gran_buffer == info.bufpref ? " (preferred)" : ""));
+		buf[n] = '\0';
+		obs_property_list_add_int(list, buf, gran_buffer);
+	} else if (info.bufgran > 0) {
+		size_t gran_buffer = info.bufmin;
+		while (gran_buffer <= info.bufmax) {
+			int n = snprintf(NULL, 0, "%llu%s", gran_buffer, (gran_buffer == info.bufpref ? " (preferred)" : ""));
+			if (n <= 0) {
+				//problem...continuing on the loop
+				gran_buffer += info.bufgran;
+				continue;
+			}
+			char * buf = (char*)malloc((n + 1) * sizeof(char));
+			if (!buf) {
+				//problem...continuing on the loop
+				gran_buffer += info.bufgran;
+				continue;
+			}
+			int c = snprintf(buf, n + 1, "%llu%s", gran_buffer, (gran_buffer == info.bufpref ? " (preferred)" : ""));
+			buf[n] = '\0';
+			obs_property_list_add_int(list, buf, gran_buffer);
+			free(buf);
+			gran_buffer += info.bufgran;
+		}
+	}
+
+	return true;
+}
+
 static bool asio_device_changed(obs_properties_t *props,
 	obs_property_t *list, obs_data_t *settings)
 {
 	const char *curDeviceId = obs_data_get_string(settings, "device_id");
 	obs_property_t *sample_rate = obs_properties_get(props, "sample rate");
 	obs_property_t *bit_depth = obs_properties_get(props, "bit depth");
+	obs_property_t *buffer_size = obs_properties_get(props, "buffer");
 	// be sure to set device as current one
 
 	size_t itemCount = obs_property_list_item_count(list);
@@ -1184,9 +995,12 @@ static bool asio_device_changed(obs_properties_t *props,
 	}
 	obs_property_list_clear(sample_rate);
 	obs_property_list_clear(bit_depth);
+	//fill out based on device's settings
+	obs_property_list_clear(buffer_size);
 
 	obs_property_set_modified_callback(sample_rate, fill_out_sample_rates);
 	obs_property_set_modified_callback(bit_depth, fill_out_bit_depths);
+	obs_property_set_modified_callback(buffer_size, fill_out_buffer_sizes);
 
 	return true;
 }
@@ -1208,11 +1022,7 @@ int mix(uint8_t *inputBuffer, obs_source_audio *out, size_t bytes_per_ch, int ro
 }
 
 DWORD CALLBACK create_asio_buffer(BOOL input, DWORD channel, void *buffer, DWORD BufSize, void *device_ptr) {
-	//DWORD BASS_ASIO_GetDevice()
-	//BASS_ASIO_INFO info;
-	//BASS_ASIO_GetInfo(&info);
 	device_data *device = (device_data*)device_ptr;
-	//device->write_buffer(channel, (uint8_t*)buffer, BufSize);
 	device->write_buffer_interleaved(buffer, BufSize);
 
 	return 0;
@@ -1241,12 +1051,11 @@ void asio_init(struct asio_data *data)
 	// check buffer size is legit; if not set it to bufpref
 	// to be implemented : to avoid issues, force to bufpref
 	// this ignores any setting; bufpref is most likely set in asio control panel
-	//data->BufferSize = info.bufpref;
 	//check channel setup
 	DWORD checkrate = BASS_ASIO_GetRate();
 	blog(LOG_INFO, "sample rate is set in device to %i.\n", checkrate);
 	DWORD checkbitdepth = BASS_ASIO_ChannelGetFormat(true, 0);
-	blog(LOG_INFO, "bitdepth is set in device to %i.\n", checkbitdepth);
+	blog(LOG_INFO, "bitdepth is set in device to %i, format: %i.\n", bytedepth_format(checkbitdepth), checkbitdepth);
 	//audio_format format = asio_to_obs_audio_format(checkbitdepth);
 
 	//get the device_index
@@ -1257,7 +1066,7 @@ void asio_init(struct asio_data *data)
 		DWORD obs_optimal_format = BASS_ASIO_FORMAT_FLOAT;
 		DWORD asio_native_format = BASS_ASIO_ChannelGetFormat(true, 0);
 		DWORD selected_format;
-
+		//pick the best format to use (trying to get float if possible)
 		if (obs_optimal_format == asio_native_format) {
 			//all good...I don't think this needs to happen
 			ret = BASS_ASIO_ChannelSetFormat(true, 0, asio_native_format);
@@ -1307,6 +1116,7 @@ void asio_init(struct asio_data *data)
 		device_list[device_index]->prep_events(info);
 		device_list[device_index]->prep_buffers(info.bufpref, info.inputs, format, checkrate);
 
+		/*start the device w/ # of threads*/
 		blog(LOG_INFO, "starting device %lu", device_index);
 		BASS_ASIO_Start(info.bufpref, spawn_threads);
 		switch (BASS_ASIO_ErrorGetCode()) {
@@ -1340,10 +1150,6 @@ static void * asio_create(obs_data_t *settings, obs_source_t *source)
 
 	asio_update(data, settings);
 
-	//if (obs_data_get_string(settings, "device_id")) {
-	//	asio_init(data);
-	//}
-
 	return data;
 }
 
@@ -1352,20 +1158,11 @@ void asio_destroy(void *vptr)
 	struct asio_data *data = (asio_data *)vptr;
 	device_data *device = device_list[data->device_index];
 
-	data->isASIOActive = false;
-	HANDLE* wait_for_complete_buffer = (HANDLE*)malloc(device->get_input_channels() * sizeof(HANDLE));
-	const WinHandle* handles = device->get_handles();
-	for (short i = 0; i < device->get_input_channels(); i++) {
-		wait_for_complete_buffer[i] = handles[i];
-	}
-	WaitForMultipleObjects(device->get_input_channels(), wait_for_complete_buffer, true, 40);
-
-	/*
-	if (BASS_ASIO_IsStarted())
-	BASS_ASIO_Stop();
-
-	BASS_ASIO_Free();
-	*/
+	//send disconnect event
+	SetEvent(data->stop_listening_signal);
+	HANDLE single_buffer[1] = { device->on_buffer() };
+	WaitForMultipleObjects(1, single_buffer, false, 1000);
+	//WaitForMultipleObjects(device->get_input_channels(), wait_for_complete_buffer, true, 40);
 
 	delete data;
 }
@@ -1388,7 +1185,7 @@ void asio_update(void *vptr, obs_data_t *settings)
 	bool device_changed = false;
 	const char *prev_device;
 	DWORD prev_device_index;
-
+	// lock down the settings mutex (protect against a sudden change when reading buffers)
 	EnterCriticalSection(&data->settings_mutex);
 	// get channel number from output speaker layout set by obs
 	DWORD recorded_channels = get_obs_output_channels();
@@ -1481,14 +1278,13 @@ void asio_update(void *vptr, obs_data_t *settings)
 		data->output_channels = info.outputs;
 		data->device_index = device_index;
 
-		data->route_map = data->_bin_map_unmuted(data->route);
-		data->silent_map = data->_bin_map_muted(data->route);
 		data->muted_chs = data->_get_muted_chs(data->route);
 		data->unmuted_chs = data->_get_unmuted_chs(data->route);
-		data->required_signals = data->_get_required_chs(data->route);
-		//LeaveCriticalSection(&source_list_mutex);
+
+		//safe to leave the critical section
 		LeaveCriticalSection(&data->settings_mutex);
 
+		//spin up the asio device if it hasn't already and create a listener thread
 		asio_init(data);
 	}
 
@@ -1563,11 +1359,14 @@ obs_properties_t * asio_get_properties(void *unused)
 
 	buffer_size = obs_properties_add_list(props, "buffer", TEXT_BUFFER_SIZE,
 		OBS_COMBO_TYPE_LIST, OBS_COMBO_FORMAT_INT);
+
+	//these should be based on the device
 	obs_property_list_add_int(buffer_size, "64", 64);
 	obs_property_list_add_int(buffer_size, "128", 128);
 	obs_property_list_add_int(buffer_size, "256", 256);
 	obs_property_list_add_int(buffer_size, "512", 512);
 	obs_property_list_add_int(buffer_size, "1024", 1024);
+
 	std::string buffer_descr = "Buffer : number of samples in a single frame.\n"
 		"A lower value implies lower latency.\n"
 		"256 should be OK for most cards.\n"
@@ -1597,17 +1396,6 @@ bool obs_module_load(void)
 	asio_input_capture.get_name = asio_get_name;
 	asio_input_capture.get_properties = asio_get_properties;
 
-	//InitializeCriticalSection(&source_list_mutex);
-
-	unsigned long testarray[MAX_AUDIO_CHANNELS] = { 1,2,3,4,5,6,7,8 };
-	radix_sort(&testarray[0], &testarray[MAX_AUDIO_CHANNELS]);
-
-	unsigned long testarray2[MAX_AUDIO_CHANNELS] = { 1,2,3,4,2,2982746,7,8 };
-	radix_sort(&testarray2[0], &testarray2[MAX_AUDIO_CHANNELS]);
-
-	unsigned long long testarray3[MAX_AUDIO_CHANNELS] = { 0xFFFFFFFFFFFFFFFF, 0, 0xAAAAAAAABBBBBBBB, 0xBBBBBBBBAAAAAAAA, 1, 9, 0x77777777, 0x66666666 };
-	radix_sort(&testarray3[0], &testarray3[MAX_AUDIO_CHANNELS]);
-
 	uint8_t devices = getDeviceCount();
 	device_list.reserve(devices);
 	for (uint8_t i = 0; i < devices; i++) {
@@ -1627,5 +1415,6 @@ void obs_module_unload(void){
 		BASS_ASIO_Stop();
 		BASS_ASIO_Free();
 		//clear buffers
+		delete device_list[i];
 	}
 }
