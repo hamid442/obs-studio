@@ -316,8 +316,7 @@ public:
 	std::vector<long> required_signals;
 
 	//signals
-	WinHandle stopSignal;
-	WinHandle receiveSignal;
+	WinHandle stop_listening_signal;
 
 	WinHandle reconnectThread;
 	WinHandle captureThread;
@@ -340,8 +339,7 @@ public:
 
 		memset(&route[0], -1, sizeof(DWORD) * 8);
 
-		stopSignal = CreateEvent(nullptr, true, false, nullptr);
-		receiveSignal = CreateEvent(nullptr, false, false, nullptr);
+		stop_listening_signal = CreateEvent(nullptr, true, false, nullptr);
 
 		//captureThread = CreateThread(nullptr, 0, asio_data::capture_thread, this, 0, nullptr);
 	}
@@ -538,6 +536,7 @@ private:
 
 	WinHandle *receive_signals;
 	WinHandle all_recieved_signal;
+	WinHandle stop_listening_signal;
 
 	bool all_prepped = false;
 	bool buffer_prepped = false;
@@ -570,10 +569,13 @@ public:
 		circle_buffer_prepped = false;
 		reallocate_buffer = false;
 		events_prepped = false;
+
 		format = AUDIO_FORMAT_UNKNOWN;
 		write_index = 0;
 		read_index = 0;
 		buffer_count = 32;
+
+		all_recieved_signal = CreateEvent(nullptr, true, false, nullptr);
 	}
 
 	device_data(size_t buffers, audio_format audioformat) {
@@ -587,6 +589,8 @@ public:
 		write_index = 0;
 		read_index = 0;
 		buffer_count = buffers ? buffers : 32;
+
+		all_recieved_signal = CreateEvent(nullptr, true, false, nullptr);
 	}
 
 	void check_all() {
@@ -685,6 +689,47 @@ public:
 		check_all();
 	}
 
+	void write_buffer_interleaved(void* buffer, DWORD BufSize) {
+		if (!all_prepped) {
+			blog(LOG_INFO, "%s device %i is not prepared", __FUNCTION__, device_index);
+			return;
+		}
+		ResetEvent(all_recieved_signal);
+
+		BASS_ASIO_INFO info;
+		bool ret = BASS_ASIO_GetInfo(&info);
+		uint8_t * input_buffer = (uint8_t*)buffer;
+		size_t ch_buffer_size = BufSize / info.inputs; //buffer_size;
+		BASS_ASIO_CHANNELINFO ch_info;
+		BASS_ASIO_ChannelGetInfo(1, 0, &ch_info);
+		int byte_depth = bytedepth_format(ch_info.format);
+		size_t interleaved_frame_size = info.inputs * byte_depth;
+		size_t frames_count = BufSize / interleaved_frame_size;
+		
+		device_source_audio* _source_audio = get_writeable_source_audio();
+		if (!_source_audio) {
+			blog(LOG_INFO, "%s _source_audio = NULL", __FUNCTION__);
+			return;
+		}
+
+		audio_format format = get_planar_format(asio_to_obs_audio_format(ch_info.format));
+		//deinterleave directly into buffer (planar)
+		for (short i = 0; i < frames_count; i++) {
+			for (short j = 0; j < info.inputs; j++) {
+				memcpy(_source_audio->data[j] + i, input_buffer + j + (i * interleaved_frame_size), byte_depth);
+			}
+		}
+		_source_audio->format = format;
+		_source_audio->frames = frames_count;
+		_source_audio->input_chs = info.inputs;
+		_source_audio->samples_per_sec = samples_per_sec;
+		_source_audio->timestamp = _source_audio->timestamp = os_gettime_ns() - ((_source_audio->frames * NSEC_PER_SEC) / _source_audio->samples_per_sec);
+
+		write_index++;
+		write_index = write_index % buffer_count;
+		SetEvent(all_recieved_signal);
+	}
+
 	void write_buffer(DWORD ch, uint8_t* buffer, size_t buffer_size) {
 		static volatile long callback_count = 0;
 		static BASS_ASIO_INFO info;
@@ -772,7 +817,8 @@ public:
 		os_set_thread_name(thread_name.c_str());
 		//size_t ch_count = source->unmuted_chs.size();
 		//HANDLE *signals = (HANDLE*)calloc(ch_count, sizeof(HANDLE));
-		HANDLE signals[MAX_AUDIO_CHANNELS];
+		HANDLE signals[3] = { device->all_recieved_signal, device->stop_listening_signal, source->stop_listening_signal };
+
 		long route[MAX_AUDIO_CHANNELS];
 
 		source->isASIOActive = true;
@@ -781,19 +827,13 @@ public:
 
 		size_t read_index = device->write_index;//0;
 		while (source && device) {
-			//set the chs we need to wait on
 			EnterCriticalSection(&source->settings_mutex);
-			for (short i = 0; i < source->required_signals.size(); i++) { //source->unmuted_chs.size()
-				//signals[i] = device->receive_signals[source->route[source->unmuted_chs[i]]];
-				signals[i] = device->receive_signals[source->required_signals[i]];
-			}
 			for (short i = 0; i < aoi.speakers; i++) {
 				route[i] = source->route[i];
 			}
 			LeaveCriticalSection(&source->settings_mutex);
-			int waitResult = WaitForMultipleObjects((DWORD)source->required_signals.size(), signals, true, 1000);
+			int waitResult = WaitForMultipleObjects(1, signals, false, INFINITE);
 			if (waitResult == WAIT_OBJECT_0) {
-				//device->read_index()
 				while (read_index != device->write_index) {
 					device_source_audio* in = device->get_source_audio(read_index);//device->get_writeable_source_audio();
 					source->render_audio(in, route);
@@ -803,41 +843,42 @@ public:
 				if (source->device_index != device->device_index) {
 					blog(LOG_INFO, "source device index %lu is not device index %lu", source->device_index, device->device_index);
 					blog(LOG_INFO, "%s closing", thread_name.c_str());
-					break;
-				}
-				if (!source->isASIOActive) {
+					return 0;
+				} else if (!source->isASIOActive) {
 					blog(LOG_INFO, "%s indicated it wanted to disconnect", source->get_id());
 					blog(LOG_INFO, "%s closing", thread_name.c_str());
 					return 0;
 				}
-			}
-			else if (waitResult == WAIT_ABANDONED_0) {
+			} else if (waitResult == WAIT_OBJECT_0 + 1) {
+				blog(LOG_INFO, "device %l indicated it wanted to disconnect", device->device_index);
+				blog(LOG_INFO, "%s closing", thread_name.c_str());
+				return 0;
+			} else if (waitResult == WAIT_OBJECT_0 + 2) {
+				blog(LOG_INFO, "%s indicated it wanted to disconnect", source->get_id());
+				blog(LOG_INFO, "%s closing", thread_name.c_str());
+				return 0;
+			} else if (waitResult == WAIT_ABANDONED_0) {
 				blog(LOG_INFO, "a mutex for %s was abandoned while listening to", thread_name.c_str(), device->device_index);
 				blog(LOG_INFO, "%s closing", thread_name.c_str());
 				return 0;
-			}
-			else if (waitResult == WAIT_TIMEOUT) {
+			} else if (waitResult == WAIT_ABANDONED_0 + 1) {
+				blog(LOG_INFO, "a mutex for %s was abandoned while listening to", thread_name.c_str(), device->device_index);
+				blog(LOG_INFO, "%s closing", thread_name.c_str());
+				return 0;
+			} else if (waitResult == WAIT_ABANDONED_0 + 2) {
+				blog(LOG_INFO, "a mutex for %s was abandoned while listening to", thread_name.c_str(), device->device_index);
+				blog(LOG_INFO, "%s closing", thread_name.c_str());
+				return 0;
+			} else if (waitResult == WAIT_TIMEOUT) {
 				blog(LOG_INFO, "%s timed out while listening to %l", thread_name.c_str(), device->device_index);
 				blog(LOG_INFO, "%s closing", thread_name.c_str());
 				return 0;
-			}
-			else if (waitResult == WAIT_FAILED) {
+			} else if (waitResult == WAIT_FAILED) {
 				blog(LOG_INFO, "listener thread wait %lu failed with 0x%x", device->device_index, GetLastError());
 				blog(LOG_INFO, "%s closing", thread_name.c_str());
 				return 0;
-			}
-			else {
+			} else {
 				blog(LOG_INFO, "unexpected wait result = %i", waitResult);
-				blog(LOG_INFO, "%s closing", thread_name.c_str());
-				return 0;
-			}
-			if (source->device_index != device->device_index) {
-				blog(LOG_INFO, "source device index %lu is not device index %lu", source->device_index, device->device_index);
-				blog(LOG_INFO, "%s closing", thread_name.c_str());
-				break;
-			}
-			if (!source->isASIOActive) {
-				blog(LOG_INFO, "%s indicated it wanted to disconnect", source->get_id() );
 				blog(LOG_INFO, "%s closing", thread_name.c_str());
 				return 0;
 			}
@@ -1168,12 +1209,11 @@ int mix(uint8_t *inputBuffer, obs_source_audio *out, size_t bytes_per_ch, int ro
 
 DWORD CALLBACK create_asio_buffer(BOOL input, DWORD channel, void *buffer, DWORD BufSize, void *device_ptr) {
 	//DWORD BASS_ASIO_GetDevice()
-	BASS_ASIO_INFO info;
-	BASS_ASIO_GetInfo(&info);
-
+	//BASS_ASIO_INFO info;
+	//BASS_ASIO_GetInfo(&info);
 	device_data *device = (device_data*)device_ptr;
-
-	device->write_buffer(channel, (uint8_t*)buffer, BufSize);
+	//device->write_buffer(channel, (uint8_t*)buffer, BufSize);
+	device->write_buffer_interleaved(buffer, BufSize);
 
 	return 0;
 }
@@ -1194,9 +1234,9 @@ void asio_init(struct asio_data *data)
 		blog(LOG_INFO, "\nNo audio devices found!\n");
 		return;
 	}
-
+	//BASS_ASIO_GetCPU
 	// get channel number from output speaker layout set by obs
-	DWORD recorded_channels = get_obs_output_channels();//info.inputs;//get_obs_output_channels();
+	DWORD spawn_threads = info.inputs;//get_obs_output_channels();
 
 	// check buffer size is legit; if not set it to bufpref
 	// to be implemented : to avoid issues, force to bufpref
@@ -1217,38 +1257,31 @@ void asio_init(struct asio_data *data)
 		DWORD obs_optimal_format = BASS_ASIO_FORMAT_FLOAT;
 		DWORD asio_native_format = BASS_ASIO_ChannelGetFormat(true, 0);
 		DWORD selected_format;
+
 		if (obs_optimal_format == asio_native_format) {
 			//all good...I don't think this needs to happen
-			for (DWORD i = 0; i < info.inputs; i++) {
-				ret = BASS_ASIO_ChannelSetFormat(true, i, asio_native_format);
+			ret = BASS_ASIO_ChannelSetFormat(true, 0, asio_native_format);
+			if (!ret) {
+				blog(LOG_ERROR, "ASIO: unable to use native format\n"
+					"error number: %i \n; check BASS_ASIO_ErrorGetCode\n",
+					BASS_ASIO_ErrorGetCode());
+				return;
+			}
+			selected_format = asio_native_format;
+		}
+		else {
+			ret = BASS_ASIO_ChannelSetFormat(true, 0, obs_optimal_format);
+			if (!ret) {
+				blog(LOG_ERROR, "ASIO: unable to use optimal format (float)\n"
+					"error number: %i \n; check BASS_ASIO_ErrorGetCode\n",
+					BASS_ASIO_ErrorGetCode());
+
+				ret = BASS_ASIO_ChannelSetFormat(true, 0, asio_native_format);
 				if (!ret) {
 					blog(LOG_ERROR, "ASIO: unable to use native format\n"
 						"error number: %i \n; check BASS_ASIO_ErrorGetCode\n",
 						BASS_ASIO_ErrorGetCode());
 					return;
-				}
-			}
-			selected_format = asio_native_format;
-		}
-		else {
-			for (DWORD i = 0; i < info.inputs; i++) {
-				ret = BASS_ASIO_ChannelSetFormat(true, i, obs_optimal_format);
-				if (!ret) {
-					blog(LOG_ERROR, "ASIO: unable to use optimal format (float)\n"
-						"error number: %i \n; check BASS_ASIO_ErrorGetCode\n",
-						BASS_ASIO_ErrorGetCode());
-					break;
-				}
-			}
-			if (!ret) {
-				for (DWORD i = 0; i < info.inputs; i++) {
-					ret = BASS_ASIO_ChannelSetFormat(true, i, asio_native_format);
-					if (!ret) {
-						blog(LOG_ERROR, "ASIO: unable to use native format\n"
-							"error number: %i \n; check BASS_ASIO_ErrorGetCode\n",
-							BASS_ASIO_ErrorGetCode());
-						return;
-					}
 				}
 				selected_format = asio_native_format;
 			}
@@ -1262,12 +1295,10 @@ void asio_init(struct asio_data *data)
 		audio_format format = get_planar_format(asio_to_obs_audio_format(selected_format));
 
 		// enable all chs and link to callback w/ the device buffer class
-		for (DWORD i = 0; i < info.inputs; i++) {
-			ret = BASS_ASIO_ChannelEnable(true, i, &create_asio_buffer, device_list[device_index]);//data
-			if (!ret)
-			{
-				blog(LOG_ERROR, "Could not enable channel %i; error code : %i", i, BASS_ASIO_ErrorGetCode());
-			}
+		ret = BASS_ASIO_ChannelEnable(true, 0, &create_asio_buffer, device_list[device_index]);//data
+
+		for (DWORD i = 1; i < info.inputs; i++) {
+			BASS_ASIO_ChannelJoin(true, i, 0);
 		}
 
 		/*prep the device buffers*/
@@ -1277,7 +1308,7 @@ void asio_init(struct asio_data *data)
 		device_list[device_index]->prep_buffers(info.bufpref, info.inputs, format, checkrate);
 
 		blog(LOG_INFO, "starting device %lu", device_index);
-		BASS_ASIO_Start(info.bufpref, recorded_channels);
+		BASS_ASIO_Start(info.bufpref, spawn_threads);
 		switch (BASS_ASIO_ErrorGetCode()) {
 		case BASS_ERROR_INIT:
 			blog(LOG_ERROR, "Error: Bass asio not initialized.\n");
@@ -1566,7 +1597,7 @@ bool obs_module_load(void)
 	asio_input_capture.get_name = asio_get_name;
 	asio_input_capture.get_properties = asio_get_properties;
 
-	InitializeCriticalSection(&source_list_mutex);
+	//InitializeCriticalSection(&source_list_mutex);
 
 	unsigned long testarray[MAX_AUDIO_CHANNELS] = { 1,2,3,4,5,6,7,8 };
 	radix_sort(&testarray[0], &testarray[MAX_AUDIO_CHANNELS]);
@@ -1578,20 +1609,23 @@ bool obs_module_load(void)
 	radix_sort(&testarray3[0], &testarray3[MAX_AUDIO_CHANNELS]);
 
 	uint8_t devices = getDeviceCount();
-	//preallocate before we push vectors
-	//source_list.reserve(devices);
 	device_list.reserve(devices);
 	for (uint8_t i = 0; i < devices; i++) {
-		//source_list.push_back(std::list<asio_data*>());
-
 		device_data *device = new device_data();
 		device->device_index = i;
 		device_list.push_back(device);
-		//BASS_ASIO_INFO info;
-		//BASS_ASIO_DEVICEINFO info2;
-		//BASS_ASIO_GetDeviceInfo(i,&info);
 	}
 
 	obs_register_source(&asio_input_capture);
 	return true;
+}
+
+void obs_module_unload(void){
+	for (uint8_t i = 0; i < device_list.size(); i++) {
+		//stop streams
+		BASS_ASIO_SetDevice(i);
+		BASS_ASIO_Stop();
+		BASS_ASIO_Free();
+		//clear buffers
+	}
 }
