@@ -327,6 +327,14 @@ public:
 	bool previouslyFailed = false;
 	bool useDeviceTiming = false;
 
+	const char* get_id() {
+		const char * format_id = "0x%x";
+		size_t pad = sizeof(obs_source_t *) * 2;
+		char * id_char = (char*)calloc(strlen(format_id) + pad + 1, sizeof(char));
+		sprintf(id_char, format_id, source);
+		return id_char;
+	}
+
 	asio_data() : source(NULL), first_ts(0), device_index(-1) {
 		InitializeCriticalSection(&settings_mutex);
 
@@ -759,8 +767,8 @@ public:
 		struct obs_audio_info aoi;
 		obs_get_audio_info(&aoi);
 
-		std::string thread_name = "asio capture thread";//source->device;
-														//thread_name += " capture thread";
+		std::string thread_name = "asio capture: ";//source->device;
+		thread_name += source->get_id();			//thread_name += " capture thread";
 		os_set_thread_name(thread_name.c_str());
 		//size_t ch_count = source->unmuted_chs.size();
 		//HANDLE *signals = (HANDLE*)calloc(ch_count, sizeof(HANDLE));
@@ -769,7 +777,7 @@ public:
 
 		source->isASIOActive = true;
 
-		blog(LOG_INFO, "listener for device %lu created", device->device_index );
+		blog(LOG_INFO, "listener for device %lu created: source: %s", device->device_index, source->get_id());
 
 		size_t read_index = device->write_index;//0;
 		while (source && device) {
@@ -794,49 +802,46 @@ public:
 				}
 				if (source->device_index != device->device_index) {
 					blog(LOG_INFO, "source device index %lu is not device index %lu", source->device_index, device->device_index);
+					blog(LOG_INFO, "%s closing", thread_name.c_str());
 					break;
 				}
 				if (!source->isASIOActive) {
-					blog(LOG_INFO, "source for %lu indicated it wanted to disconnect", source->isASIOActive);
+					blog(LOG_INFO, "%s indicated it wanted to disconnect", source->get_id());
+					blog(LOG_INFO, "%s closing", thread_name.c_str());
 					return 0;
 				}
 			}
 			else if (waitResult == WAIT_ABANDONED_0) {
-				blog(LOG_INFO, "a mutex for listener thread %lu was abandoned", device->device_index);
+				blog(LOG_INFO, "a mutex for %s was abandoned while listening to", thread_name.c_str(), device->device_index);
+				blog(LOG_INFO, "%s closing", thread_name.c_str());
 				return 0;
 			}
 			else if (waitResult == WAIT_TIMEOUT) {
-				blog(LOG_INFO, "listener thread for %lu timed out", device->device_index);
+				blog(LOG_INFO, "%s timed out while listening to %l", thread_name.c_str(), device->device_index);
+				blog(LOG_INFO, "%s closing", thread_name.c_str());
 				return 0;
 			}
 			else if (waitResult == WAIT_FAILED) {
 				blog(LOG_INFO, "listener thread wait %lu failed with 0x%x", device->device_index, GetLastError());
+				blog(LOG_INFO, "%s closing", thread_name.c_str());
 				return 0;
 			}
 			else {
-				blog(LOG_INFO, "waitResult = %i", waitResult);
+				blog(LOG_INFO, "unexpected wait result = %i", waitResult);
+				blog(LOG_INFO, "%s closing", thread_name.c_str());
 				return 0;
 			}
 			if (source->device_index != device->device_index) {
 				blog(LOG_INFO, "source device index %lu is not device index %lu", source->device_index, device->device_index);
+				blog(LOG_INFO, "%s closing", thread_name.c_str());
 				break;
 			}
 			if (!source->isASIOActive) {
-				blog(LOG_INFO, "source for %lu indicated it wanted to disconnect", source->isASIOActive );
+				blog(LOG_INFO, "%s indicated it wanted to disconnect", source->get_id() );
+				blog(LOG_INFO, "%s closing", thread_name.c_str());
 				return 0;
 			}
-			/*
-			if (waitResult == WAIT_OBJECT_0 || waitResult == WAIT_TIMEOUT) {
-			source->read_buffer();
-			}
-			else if (waitResult == WAIT_OBJECT_0 + 1) {
-			break;
-			}
-			else {
-			blog(LOG_ERROR, "[%s::%s] Abnormal termination of %s", typeid(*source).name(), __FUNCTION__, thread_name.c_str());
-			break;
-			}
-			*/
+
 		}
 
 		return 0;
@@ -1443,23 +1448,8 @@ void asio_update(void *vptr, obs_data_t *settings)
 
 		data->input_channels = info.inputs;
 		data->output_channels = info.outputs;
-		data->device_index = device_index;//get_device_index(device);
-										  //move the data to the device appropriate list
+		data->device_index = device_index;
 
-										  //EnterCriticalSection(&source_list_mutex);
-										  /*
-										  if (device_changed) {
-										  std::list<asio_data*>::iterator src;
-										  src = std::find(source_list[prev_device_index].begin(), source_list[prev_device_index].end(), data);
-										  //splice into the new location
-										  source_list[device_index].splice(source_list[device_index].end(), source_list[prev_device_index], src);
-										  //source_list[prev_device_index].remove(data);
-										  //source_list[device_index].push_back(data);
-										  }
-										  else {
-										  source_list[device_index].push_back(data);
-										  }
-										  */
 		data->route_map = data->_bin_map_unmuted(data->route);
 		data->silent_map = data->_bin_map_muted(data->route);
 		data->muted_chs = data->_get_muted_chs(data->route);
