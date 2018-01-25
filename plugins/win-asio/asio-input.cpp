@@ -383,6 +383,9 @@ public:
 			else if (route[i] == -1) {
 				out.data[i] = silent_buffer;
 			}
+			else {
+				out.data[i] = silent_buffer;
+			}
 		}
 
 		out.speakers = aoi.speakers;
