@@ -295,6 +295,8 @@ struct listener_pair {
 
 class asio_data {
 public:
+	CRITICAL_SECTION settings_mutex;
+
 	obs_source_t *source;
 
 	/*asio device and info */
@@ -326,6 +328,8 @@ public:
 	bool useDeviceTiming = false;
 
 	asio_data() : source(NULL), first_ts(0), device_index(-1) {
+		InitializeCriticalSection(&settings_mutex);
+
 		memset(&route[0], -1, sizeof(DWORD) * 8);
 
 		stopSignal = CreateEvent(nullptr, true, false, nullptr);
@@ -376,7 +380,7 @@ public:
 		out.speakers = aoi.speakers;
 
 		obs_source_output_audio(source, &out);
-
+		blog(LOG_DEBUG, "output frames %lu", buffer_size);
 	}
 
 	static std::vector<std::vector<short>> _bin_map_unmuted(long route_array[]) {
@@ -500,8 +504,6 @@ private:
 	size_t read_index;
 	size_t buffer_count;
 
-	circlebuf audio_buffer;
-
 	uint32_t frames;
 	long input_chs;
 	audio_format format;
@@ -519,6 +521,15 @@ private:
 	bool reallocate_buffer = false;
 	bool events_prepped = false;
 public:
+	const WinHandle * get_handles() {
+		return receive_signals;
+	}
+
+	long get_input_channels() {
+		return input_chs;
+	}
+
+	circlebuf audio_buffer;
 	long device_index;
 
 	device_source_audio* get_writeable_source_audio() {
@@ -703,12 +714,16 @@ public:
 			SetEvent(receive_signals[ch]);
 			//blog(LOG_INFO, "Ch %lu/%lu: %s, %lu samples", ch, info.inputs, info.name, info.bufpref);
 		}
+		else {
+			blog(LOG_INFO, "Ch %lu dropped", ch);
+		}
 
 		//loop
 		os_atomic_inc_long(&callback_count);
 		//os_atomic_set_long(&callback_count, (os_atomic_load_long(&callback_count)+1) % input_chs);
 		if (os_atomic_load_long(&callback_count) >= input_chs) {
-			_source_audio->timestamp = os_gettime_ns() - ((_source_audio->frames * NSEC_PER_SEC) / _source_audio->samples_per_sec);
+			//_source_audio->timestamp = os_gettime_ns() - ((_source_audio->frames * NSEC_PER_SEC) / _source_audio->samples_per_sec);
+			_source_audio->timestamp = os_gettime_ns();
 			write_index++;
 			write_index = write_index % buffer_count;
 			//os_atomic_set_long(&callback_count, (os_atomic_load_long(&callback_count)) % input_chs);
@@ -736,13 +751,14 @@ public:
 		HANDLE signals[MAX_AUDIO_CHANNELS];
 		long route[MAX_AUDIO_CHANNELS];
 
-		size_t read_index = 0;
 		source->isASIOActive = true;
 
 		blog(LOG_INFO, "listener for device %lu created", device->device_index );
 
-		while (true) {
+		size_t read_index = device->write_index;//0;
+		while (source && device) {
 			//set the chs we need to wait on
+			EnterCriticalSection(&source->settings_mutex);
 			for (short i = 0; i < source->required_signals.size(); i++) { //source->unmuted_chs.size()
 				//signals[i] = device->receive_signals[source->route[source->unmuted_chs[i]]];
 				signals[i] = device->receive_signals[source->required_signals[i]];
@@ -750,6 +766,7 @@ public:
 			for (short i = 0; i < aoi.speakers; i++) {
 				route[i] = source->route[i];
 			}
+			LeaveCriticalSection(&source->settings_mutex);
 			int waitResult = WaitForMultipleObjects((DWORD)source->required_signals.size(), signals, true, 1000);
 			if (waitResult == WAIT_OBJECT_0) {
 				//device->read_index()
@@ -758,6 +775,14 @@ public:
 					source->render_audio(in, route);
 					read_index++;
 					read_index = read_index % device->buffer_count;
+				}
+				if (source->device_index != device->device_index) {
+					blog(LOG_INFO, "source device index %lu is not device index %lu", source->device_index, device->device_index);
+					break;
+				}
+				if (!source->isASIOActive) {
+					blog(LOG_INFO, "source for %lu indicated it wanted to disconnect", source->isASIOActive);
+					return 0;
 				}
 			}
 			else if (waitResult == WAIT_ABANDONED_0) {
@@ -770,9 +795,11 @@ public:
 			}
 			else if (waitResult == WAIT_FAILED) {
 				blog(LOG_INFO, "listener thread wait %lu failed with 0x%x", device->device_index, GetLastError());
+				return 0;
 			}
 			else {
 				blog(LOG_INFO, "waitResult = %i", waitResult);
+				return 0;
 			}
 			if (source->device_index != device->device_index) {
 				blog(LOG_INFO, "source device index %lu is not device index %lu", source->device_index, device->device_index);
@@ -1148,7 +1175,7 @@ void asio_init(struct asio_data *data)
 	}
 
 	// get channel number from output speaker layout set by obs
-	DWORD recorded_channels = info.inputs;//get_obs_output_channels();
+	DWORD recorded_channels = get_obs_output_channels();//info.inputs;//get_obs_output_channels();
 
 	// check buffer size is legit; if not set it to bufpref
 	// to be implemented : to avoid issues, force to bufpref
@@ -1270,6 +1297,15 @@ static void * asio_create(obs_data_t *settings, obs_source_t *source)
 void asio_destroy(void *vptr)
 {
 	struct asio_data *data = (asio_data *)vptr;
+	device_data *device = device_list[data->device_index];
+
+	data->isASIOActive = false;
+	HANDLE* wait_for_complete_buffer = (HANDLE*)malloc(device->get_input_channels() * sizeof(HANDLE));
+	const WinHandle* handles = device->get_handles();
+	for (short i = 0; i < device->get_input_channels(); i++) {
+		wait_for_complete_buffer[i] = handles[i];
+	}
+	WaitForMultipleObjects(device->get_input_channels(), wait_for_complete_buffer, true, 40);
 
 	/*
 	if (BASS_ASIO_IsStarted())
@@ -1300,6 +1336,7 @@ void asio_update(void *vptr, obs_data_t *settings)
 	const char *prev_device;
 	DWORD prev_device_index;
 
+	EnterCriticalSection(&data->settings_mutex);
 	// get channel number from output speaker layout set by obs
 	DWORD recorded_channels = get_obs_output_channels();
 	data->recorded_channels = recorded_channels;
@@ -1412,6 +1449,7 @@ void asio_update(void *vptr, obs_data_t *settings)
 		data->unmuted_chs = data->_get_unmuted_chs(data->route);
 		data->required_signals = data->_get_required_chs(data->route);
 		//LeaveCriticalSection(&source_list_mutex);
+		LeaveCriticalSection(&data->settings_mutex);
 
 		asio_init(data);
 	}
