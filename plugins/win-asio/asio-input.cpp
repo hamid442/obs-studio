@@ -25,6 +25,7 @@ along with this program.  If not, see <http://www.gnu.org/licenses/>.
 #include <obs-module.h>
 #include <vector>
 #include <list>
+#include <unordered_map>
 #include <stdio.h>
 #include <string>
 #include <windows.h>
@@ -59,6 +60,110 @@ OBS_MODULE_USE_DEFAULT_LOCALE("win-asio", "en-US")
 #define TEXT_BUFFER_512_SAMPLES         obs_module_text("512_samples")
 #define TEXT_BUFFER_1024_SAMPLES        obs_module_text("1024_samples")
 #define TEXT_BITDEPTH                   obs_module_text("BitDepth")
+
+
+/* radix sort from: https://www.geeksforgeeks.org/radix-sort/*/
+/* radix sort from: https://github.com/gorset/radix/blob/master/radix.cc*/
+/* radix sort from: https://www.quora.com/What-is-the-most-efficient-way-to-sort-a-million-32-bit-integers*/
+/* radix sort from: http://pseudoprogrammer.blogspot.com/2012/05/binary-radix-sort.html*/
+/*
+void radix_sort(unsigned *begin, unsigned *end)
+{
+	unsigned *begin1 = new unsigned[end - begin];
+	unsigned *end1 = begin1 + (end - begin);
+	for (unsigned shift = 0; shift < 32; shift += 8) {
+		size_t count[0x100] = {};
+		for (unsigned *p = begin; p != end; p++)
+			count[(*p >> shift) & 0xFF]++;
+		unsigned *bucket[0x100], *q = begin1;
+		for (int i = 0; i < 0x100; q += count[i++])
+			bucket[i] = q;
+		for (unsigned *p = begin; p != end; p++)
+			*bucket[(*p >> shift) & 0xFF]++ = *p;
+		std::swap(begin, begin1);
+		std::swap(end, end1);
+	}
+	delete[] begin1;
+}
+*/
+void radix_sort(unsigned char* begin, unsigned char* end) {
+	unsigned char *begin1 = new unsigned char[end - begin];
+	unsigned char *end1 = begin1 + (end - begin);
+	unsigned bit_depth = sizeof(unsigned char) * 8;
+	//technically...this only runs once... (unsigned char is 8 bits and all)
+	for (unsigned long shift = 0; shift < bit_depth; shift += 8) {
+		size_t count[0x100] = {};
+		for (unsigned char *p = begin; p != end; p++)
+			count[(*p >> shift) & 0xFF]++;
+		unsigned char *bucket[0x100];
+		unsigned char *q = begin1;
+		for (int i = 0; i < 0x100; q += count[i++])
+			bucket[i] = q;
+		for (unsigned char*p = begin; p != end; p++)
+			*bucket[(*p >> shift) & 0xFF]++ = *p;
+		std::swap(begin, begin1);
+		std::swap(end, end1);
+	}
+}
+
+void radix_sort(unsigned short *begin, unsigned short *end) {
+	unsigned short *begin1 = new unsigned short[end - begin];
+	unsigned short *end1 = begin1 + (end - begin);
+	unsigned bit_depth = sizeof(unsigned short) * 8;
+	for (unsigned long shift = 0; shift < bit_depth; shift += 8) {
+		size_t count[0x100] = {};
+		for (unsigned short *p = begin; p != end; p++)
+			count[(*p >> shift) & 0xFF]++;
+		unsigned short *bucket[0x100];
+		unsigned short *q = begin1;
+		for (int i = 0; i < 0x100; q += count[i++])
+			bucket[i] = q;
+		for (unsigned short*p = begin; p != end; p++)
+			*bucket[(*p >> shift) & 0xFF]++ = *p;
+		std::swap(begin, begin1);
+		std::swap(end, end1);
+	}
+}
+
+void radix_sort(unsigned long *begin, unsigned long *end) {
+	unsigned long *begin1 = new unsigned long[end - begin];
+	unsigned long *end1 = begin1 + (end - begin);
+	unsigned bit_depth = sizeof(unsigned long) * 8;
+	for (unsigned long shift = 0; shift < bit_depth; shift += 8) {
+		size_t count[0x100] = {};
+		for (unsigned long *p = begin; p != end; p++)
+			count[(*p >> shift) & 0xFF]++;
+		unsigned long *bucket[0x100];
+		unsigned long *q = begin1;
+		for (int i = 0; i < 0x100; q += count[i++])
+			bucket[i] = q;
+		for (unsigned long*p = begin; p != end; p++)
+			*bucket[(*p >> shift) & 0xFF]++ = *p;
+		std::swap(begin, begin1);
+		std::swap(end, end1);
+	}
+	delete[] begin1;
+}
+
+void radix_sort(unsigned long long *begin, unsigned long long *end) {
+	unsigned long long *begin1 = new unsigned long long[end - begin];
+	unsigned long long *end1 = begin1 + (end - begin);
+	unsigned bit_depth = sizeof(unsigned long long) * 8;
+	for (unsigned shift = 0; shift < bit_depth; shift += 8) {
+		size_t count[0x100] = {};
+		for (unsigned long long *p = begin; p != end; p++)
+			count[(*p >> shift) & 0xFF]++;
+		unsigned long long *bucket[0x100], *q = begin1;
+		for (int i = 0; i < 0x100; q += count[i++])
+			bucket[i] = q;
+		for (unsigned long long*p = begin; p != end; p++)
+			*bucket[(*p >> shift) & 0xFF]++ = *p;
+		std::swap(begin, begin1);
+		std::swap(end, end1);
+	}
+	delete[] begin1;
+}
+
 
 /* ======================================================================= */
 /* conversion between BASS_ASIO and obs */
@@ -206,6 +311,7 @@ public:
 	std::vector<std::vector<short>> silent_map;
 	std::vector<short> unmuted_chs;
 	std::vector<short> muted_chs;
+	std::vector<long> required_signals;
 
 	//signals
 	WinHandle stopSignal;
@@ -349,6 +455,30 @@ public:
 			}
 		}
 		return unmuted_chs;
+	}
+
+	static std::vector<long> _get_required_chs(long route_array[]) {
+		long tmpArray[MAX_AUDIO_CHANNELS];
+		memcpy(tmpArray, route_array, MAX_AUDIO_CHANNELS * sizeof(long));
+
+		std::vector<long> route_vector(tmpArray,tmpArray+ MAX_AUDIO_CHANNELS);
+		//radix_sort((unsigned long*)tmpArray, (unsigned long*)tmpArray[MAX_AUDIO_CHANNELS]);
+		//std::vector<long> ordered_chs (tmpArray,tmpArray+MAX_AUDIO_CHANNELS);
+
+		std::unordered_map<long, short> hash_map;
+		hash_map.reserve(MAX_AUDIO_CHANNELS);
+		for (size_t i = 0; i < route_vector.size(); i++) {
+			hash_map[route_vector[i]] = i;
+		}
+		route_vector.clear();
+		route_vector.reserve(hash_map.size());
+		std::unordered_map<long, short>::iterator it;
+		for (it = hash_map.begin(); it != hash_map.end(); it++) {
+			//(key,value) (it->first, it->second)
+			route_vector.push_back(it->first);
+		}
+
+		return route_vector;
 	}
 
 	static long* make_route(std::vector<short> hash_map) {
@@ -614,19 +744,16 @@ public:
 
 		while (true) {
 			//set the chs we need to wait on
-			for (short i = 0; i < source->unmuted_chs.size(); i++) {
-				signals[i] = device->receive_signals[source->route[source->unmuted_chs[i]]];
+			for (short i = 0; i < source->required_signals.size(); i++) { //source->unmuted_chs.size()
+				//signals[i] = device->receive_signals[source->route[source->unmuted_chs[i]]];
+				signals[i] = device->receive_signals[source->required_signals[i]];
 			}
 			for (short i = 0; i < aoi.speakers; i++) {
 				route[i] = source->route[i];
 			}
-
-			int waitResult = WaitForMultipleObjects(source->unmuted_chs.size(), signals, true, 100);
+			int waitResult = WaitForMultipleObjects((DWORD)source->required_signals.size(), signals, true, 1000);
 			if (waitResult == WAIT_OBJECT_0) {
 				//device->read_index()
-				if (!source->isASIOActive) {
-					return 0;
-				}
 				while (read_index != device->write_index) {
 					device_source_audio* in = device->get_source_audio(read_index);//device->get_writeable_source_audio();
 					source->render_audio(in, route);
@@ -634,11 +761,27 @@ public:
 					read_index = read_index % device->buffer_count;
 				}
 			}
-			else if (waitResult == WAIT_TIMEOUT) {
+			else if (waitResult == WAIT_ABANDONED_0) {
+				blog(LOG_INFO, "a mutex for listener thread %lu was abandoned", device->device_index);
 				return 0;
 			}
+			else if (waitResult == WAIT_TIMEOUT) {
+				blog(LOG_INFO, "listener thread for %lu timed out", device->device_index);
+				return 0;
+			}
+			else if (waitResult == WAIT_FAILED) {
+				blog(LOG_INFO, "listener thread wait %lu failed with 0x%x", device->device_index, GetLastError());
+			}
+			else {
+				blog(LOG_INFO, "waitResult = %i", waitResult);
+			}
 			if (source->device_index != device->device_index) {
+				blog(LOG_INFO, "source device index %lu is not device index %lu", source->device_index, device->device_index);
 				break;
+			}
+			if (!source->isASIOActive) {
+				blog(LOG_INFO, "source for %lu indicated it wanted to disconnect", source->isASIOActive );
+				return 0;
 			}
 			/*
 			if (waitResult == WAIT_OBJECT_0 || waitResult == WAIT_TIMEOUT) {
@@ -658,6 +801,9 @@ public:
 	}
 
 	void add_listener(asio_data *listener) {
+		if (!events_prepped) {
+			return;
+		}
 		listener_pair* parameters = new listener_pair();
 
 		parameters->asio_listener = listener;
@@ -667,7 +813,6 @@ public:
 		listener->isASIOActive = false;
 		//wait on the ch to return, signaling the previous listener should've disconnected by now;
 		WaitForSingleObject(this->receive_signals[0], 200);
-
 
 		listener->captureThread = CreateThread(nullptr, 0, this->capture_thread, parameters, 0, nullptr);
 	}
@@ -1266,6 +1411,7 @@ void asio_update(void *vptr, obs_data_t *settings)
 		data->silent_map = data->_bin_map_muted(data->route);
 		data->muted_chs = data->_get_muted_chs(data->route);
 		data->unmuted_chs = data->_get_unmuted_chs(data->route);
+		data->required_signals = data->_get_required_chs(data->route);
 		//LeaveCriticalSection(&source_list_mutex);
 
 		asio_init(data);
@@ -1377,6 +1523,15 @@ bool obs_module_load(void)
 	asio_input_capture.get_properties = asio_get_properties;
 
 	InitializeCriticalSection(&source_list_mutex);
+
+	unsigned long testarray[MAX_AUDIO_CHANNELS] = { 1,2,3,4,5,6,7,8 };
+	radix_sort(&testarray[0], &testarray[MAX_AUDIO_CHANNELS]);
+
+	unsigned long testarray2[MAX_AUDIO_CHANNELS] = { 1,2,3,4,2,2982746,7,8 };
+	radix_sort(&testarray2[0], &testarray2[MAX_AUDIO_CHANNELS]);
+
+	unsigned long long testarray3[MAX_AUDIO_CHANNELS] = { 0xFFFFFFFFFFFFFFFF, 0, 0xAAAAAAAABBBBBBBB, 0xBBBBBBBBAAAAAAAA, 1, 9, 0x77777777, 0x66666666 };
+	radix_sort(&testarray3[0], &testarray3[MAX_AUDIO_CHANNELS]);
 
 	uint8_t devices = getDeviceCount();
 	//preallocate before we push vectors
