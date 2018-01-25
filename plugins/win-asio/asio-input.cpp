@@ -347,6 +347,10 @@ public:
 
 		obs_source_audio out;
 		out.format = asio_buffer->format;
+		if (!is_audio_planar(out.format)) {
+			blog(LOG_ERROR, "that was a goof %i should be %i", out.format, get_planar_format(out.format));
+			return false;
+		}
 		if (out.format == AUDIO_FORMAT_UNKNOWN) {
 			blog(LOG_INFO, "unknown format");
 			return false;
@@ -392,6 +396,7 @@ public:
 
 		obs_source_output_audio(source, &out);
 		//blog(LOG_DEBUG, "output frames %lu", buffer_size);
+		return true;
 	}
 
 	static std::vector<std::vector<short>> _bin_map_unmuted(long route_array[]) {
@@ -1248,7 +1253,8 @@ void asio_init(struct asio_data *data)
 		}
 
 		blog(LOG_INFO, "(best) bitdepth supported %i", selected_format);
-		audio_format format = asio_to_obs_audio_format(selected_format);
+		//audio_format format = asio_to_obs_audio_format(selected_format);
+		audio_format format = get_planar_format(asio_to_obs_audio_format(selected_format));
 
 		// enable all chs and link to callback w/ the device buffer class
 		for (DWORD i = 0; i < info.inputs; i++) {
