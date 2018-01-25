@@ -348,6 +348,7 @@ public:
 		obs_source_audio out;
 		out.format = asio_buffer->format;
 		if (out.format == AUDIO_FORMAT_UNKNOWN) {
+			blog(LOG_INFO, "unknown format");
 			return false;
 		}
 
@@ -356,6 +357,7 @@ public:
 		out.timestamp = asio_buffer->timestamp;
 		if (!first_ts) {
 			first_ts = out.timestamp;
+			blog(LOG_INFO, "first timestamp");
 			return false;
 		}
 		//cache a silent buffer
@@ -366,10 +368,16 @@ public:
 			}
 			silent_buffer = (uint8_t*)calloc(buffer_size, sizeof(uint8_t));
 			silent_buffer_size = buffer_size;
+			blog(LOG_INFO, "caching silent buffer");
+		}
+
+		if (unmuted_chs.size() == 0) {
+			blog(LOG_INFO, "all chs muted");
+			return 0;
 		}
 
 		for (short i = 0; i < aoi.speakers; i++) {
-			if (route[i] >= 0 && route[i] < aoi.speakers) {
+			if (route[i] >= 0 && route[i] < asio_buffer->input_chs) {
 				out.data[i] = asio_buffer->data[route[i]];
 			}
 			else if (route[i] == -1) {
@@ -380,7 +388,7 @@ public:
 		out.speakers = aoi.speakers;
 
 		obs_source_output_audio(source, &out);
-		blog(LOG_DEBUG, "output frames %lu", buffer_size);
+		//blog(LOG_DEBUG, "output frames %lu", buffer_size);
 	}
 
 	static std::vector<std::vector<short>> _bin_map_unmuted(long route_array[]) {
