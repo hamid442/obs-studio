@@ -343,8 +343,12 @@ private:
 	size_t buffer_size;
 	//not in use...
 	WinHandle *receive_signals;
+	//in use
 	WinHandle all_recieved_signal;
+	//to close out the device
 	WinHandle stop_listening_signal;
+	//tell listeners to to reinit
+	//WinHandle wait_for_reset_signal;
 
 	bool all_prepped = false;
 	bool buffer_prepped = false;
@@ -450,6 +454,19 @@ public:
 		}
 	}
 
+	void re_prep_buffers() {
+		all_prepped = false;
+		buffer_prepped = false;
+		BASS_ASIO_INFO info;
+		bool ret = BASS_ASIO_GetInfo(&info);
+		prep_buffers(info, format, samples_per_sec);
+	}
+	
+	void re_prep_buffers(BASS_ASIO_INFO &info) {
+		all_prepped = false;
+		prep_buffers(info, format, samples_per_sec);
+	}
+
 	void prep_buffers(BASS_ASIO_INFO &info, audio_format in_format, uint32_t in_samples_per_sec) {
 		prep_buffers(info.bufpref, info.inputs, in_format, in_samples_per_sec);
 	}
@@ -514,7 +531,10 @@ public:
 		BASS_ASIO_INFO info;
 		bool ret = BASS_ASIO_GetInfo(&info);
 		uint8_t * input_buffer = (uint8_t*)buffer;
-		//size_t ch_buffer_size = BufSize / info.inputs;
+		size_t ch_buffer_size = BufSize / info.inputs;
+		if (ch_buffer_size > buffer_size) {
+			blog(LOG_WARNING, "%s device needs to reallocate memory");
+		}
 		int byte_depth = bytedepth_format(format);
 		size_t interleaved_frame_size = info.inputs * byte_depth;
 		//calculate on the spot
@@ -1028,6 +1048,44 @@ DWORD CALLBACK create_asio_buffer(BOOL input, DWORD channel, void *buffer, DWORD
 	return 0;
 }
 
+void CALLBACK asio_device_setting_changed(DWORD notify, void *device_ptr) {
+	device_data *device = (device_data*)device_ptr;
+	switch (notify) {
+	case BASS_ASIO_NOTIFY_RATE:
+		blog(LOG_WARNING, "device %l changed sample rate to %f", device->device_index , BASS_ASIO_GetRate());
+		break;
+	case BASS_ASIO_NOTIFY_RESET:
+		blog(LOG_WARNING, "device %l requested a reset", device->device_index);
+		// Reset ?
+		//BASS_ASIO_SetDevice(device->device_index);
+		BASS_ASIO_INFO info;
+		bool ret = BASS_ASIO_GetInfo(&info);
+		if (!ret) {
+			blog(LOG_ERROR, "Unable to retrieve info on the current driver \n"
+				"error number is : %i \n; check BASS_ASIO_ErrorGetCode\n",
+				BASS_ASIO_ErrorGetCode());
+		}
+		BASS_ASIO_Stop();
+		device->re_prep_buffers(info);
+		BASS_ASIO_Start(info.bufpref,info.inputs);
+		switch (BASS_ASIO_ErrorGetCode()) {
+		case BASS_ERROR_INIT:
+			blog(LOG_ERROR, "Error: Bass asio not initialized.\n");
+		case BASS_ERROR_ALREADY:
+			blog(LOG_ERROR, "Error: device already started\n");
+			//BASS_ASIO_Stop(); 
+			//BASS_ASIO_Start(data->BufferSize, recorded_channels);
+		case BASS_ERROR_NOCHAN:
+			blog(LOG_ERROR, "Error: channels have not been enabled so can not start\n");
+		case BASS_ERROR_UNKNOWN:
+		default:
+			blog(LOG_ERROR, "ASIO init: Unknown error when trying to start the device\n");
+		}
+		//BASS_ASIO_Stop();		
+		break;
+	}
+}
+
 void asio_init(struct asio_data *data)
 {
 	// get info, useful for debug
@@ -1102,6 +1160,8 @@ void asio_init(struct asio_data *data)
 		blog(LOG_INFO, "(best) bitdepth supported %i", selected_format);
 		//audio_format format = asio_to_obs_audio_format(selected_format);
 		audio_format format = get_planar_format(asio_to_obs_audio_format(selected_format));
+
+		ret = BASS_ASIO_SetNotify(asio_device_setting_changed, device_list[device_index]);
 
 		// enable all chs and link to callback w/ the device buffer class
 		ret = BASS_ASIO_ChannelEnable(true, 0, &create_asio_buffer, device_list[device_index]);//data
@@ -1415,6 +1475,6 @@ void obs_module_unload(void){
 		BASS_ASIO_Stop();
 		BASS_ASIO_Free();
 		//clear buffers
-		delete device_list[i];
+		//delete device_list[i];
 	}
 }
