@@ -372,6 +372,7 @@ public:
 	}
 
 	long device_index;
+	BASS_ASIO_DEVICEINFO device_info;
 
 	device_source_audio* get_writeable_source_audio() {
 		return (device_source_audio*)circlebuf_data(&audio_buffer, write_index * sizeof(device_source_audio));
@@ -704,22 +705,38 @@ uint8_t getDeviceCount() {
 }
 
 // get the device index from a device name : the current index can be retrieved from DWORD BASS_ASIO_GetDevice();
-DWORD get_device_index(const char *device) {
-	DWORD device_index = 0;
+DWORD get_device_index(const char *device_info_name) {
 	int res;
 	BASS_ASIO_SetUnicode(false);
 	BASS_ASIO_DEVICEINFO info;
 	bool ret;
 	//int numOfDevices = getDeviceCount();
-	uint8_t i;
+	uint32_t i;
 	for (i = 0; BASS_ASIO_GetDeviceInfo(i, &info); i++) {
-		res = strcmp(info.name, device);
+		res = strcmp(info.name, device_info_name);
 		if (res == 0) {
-			device_index = i;
-			break;
+			return i;
 		}
 	}
-	return device_index;
+	return -1;
+}
+
+DWORD get_device_index(BASS_ASIO_DEVICEINFO device_info) {
+	return get_device_index(device_info.name);
+}
+
+bool is_device_index_valid(DWORD index) {
+	return index < getDeviceCount();
+}
+
+DWORD get_device_buffer_index(BASS_ASIO_DEVICEINFO device_info) {
+	uint32_t i;
+	for (i = 0; i < device_list.size(); i++) {
+		if (strcmp(device_list[i]->device_info.name, device_info.name) == 0) {
+			return i;
+		}
+	}
+	return -1;
 }
 
 // call the control panel
@@ -751,6 +768,7 @@ void asio_update(void *vptr, obs_data_t *settings);
 void asio_destroy(void *vptr);
 
 //creates the device list
+/*
 void fill_out_devices(obs_property_t *list) {
 	int numOfDevices = (int)getDeviceCount();
 	char** names = new char*[numOfDevices];
@@ -767,6 +785,18 @@ void fill_out_devices(obs_property_t *list) {
 		blog(LOG_INFO, "Number of ASIO Devices: %i\n", numOfDevices);
 		blog(LOG_INFO, "device %i  = %s added successfully.\n", i, names[i]);
 		obs_property_list_add_string(list, names[i], names[i]);
+	}
+}
+*/
+void fill_out_devices(obs_property_t *list) {
+	int res;
+	BASS_ASIO_SetUnicode(false);
+	BASS_ASIO_DEVICEINFO info;
+	bool ret;
+	//int numOfDevices = getDeviceCount();
+	uint32_t i;
+	for (i = 0; BASS_ASIO_GetDeviceInfo(i, &info); i++) {
+		obs_property_list_add_string(list, info.name, info.name);
 	}
 }
 
