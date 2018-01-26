@@ -1268,14 +1268,17 @@ static void * asio_create(obs_data_t *settings, obs_source_t *source)
 void asio_destroy(void *vptr)
 {
 	struct asio_data *data = (asio_data *)vptr;
-	device_data *device = device_list[data->device_index];
+	if (data) {
+		if (data->device_index < device_list.size()) {
+			device_data *device = device_list[data->device_index];
+			//send disconnect event
+			SetEvent(data->stop_listening_signal);
+			HANDLE single_buffer[1] = { device->on_buffer() };
+			WaitForMultipleObjects(1, single_buffer, false, 1000);
+			//WaitForMultipleObjects(device->get_input_channels(), wait_for_complete_buffer, true, 40);
 
-	//send disconnect event
-	SetEvent(data->stop_listening_signal);
-	HANDLE single_buffer[1] = { device->on_buffer() };
-	WaitForMultipleObjects(1, single_buffer, false, 1000);
-	//WaitForMultipleObjects(device->get_input_channels(), wait_for_complete_buffer, true, 40);
-
+		}
+	}
 	delete data;
 }
 
