@@ -412,6 +412,7 @@ public:
 		//free resources?
 	}
 
+	//check that all the required device settings have been set
 	void check_all() {
 		if (buffer_prepped && circle_buffer_prepped && events_prepped) {
 			all_prepped = true;
@@ -427,8 +428,7 @@ public:
 
 	void prep_circle_buffer(DWORD bufpref) {
 		if (!circle_buffer_prepped) {
-			//info.bufpref
-			//BASS_ASIO_ChannelGetFormat
+			//create a buffer w/ a minimum of 4 slots and a target of a fraction of 2048 samples
 			buffer_count = max(4, ceil(2048 / bufpref));
 			circlebuf_init(&audio_buffer);
 			circlebuf_reserve(&audio_buffer, buffer_count * sizeof(device_source_audio));
@@ -659,7 +659,7 @@ public:
 
 	//adds a listener thread between an asio_data object and this device
 	void add_listener(asio_data *listener) {
-		if (!events_prepped) {
+		if (!all_prepped) {
 			return;
 		}
 		listener_pair* parameters = new listener_pair();
@@ -1048,6 +1048,8 @@ int mix(uint8_t *inputBuffer, obs_source_audio *out, size_t bytes_per_ch, int ro
 }
 
 DWORD CALLBACK create_asio_buffer(BOOL input, DWORD channel, void *buffer, DWORD BufSize, void *device_ptr) {
+	BASS_ASIO_INFO info;
+	bool ret = BASS_ASIO_GetInfo(&info);
 	device_data *device = (device_data*)device_ptr;
 	device->write_buffer_interleaved(buffer, BufSize);
 
@@ -1072,17 +1074,25 @@ void CALLBACK asio_device_setting_changed(DWORD notify, void *device_ptr) {
 		BASS_ASIO_Stop();
 		device->update_sample_rate(new_sample_rate);
 		device->re_prep_buffers(info);
-		BASS_ASIO_Start(info.bufpref, info.inputs);
-		switch (BASS_ASIO_ErrorGetCode()) {
-		case BASS_ERROR_INIT:
-			blog(LOG_ERROR, "Error: Bass asio not initialized.\n");
-		case BASS_ERROR_ALREADY:
-			blog(LOG_ERROR, "Error: device already started\n");
-		case BASS_ERROR_NOCHAN:
-			blog(LOG_ERROR, "Error: channels have not been enabled so can not start\n");
-		case BASS_ERROR_UNKNOWN:
-		default:
-			blog(LOG_ERROR, "ASIO init: Unknown error when trying to start the device\n");
+		ret = BASS_ASIO_Start(info.bufpref, info.inputs);
+		if (!ret) {
+			switch (BASS_ASIO_ErrorGetCode()) {
+			case BASS_ERROR_INIT:
+				blog(LOG_ERROR, "Error: Bass asio not initialized.\n");
+				break;
+			case BASS_ERROR_ALREADY:
+				blog(LOG_ERROR, "Error: device already started\n");
+				//BASS_ASIO_Stop(); 
+				//BASS_ASIO_Start(data->BufferSize, recorded_channels);
+				break;
+			case BASS_ERROR_NOCHAN:
+				blog(LOG_ERROR, "Error: channels have not been enabled so can not start\n");
+				break;
+			case BASS_ERROR_UNKNOWN:
+			default:
+				blog(LOG_ERROR, "ASIO init: Unknown error when trying to start the device\n");
+				break;
+			}
 		}
 
 		break;
@@ -1097,19 +1107,25 @@ void CALLBACK asio_device_setting_changed(DWORD notify, void *device_ptr) {
 		}
 		BASS_ASIO_Stop();
 		device->re_prep_buffers(info);
-		BASS_ASIO_Start(info.bufpref,info.inputs);
-		switch (BASS_ASIO_ErrorGetCode()) {
-		case BASS_ERROR_INIT:
-			blog(LOG_ERROR, "Error: Bass asio not initialized.\n");
-		case BASS_ERROR_ALREADY:
-			blog(LOG_ERROR, "Error: device already started\n");
-			//BASS_ASIO_Stop(); 
-			//BASS_ASIO_Start(data->BufferSize, recorded_channels);
-		case BASS_ERROR_NOCHAN:
-			blog(LOG_ERROR, "Error: channels have not been enabled so can not start\n");
-		case BASS_ERROR_UNKNOWN:
-		default:
-			blog(LOG_ERROR, "ASIO init: Unknown error when trying to start the device\n");
+		ret = BASS_ASIO_Start(info.bufpref,info.inputs);
+		if (!ret) {
+			switch (BASS_ASIO_ErrorGetCode()) {
+			case BASS_ERROR_INIT:
+				blog(LOG_ERROR, "Error: Bass asio not initialized.\n");
+				break;
+			case BASS_ERROR_ALREADY:
+				blog(LOG_ERROR, "Error: device already started\n");
+				//BASS_ASIO_Stop(); 
+				//BASS_ASIO_Start(data->BufferSize, recorded_channels);
+				break;
+			case BASS_ERROR_NOCHAN:
+				blog(LOG_ERROR, "Error: channels have not been enabled so can not start\n");
+				break;
+			case BASS_ERROR_UNKNOWN:
+			default:
+				blog(LOG_ERROR, "ASIO init: Unknown error when trying to start the device\n");
+				break;
+			}
 		}
 		//BASS_ASIO_Stop();		
 		break;
@@ -1208,19 +1224,25 @@ void asio_init(struct asio_data *data)
 
 		/*start the device w/ # of threads*/
 		blog(LOG_INFO, "starting device %lu", device_index);
-		BASS_ASIO_Start(info.bufpref, spawn_threads);
-		switch (BASS_ASIO_ErrorGetCode()) {
-		case BASS_ERROR_INIT:
-			blog(LOG_ERROR, "Error: Bass asio not initialized.\n");
-		case BASS_ERROR_ALREADY:
-			blog(LOG_ERROR, "Error: device already started\n");
-			//BASS_ASIO_Stop(); 
-			//BASS_ASIO_Start(data->BufferSize, recorded_channels);
-		case BASS_ERROR_NOCHAN:
-			blog(LOG_ERROR, "Error: channels have not been enabled so can not start\n");
-		case BASS_ERROR_UNKNOWN:
-		default:
-			blog(LOG_ERROR, "ASIO init: Unknown error when trying to start the device\n");
+		ret = BASS_ASIO_Start(info.bufpref, spawn_threads);
+		if(!ret){
+			switch (BASS_ASIO_ErrorGetCode()) {
+			case BASS_ERROR_INIT:
+				blog(LOG_ERROR, "Error: Bass asio not initialized.\n");
+				break;
+			case BASS_ERROR_ALREADY:
+				blog(LOG_ERROR, "Error: device already started\n");
+				//BASS_ASIO_Stop(); 
+				//BASS_ASIO_Start(data->BufferSize, recorded_channels);
+				break;
+			case BASS_ERROR_NOCHAN:
+				blog(LOG_ERROR, "Error: channels have not been enabled so can not start\n");
+				break;
+			case BASS_ERROR_UNKNOWN:
+			default:
+				blog(LOG_ERROR, "ASIO init: Unknown error when trying to start the device\n");
+				break;
+			}
 		}
 	}
 
