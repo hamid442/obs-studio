@@ -467,6 +467,12 @@ public:
 		prep_buffers(info, format, samples_per_sec);
 	}
 
+	void update_sample_rate(uint32_t in_samples_per_sec) {
+		all_prepped = false;
+		this->samples_per_sec = in_samples_per_sec;
+		check_all();
+	}
+
 	void prep_buffers(BASS_ASIO_INFO &info, audio_format in_format, uint32_t in_samples_per_sec) {
 		prep_buffers(info.bufpref, info.inputs, in_format, in_samples_per_sec);
 	}
@@ -1050,16 +1056,40 @@ DWORD CALLBACK create_asio_buffer(BOOL input, DWORD channel, void *buffer, DWORD
 
 void CALLBACK asio_device_setting_changed(DWORD notify, void *device_ptr) {
 	device_data *device = (device_data*)device_ptr;
+	BASS_ASIO_INFO info;
+	bool ret = BASS_ASIO_GetInfo(&info);
+	uint32_t new_sample_rate; 
 	switch (notify) {
 	case BASS_ASIO_NOTIFY_RATE:
-		blog(LOG_WARNING, "device %l changed sample rate to %f", device->device_index , BASS_ASIO_GetRate());
+		new_sample_rate = BASS_ASIO_GetRate();
+		blog(LOG_WARNING, "device %l changed sample rate to %f", device->device_index , new_sample_rate);
+
+		if (!ret) {
+			blog(LOG_ERROR, "Unable to retrieve info on the current driver \n"
+				"error number is : %i \n; check BASS_ASIO_ErrorGetCode\n",
+				BASS_ASIO_ErrorGetCode());
+		}
+		BASS_ASIO_Stop();
+		device->update_sample_rate(new_sample_rate);
+		device->re_prep_buffers(info);
+		BASS_ASIO_Start(info.bufpref, info.inputs);
+		switch (BASS_ASIO_ErrorGetCode()) {
+		case BASS_ERROR_INIT:
+			blog(LOG_ERROR, "Error: Bass asio not initialized.\n");
+		case BASS_ERROR_ALREADY:
+			blog(LOG_ERROR, "Error: device already started\n");
+		case BASS_ERROR_NOCHAN:
+			blog(LOG_ERROR, "Error: channels have not been enabled so can not start\n");
+		case BASS_ERROR_UNKNOWN:
+		default:
+			blog(LOG_ERROR, "ASIO init: Unknown error when trying to start the device\n");
+		}
+
 		break;
 	case BASS_ASIO_NOTIFY_RESET:
 		blog(LOG_WARNING, "device %l requested a reset", device->device_index);
 		// Reset ?
 		//BASS_ASIO_SetDevice(device->device_index);
-		BASS_ASIO_INFO info;
-		bool ret = BASS_ASIO_GetInfo(&info);
 		if (!ret) {
 			blog(LOG_ERROR, "Unable to retrieve info on the current driver \n"
 				"error number is : %i \n; check BASS_ASIO_ErrorGetCode\n",
