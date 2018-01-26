@@ -251,7 +251,8 @@ public:
 
 		struct obs_audio_info aoi;
 		obs_get_audio_info(&aoi);
-
+		int index = BASS_ASIO_GetDevice();
+		blog(LOG_INFO, "dv index in render_audio is %i", index);
 		obs_source_audio out;
 		out.format = asio_buffer->format;
 		if (!is_audio_planar(out.format)) {
@@ -1001,6 +1002,16 @@ static bool asio_device_changed(obs_properties_t *props,
 				blog(LOG_ERROR, "Device index is invalid\n");
 			}
 		}
+		else {
+			obs_property_list_clear(sample_rate);
+			obs_property_list_clear(bit_depth);
+			//fill out based on device's settings
+			obs_property_list_clear(buffer_size);
+			obs_property_set_modified_callback(sample_rate, fill_out_sample_rates);
+			obs_property_set_modified_callback(bit_depth, fill_out_bit_depths);
+			obs_property_set_modified_callback(buffer_size, fill_out_buffer_sizes);
+
+		}
 	}
 	// get channel number from output speaker layout set by obs
 	DWORD recorded_channels = get_obs_output_channels();
@@ -1019,14 +1030,6 @@ static bool asio_device_changed(obs_properties_t *props,
 			obs_property_set_modified_callback(route[i], fill_out_channels_modified);
 		}
 	}
-	obs_property_list_clear(sample_rate);
-	obs_property_list_clear(bit_depth);
-	//fill out based on device's settings
-	obs_property_list_clear(buffer_size);
-
-	obs_property_set_modified_callback(sample_rate, fill_out_sample_rates);
-	obs_property_set_modified_callback(bit_depth, fill_out_bit_depths);
-	obs_property_set_modified_callback(buffer_size, fill_out_buffer_sizes);
 
 	return true;
 }
@@ -1068,7 +1071,7 @@ void CALLBACK asio_device_setting_changed(DWORD notify, void *device_ptr) {
 
 		if (!ret) {
 			blog(LOG_ERROR, "Unable to retrieve info on the current driver \n"
-				"error number is : %i \n; check BASS_ASIO_ErrorGetCode\n",
+				"error number is : %i; \n check BASS_ASIO_ErrorGetCode\n",
 				BASS_ASIO_ErrorGetCode());
 		}
 		BASS_ASIO_Stop();
