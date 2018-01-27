@@ -247,6 +247,15 @@ public:
 		}
 	}
 
+	bool disconnect() {
+		isASIOActive = false;
+		SetEvent(stop_listening_signal);
+		if (captureThread.Valid()) {
+			WaitForSingleObject(captureThread, 100);
+		}
+		return true;
+	}
+
 	bool render_audio(device_source_audio *asio_buffer, long route[]) {
 
 		struct obs_audio_info aoi;
@@ -582,12 +591,17 @@ public:
 		obs_get_audio_info(&aoi);
 
 		std::string thread_name = "asio capture: ";//source->device;
-		thread_name += source->get_id();			//thread_name += " capture thread";
+		thread_name += source->get_id();
+		thread_name += ":";
+		thread_name += device->device_info.name;//thread_name += " capture thread";
 		os_set_thread_name(thread_name.c_str());
 
 		HANDLE signals[3] = { device->all_recieved_signal, device->stop_listening_signal, source->stop_listening_signal };
 
 		long route[MAX_AUDIO_CHANNELS];
+		for (short i = 0; i < aoi.speakers; i++) {
+			route[i] = source->route[i];
+		}
 
 		source->isASIOActive = true;
 		ResetEvent(source->stop_listening_signal);
@@ -596,12 +610,7 @@ public:
 
 		size_t read_index = device->write_index;//0;
 		while (source && device) {
-			EnterCriticalSection(&source->settings_mutex);
-			for (short i = 0; i < aoi.speakers; i++) {
-				route[i] = source->route[i];
-			}
-			LeaveCriticalSection(&source->settings_mutex);
-			int waitResult = WaitForMultipleObjects(1, signals, false, INFINITE);
+			int waitResult = WaitForMultipleObjects(3, signals, false, INFINITE);
 			//not entirely sure that all of these conditions are correct (at the very least this is)
 			if (waitResult == WAIT_OBJECT_0) {
 				while (read_index != device->write_index) {
@@ -614,41 +623,50 @@ public:
 					blog(LOG_INFO, "source device index %lu is not device index %lu", source->device_index, device->device_index);
 					blog(LOG_INFO, "%s closing", thread_name.c_str());
 					return 0;
-				} else if (!source->isASIOActive) {
+				}
+				else if (!source->isASIOActive) {
 					blog(LOG_INFO, "%s indicated it wanted to disconnect", source->get_id());
 					blog(LOG_INFO, "%s closing", thread_name.c_str());
 					return 0;
 				}
-			//microsoft docs on the return codes gives the impression that you're supposed to subtract wait_object_0
-			} else if (waitResult == WAIT_OBJECT_0 + 1) {
+				//microsoft docs on the return codes gives the impression that you're supposed to subtract wait_object_0
+			}
+			else if (waitResult == WAIT_OBJECT_0 + 1) {
 				blog(LOG_INFO, "device %l indicated it wanted to disconnect", device->device_index);
 				blog(LOG_INFO, "%s closing", thread_name.c_str());
 				return 0;
-			} else if (waitResult == WAIT_OBJECT_0 + 2) {
+			}
+			else if (waitResult == WAIT_OBJECT_0 + 2) {
 				blog(LOG_INFO, "%s indicated it wanted to disconnect", source->get_id());
 				blog(LOG_INFO, "%s closing", thread_name.c_str());
 				return 0;
-			} else if (waitResult == WAIT_ABANDONED_0) {
+			}
+			else if (waitResult == WAIT_ABANDONED_0) {
 				blog(LOG_INFO, "a mutex for %s was abandoned while listening to", thread_name.c_str(), device->device_index);
 				blog(LOG_INFO, "%s closing", thread_name.c_str());
 				return 0;
-			} else if (waitResult == WAIT_ABANDONED_0 + 1) {
+			}
+			else if (waitResult == WAIT_ABANDONED_0 + 1) {
 				blog(LOG_INFO, "a mutex for %s was abandoned while listening to", thread_name.c_str(), device->device_index);
 				blog(LOG_INFO, "%s closing", thread_name.c_str());
 				return 0;
-			} else if (waitResult == WAIT_ABANDONED_0 + 2) {
+			}
+			else if (waitResult == WAIT_ABANDONED_0 + 2) {
 				blog(LOG_INFO, "a mutex for %s was abandoned while listening to", thread_name.c_str(), device->device_index);
 				blog(LOG_INFO, "%s closing", thread_name.c_str());
 				return 0;
-			} else if (waitResult == WAIT_TIMEOUT) {
+			}
+			else if (waitResult == WAIT_TIMEOUT) {
 				blog(LOG_INFO, "%s timed out while listening to %l", thread_name.c_str(), device->device_index);
 				blog(LOG_INFO, "%s closing", thread_name.c_str());
 				return 0;
-			} else if (waitResult == WAIT_FAILED) {
+			}
+			else if (waitResult == WAIT_FAILED) {
 				blog(LOG_INFO, "listener thread wait %lu failed with 0x%x", device->device_index, GetLastError());
 				blog(LOG_INFO, "%s closing", thread_name.c_str());
 				return 0;
-			} else {
+			}
+			else {
 				blog(LOG_INFO, "unexpected wait result = %i", waitResult);
 				blog(LOG_INFO, "%s closing", thread_name.c_str());
 				return 0;
@@ -1305,11 +1323,12 @@ void asio_destroy(void *vptr)
 		if (data->device_index < device_list.size()) {
 			device_data *device = device_list[data->device_index];
 			//send disconnect event
-			SetEvent(data->stop_listening_signal);
-			HANDLE single_buffer[1] = { device->on_buffer() };
-			WaitForMultipleObjects(1, single_buffer, false, 1000);
+			//SetEvent(data->stop_listening_signal);
+			//data->isASIOActive = false;
+			//HANDLE single_buffer[1] = { device->on_buffer() };
+			//WaitForMultipleObjects(1, single_buffer, false, 1000);
 			//WaitForMultipleObjects(device->get_input_channels(), wait_for_complete_buffer, true, 40);
-
+			data->disconnect();
 		}
 	}
 	delete data;
@@ -1334,7 +1353,7 @@ void asio_update(void *vptr, obs_data_t *settings)
 	const char *prev_device;
 	DWORD prev_device_index;
 	// lock down the settings mutex (protect against a sudden change when reading buffers)
-	EnterCriticalSection(&data->settings_mutex);
+	//EnterCriticalSection(&data->settings_mutex);
 	// get channel number from output speaker layout set by obs
 	DWORD recorded_channels = get_obs_output_channels();
 	data->recorded_channels = recorded_channels;
@@ -1430,7 +1449,7 @@ void asio_update(void *vptr, obs_data_t *settings)
 		data->unmuted_chs = data->_get_unmuted_chs(data->route);
 
 		//safe to leave the critical section
-		LeaveCriticalSection(&data->settings_mutex);
+		//LeaveCriticalSection(&data->settings_mutex);
 
 		//spin up the asio device if it hasn't already and create a listener thread
 		asio_init(data);
@@ -1549,6 +1568,7 @@ bool obs_module_load(void)
 	for (uint8_t i = 0; i < devices; i++) {
 		device_data *device = new device_data();
 		device->device_index = i;
+		BASS_ASIO_GetDeviceInfo(i, &device->device_info);
 		device_list.push_back(device);
 	}
 
