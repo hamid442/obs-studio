@@ -237,7 +237,7 @@ public:
 
 		memset(&route[0], -1, sizeof(DWORD) * 8);
 
-		stop_listening_signal = CreateEvent(nullptr, true, false, nullptr);
+		stop_listening_signal = CreateEvent(nullptr, false, false, nullptr);
 	}
 
 	~asio_data() {
@@ -251,7 +251,7 @@ public:
 		isASIOActive = false;
 		SetEvent(stop_listening_signal);
 		if (captureThread.Valid()) {
-			WaitForSingleObject(captureThread, 100);
+			WaitForSingleObject(captureThread, INFINITE);
 		}
 		return true;
 	}
@@ -261,7 +261,7 @@ public:
 		struct obs_audio_info aoi;
 		obs_get_audio_info(&aoi);
 		int index = BASS_ASIO_GetDevice();
-		blog(LOG_INFO, "dv index in render_audio is %i", index);
+		//blog(LOG_INFO, "dv index in render_audio is %i", index);
 		obs_source_audio out;
 		out.format = asio_buffer->format;
 		if (!is_audio_planar(out.format)) {
@@ -403,6 +403,7 @@ public:
 		buffer_count = 32;
 
 		all_recieved_signal = CreateEvent(nullptr, true, false, nullptr);
+		stop_listening_signal = CreateEvent(nullptr, false, false, nullptr);
 	}
 
 	device_data(size_t buffers, audio_format audioformat) {
@@ -417,6 +418,7 @@ public:
 		buffer_count = buffers ? buffers : 32;
 
 		all_recieved_signal = CreateEvent(nullptr, true, false, nullptr);
+		stop_listening_signal = CreateEvent(nullptr, false, false, nullptr);
 	}
 
 	~device_data() {
@@ -686,14 +688,9 @@ public:
 
 		parameters->asio_listener = listener;
 		parameters->device = this;
-
+		blog(LOG_INFO, "disconnecting any previous connections (source_id: %s)", listener->get_id());
+		listener->disconnect();
 		blog(LOG_INFO, "adding listener for %lu (source: %lu)", device_index, listener->device_index);
-		listener->isASIOActive = false;
-		SetEvent(listener->stop_listening_signal);
-
-		//wait for a tick before adding a listener (should stall long enough to close previous thread)
-		WaitForSingleObject(this->all_recieved_signal, 200);
-
 		listener->captureThread = CreateThread(nullptr, 0, this->capture_thread, parameters, 0, nullptr);
 	}
 };
