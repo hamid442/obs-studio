@@ -235,7 +235,7 @@ public:
 	asio_data() : source(NULL), first_ts(0), device_index(-1) {
 		InitializeCriticalSection(&settings_mutex);
 
-		memset(&route[0], -1, sizeof(DWORD) * 8);
+		memset(&route[0], -1, sizeof(long) * 8);
 
 		stop_listening_signal = CreateEvent(nullptr, true, false, nullptr);
 	}
@@ -1089,7 +1089,7 @@ static bool asio_device_changed(obs_properties_t *props,
 			std::string name = "route " + std::to_string(i);
 			route[i] = obs_properties_get(props, name.c_str());
 			obs_property_list_clear(route[i]);
-			obs_data_set_default_int(settings, name.c_str(), -1); // default is muted channels
+//			obs_data_set_default_int(settings, name.c_str(), -1); // default is muted channels
 			obs_property_set_modified_callback(route[i], fill_out_channels_modified);
 		}
 	}
@@ -1492,6 +1492,11 @@ void asio_get_defaults(obs_data_t *settings)
 {
 	obs_data_set_default_int(settings, "sample rate", 48000);
 	obs_data_set_default_int(settings, "bit depth", AUDIO_FORMAT_FLOAT);
+	DWORD recorded_channels = get_obs_output_channels();
+	for (unsigned int i = 0; i < recorded_channels; i++) {
+		std::string name = "route " + std::to_string(i);
+		obs_data_set_default_int(settings, name.c_str(), -1); // default is muted channels
+	}
 }
 
 obs_properties_t * asio_get_properties(void *unused)
