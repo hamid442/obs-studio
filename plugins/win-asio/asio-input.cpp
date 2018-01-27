@@ -824,12 +824,12 @@ void fill_out_devices(obs_property_t *list) {
 void fill_out_devices(obs_property_t *list) {
 	int res;
 	BASS_ASIO_SetUnicode(false);
-	BASS_ASIO_DEVICEINFO info;
+	BASS_ASIO_DEVICEINFO devinfo;
 	bool ret;
 	//int numOfDevices = getDeviceCount();
 	uint32_t i;
-	for (i = 0; BASS_ASIO_GetDeviceInfo(i, &info); i++) {
-		obs_property_list_add_string(list, info.name, info.name);
+	for (i = 0; BASS_ASIO_GetDeviceInfo(i, &devinfo); i++) {
+		obs_property_list_add_string(list, devinfo.name, devinfo.name);
 	}
 }
 
@@ -839,6 +839,9 @@ void fill_out_devices(obs_property_t *list) {
 static bool fill_out_channels_modified(obs_properties_t *props, obs_property_t *list, obs_data_t *settings) {
 	BASS_ASIO_INFO info;
 	bool ret = BASS_ASIO_GetInfo(&info);
+	BASS_ASIO_DEVICEINFO devinfo;
+	int index = BASS_ASIO_GetDevice();
+	ret = BASS_ASIO_GetDeviceInfo(index, &devinfo);
 	if (!ret) {
 		blog(LOG_ERROR, "Unable to retrieve info on the current driver \n"
 			"error number is : %i \n; check BASS_ASIO_ErrorGetCode\n",
@@ -847,7 +850,7 @@ static bool fill_out_channels_modified(obs_properties_t *props, obs_property_t *
 	// DEBUG: check that the current device in bass thread is the correct one
 	// once code is fine the check can be removed
 	const char* device = obs_data_get_string(settings, "device_id");
-	if (!strcmp(device, info.name)) {
+	if (!strcmp(device, devinfo.name)) {
 		blog(LOG_ERROR, "Device loaded is not the one in settings\n");
 	}
 	//get the device info
@@ -856,7 +859,7 @@ static bool fill_out_channels_modified(obs_properties_t *props, obs_property_t *
 	obs_property_list_add_int(list, "mute", -1);
 	for (DWORD i = 0; i < input_channels; i++) {
 		char** names = new char*[34];
-		std::string test = info.name;
+		std::string test = devinfo.name;
 		test = test + " " + std::to_string(i);
 		char* cstr = new char[test.length() + 1];
 		strcpy(cstr, test.c_str());
@@ -868,8 +871,9 @@ static bool fill_out_channels_modified(obs_properties_t *props, obs_property_t *
 
 //creates list of input sample rates supported by the device and OBS (obs supports only 44100 and 48000)
 static bool fill_out_sample_rates(obs_properties_t *props, obs_property_t *list, obs_data_t *settings) {
-	BASS_ASIO_INFO info;
-	bool ret = BASS_ASIO_GetInfo(&info);
+	BASS_ASIO_DEVICEINFO devinfo;
+	int index = BASS_ASIO_GetDevice();
+	bool ret = BASS_ASIO_GetDeviceInfo(index, &devinfo);
 	if (!ret) {
 		blog(LOG_ERROR, "Unable to retrieve info on the current driver \n"
 			"error number is : %i \n; check BASS_ASIO_ErrorGetCode\n",
@@ -878,7 +882,7 @@ static bool fill_out_sample_rates(obs_properties_t *props, obs_property_t *list,
 	// DEBUG: check that the current device in bass thread is the correct one
 	// once code is fine the check can be removed
 	const char* device = obs_data_get_string(settings, "device_id");
-	if (!strcmp(device, info.name)) {
+	if (!strcmp(device, devinfo.name)) {
 		blog(LOG_ERROR, "Device loaded is not the one in settings\n");
 	}
 
@@ -909,8 +913,9 @@ static bool fill_out_sample_rates(obs_properties_t *props, obs_property_t *list,
 
 //create list of supported audio formats
 static bool fill_out_bit_depths(obs_properties_t *props, obs_property_t *list, obs_data_t *settings) {
-	BASS_ASIO_INFO info;
-	bool ret = BASS_ASIO_GetInfo(&info);
+	BASS_ASIO_DEVICEINFO devinfo;
+	int index = BASS_ASIO_GetDevice();
+	bool ret = BASS_ASIO_GetDeviceInfo(index, &devinfo);
 	if (!ret) {
 		blog(LOG_ERROR, "Unable to retrieve info on the current driver \n"
 			"error number is : %i \n; check BASS_ASIO_ErrorGetCode\n",
@@ -919,7 +924,7 @@ static bool fill_out_bit_depths(obs_properties_t *props, obs_property_t *list, o
 	// DEBUG: check that the current device in bass thread is the correct one
 	// once code is fine the check can be removed
 	const char* device = obs_data_get_string(settings, "device_id");
-	if (!strcmp(device, info.name)) {
+	if (!strcmp(device, devinfo.name)) {
 		blog(LOG_ERROR, "Device loaded is not the one in settings\n");
 	}
 
@@ -1080,16 +1085,12 @@ static bool asio_device_changed(obs_properties_t *props,
 	DWORD recorded_channels = get_obs_output_channels();
 
 	obs_property_t *route[MAX_AUDIO_CHANNELS];
-	int pad_digits = (int)floor(log10(abs(MAX_AUDIO_CHANNELS))) + 1;
-	const char* route_name_format = "route %i";
-	char* route_name = new char[strlen(route_name_format) + pad_digits];
 	if (itemFound) {
 		for (unsigned int i = 0; i < recorded_channels; i++) {
 			std::string name = "route " + std::to_string(i);
 			route[i] = obs_properties_get(props, name.c_str());
 			obs_property_list_clear(route[i]);
-			sprintf(route_name, route_name_format, i);
-			obs_data_set_default_int(settings, route_name, -1); // default is muted channels
+			obs_data_set_default_int(settings, name.c_str(), -1); // default is muted channels
 			obs_property_set_modified_callback(route[i], fill_out_channels_modified);
 		}
 	}
@@ -1203,6 +1204,9 @@ void asio_init(struct asio_data *data)
 	// get info, useful for debug
 	BASS_ASIO_INFO info;
 	bool ret = BASS_ASIO_GetInfo(&info);
+	int index = BASS_ASIO_GetDevice();
+	BASS_ASIO_DEVICEINFO devinfo;
+	ret = BASS_ASIO_GetDeviceInfo(index, &devinfo);
 	if (!ret) {
 		blog(LOG_ERROR, "Unable to retrieve info on the current driver \n"
 			"error number is : %i \n; check BASS_ASIO_ErrorGetCode\n",
@@ -1229,7 +1233,7 @@ void asio_init(struct asio_data *data)
 	//audio_format format = asio_to_obs_audio_format(checkbitdepth);
 
 	//get the device_index
-	DWORD device_index = get_device_index(info.name);
+	DWORD device_index = index; //get_device_index(devinfo.name);
 
 	//start asio device if it hasn't already been
 	if (!BASS_ASIO_IsStarted()) {
@@ -1359,8 +1363,8 @@ void asio_update(void *vptr, obs_data_t *settings)
 	uint16_t BufferSize;
 	unsigned int channels;
 	BASS_ASIO_INFO info;
-	bool ret;
 	int res;
+	bool ret;
 	DWORD route[MAX_AUDIO_CHANNELS];
 	DWORD device_index;
 	int numDevices = getDeviceCount();
@@ -1442,7 +1446,10 @@ void asio_update(void *vptr, obs_data_t *settings)
 
 		// DEBUG: check that the current device in bass thread is the correct one
 		// once code is fine the check can be removed
-		if (!strcmp(device, info.name)) {
+		BASS_ASIO_DEVICEINFO devinfo;
+		int index = BASS_ASIO_GetDevice();
+		ret = BASS_ASIO_GetDeviceInfo(index, &devinfo);
+		if (!strcmp(device, devinfo.name)) {
 			blog(LOG_ERROR, "Device loaded is not the one in settings\n");
 		}
 
@@ -1467,6 +1474,10 @@ void asio_update(void *vptr, obs_data_t *settings)
 		//LeaveCriticalSection(&data->settings_mutex);
 
 		//spin up the asio device if it hasn't already and create a listener thread
+		/*rate = (double)obs_data_get_int(settings, "sample rate");
+		BufferSize = (uint16_t)obs_data_get_int(settings, "buffer");
+		BitDepth = (audio_format)obs_data_get_int(settings, "bit depth");
+		if ((rate == 44100 || rate == 48000) && BufferSize != 0)*/
 		asio_init(data);
 	}
 
