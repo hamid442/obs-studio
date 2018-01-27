@@ -857,14 +857,13 @@ static bool fill_out_channels_modified(obs_properties_t *props, obs_property_t *
 	DWORD input_channels = info.inputs;
 	obs_property_list_clear(list);
 	obs_property_list_add_int(list, "mute", -1);
+	BASS_ASIO_CHANNELINFO ch_info;
 	for (DWORD i = 0; i < input_channels; i++) {
-		char** names = new char*[34];
-		std::string test = devinfo.name;
+		BASS_ASIO_ChannelGetInfo(1, i, &ch_info);
+		std::string test = info.name;
 		test = test + " " + std::to_string(i);
-		char* cstr = new char[test.length() + 1];
-		strcpy(cstr, test.c_str());
-		names[i] = cstr;
-		obs_property_list_add_int(list, names[i], i);
+		test = test + " " + ch_info.name;
+		obs_property_list_add_int(list, test.c_str(), i);
 	}
 	return true;
 }
