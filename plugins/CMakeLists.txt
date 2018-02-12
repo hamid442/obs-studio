@@ -63,6 +63,7 @@ if(WIN32 OR APPLE)
 	endif()
 endif()
 
+add_subdirectory(rematrix-filter)
 add_subdirectory(image-source)
 add_subdirectory(obs-x264)
 add_subdirectory(obs-libfdk)

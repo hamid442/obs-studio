@@ -13,3 +13,7 @@
 [submodule "plugins/obs-vst"]
 	path = plugins/obs-vst
 	url = https://github.com/DDRBoxman/obs-vst.git
+[submodule "plugins/rematrix-filter"]
+	path = plugins/rematrix-filter
+	url = https://github.com/Andersama/rematrix-filter
+	branch = master
