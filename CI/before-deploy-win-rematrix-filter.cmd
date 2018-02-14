@@ -8,5 +8,5 @@ mkdir "C:\projects\rematrix-filter\build\data\obs-plugins\rematrix-filter\"
 mkdir "C:\projects\rematrix-filter\build\data\obs-plugins\rematrix-filter\locale\"
 robocopy "C:\projects\obs-studio\build32\rundir\RelWithDebInfo\obs-plugins\32bit" "C:\projects\rematrix-filter\build\obs-plugins\32bit" "rematrix-filter.*"
 robocopy "C:\projects\obs-studio\build64\rundir\RelWithDebInfo\obs-plugins\64bit" "C:\projects\rematrix-filter\build\obs-plugins\64bit" "rematrix-filter.*"
-robocopy C:\projects\obs-studio\build64\rundir\RelWithDebInfo\data\obs-plugins\rematrix-filter\locale" "C:\projects\rematrix-filter\build\data\obs-plugins\rematrix-filter\locale" "*.ini"
+robocopy "C:\projects\obs-studio\build64\rundir\RelWithDebInfo\data\obs-plugins\rematrix-filter\locale" "C:\projects\rematrix-filter\build\data\obs-plugins\rematrix-filter\locale" "*.ini"
 7z a C:\projects\rematrix-filter\build.zip C:\projects\rematrix-filter\build*
