@@ -69,6 +69,24 @@ enum obs_fader_type {
 };
 
 /**
+ * @brief Meter types
+ */
+enum obs_volume_meter_type {
+	OBS_VOLUME_METER_VIEW,
+	OBS_WAVEFORM_VIEW,
+	OBS_FFT_VIEW
+};
+
+/**
+ * @brief Meter options
+ */
+enum obs_volume_meter_options {
+	OBS_VOLUME_HORIZONTAL = 0x0,
+	OBS_VOLUME_VERTICAL = 0x1,
+	OBS_VOLUME_PINNED = 0x2
+};
+
+/**
  * @brief Create a fader
  * @param type the type of the fader
  * @return pointer to the fader object

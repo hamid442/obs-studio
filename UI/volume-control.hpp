@@ -78,6 +78,39 @@ class VolumeMeter : public QWidget
 	Q_PROPERTY(qreal inputPeakHoldDuration
 		READ getInputPeakHoldDuration
 		WRITE setInputPeakHoldDuration DESIGNABLE true)
+		
+	// Duration denoted in seconds, floating point, but used as a 64bit integer
+	Q_PROPERTY(qreal clipHoldTime
+		READ getMinimumClipHoldDuration
+		WRITE setMinimumClipHoldDuration DESIGNABLE true)
+
+	Q_PROPERTY(qreal clipAnimationLength
+		READ getClipAnimationDuration
+		WRITE setClipAnimationDuration DESIGNABLE true)
+
+	/*
+	Q_PROPERTY(qint16 clipAnimationTimingType
+		READ getAnimationTimingType
+		WRITE setAnimationTimingType DESIGNABLE true)
+	*/
+
+	/*
+	Q_PROPERTY(qreal clipAnimationTimingParameter_0
+		READ getAnimationTimingParameter_0
+		WRITE setAnimationTimingParameter_0 DESIGNABLE true)
+
+	Q_PROPERTY(qreal clipAnimationTimingParameter_1
+		READ getAnimationTimingParameter_1
+		WRITE setAnimationTimingParameter_1 DESIGNABLE true)
+
+	Q_PROPERTY(qreal clipAnimationTimingParameter_2
+		READ getAnimationTimingParameter_2
+		WRITE setAnimationTimingParameter_2 DESIGNABLE true)
+
+	Q_PROPERTY(qreal clipAnimationTimingParameter_3
+		READ getAnimationTimingParameter_3
+		WRITE setAnimationTimingParameter_3 DESIGNABLE true)
+	*/
 
 private:
 	obs_volmeter_t *obs_volmeter;
@@ -94,18 +127,38 @@ private:
 
 	void paintInputMeter(QPainter &painter, int x, int y,
 		int width, int height, float peakHold);
+
+	void paintFFT(QPainter &painter, int x, int y,
+		int width, int height, int channel);
+	
+	void paintWaveForm(QPainter &painter, int x, int y,
+		int width, int height, int channel);
+
 	void paintMeter(QPainter &painter, int x, int y,
 		int width, int height,
 		float magnitude, float peak, float peakHold);
+		
 	void paintTicks(QPainter &painter, int x, int y, int width, int height);
-
+	void paintTicksFFT(QPainter &painter, int x, int y, int width, int height);
+	
 	QMutex dataMutex;
 
 	uint64_t currentLastUpdateTime = 0;
 	float currentMagnitude[MAX_AUDIO_CHANNELS];
 	float currentPeak[MAX_AUDIO_CHANNELS];
 	float currentInputPeak[MAX_AUDIO_CHANNELS];
+	
+	size_t currentAudioDataSamples;
+	size_t currentFFTDataSamples;
 
+	float currentPowerSpectra[MAX_AUDIO_CHANNELS][AUDIO_OUTPUT_FRAMES];
+
+	float currentAudioData[MAX_AUDIO_CHANNELS][AUDIO_OUTPUT_FRAMES];
+	float currentFFTData[MAX_AUDIO_CHANNELS][AUDIO_OUTPUT_FRAMES];
+
+	float displayAudioData[MAX_AUDIO_CHANNELS][AUDIO_OUTPUT_FRAMES];
+	float displayFFTData[MAX_AUDIO_CHANNELS][AUDIO_OUTPUT_FRAMES];
+	
 	QPixmap *tickPaintCache = NULL;
 	int displayNrAudioChannels = 0;
 	float displayMagnitude[MAX_AUDIO_CHANNELS];
@@ -122,6 +175,9 @@ private:
 	QColor foregroundNominalColor;
 	QColor foregroundWarningColor;
 	QColor foregroundErrorColor;
+	QColor clipNominalColor;
+	QColor clipWarningColor;
+	QColor clipErrorColor;
 	QColor clipColor;
 	QColor magnitudeColor;
 	QColor majorTickColor;
@@ -137,6 +193,40 @@ private:
 	qreal inputPeakHoldDuration;
 
 	uint64_t lastRedrawTime = 0;
+	
+	uint64_t clipTime = 0;
+
+	qreal clipHoldTime = 3.0;
+	uint64_t _clipHoldTime = 3000000000;
+
+	qreal clipAnimationLength = 1.0;
+	uint64_t _clipAnimationLength = 1000000000;
+
+	uint16_t meterBarWidthVolume = 4;
+	uint16_t meterBarWidthWave = 7;//6.0 + 1
+	uint16_t meterBarWidthFFT = 19;//13;//6.0*2 + 1
+
+	uint16_t meterTickWidthVolume = 8;
+	uint16_t meterTickWidthWave = 8;
+	uint16_t meterTickWidthFFT = 8;
+
+	bool drawTickMarksVolume = true;
+	bool drawTickMarksWave = false;
+	bool drawTickMarksFFT = true;
+	
+	bool squareTick = true;
+	bool pulseAnimation = false;
+
+	bool hasClipped = false;
+
+	enum obs_volume_meter_type    display_volume_meter_type = OBS_VOLUME_METER_VIEW;
+	enum obs_volume_meter_options display_volume_options = OBS_VOLUME_HORIZONTAL;
+
+	enum obs_volume_meter_type    current_volume_meter_type = OBS_VOLUME_METER_VIEW;
+	enum obs_volume_meter_options current_volume_options = OBS_VOLUME_HORIZONTAL;
+
+	uint32_t obs_sample_rate;
+	enum speaker_layout obs_speakers;
 
 public:
 	explicit VolumeMeter(QWidget *parent = 0,
@@ -146,7 +236,9 @@ public:
 	void setLevels(
 		const float magnitude[MAX_AUDIO_CHANNELS],
 		const float peak[MAX_AUDIO_CHANNELS],
-		const float inputPeak[MAX_AUDIO_CHANNELS]);
+		const float inputPeak[MAX_AUDIO_CHANNELS],
+		const struct audio_data audio_buffer,
+		const struct audio_data fft_buffer);
 
 	QColor getBackgroundNominalColor() const;
 	void setBackgroundNominalColor(QColor c);
@@ -186,9 +278,16 @@ public:
 	void setPeakHoldDuration(qreal v);
 	qreal getInputPeakHoldDuration() const;
 	void setInputPeakHoldDuration(qreal v);
+	
+	qreal getMinimumClipHoldDuration() const;
+	void setMinimumClipHoldDuration(qreal v);
+	qreal getClipAnimationDuration() const;
+	void setClipAnimationDuration(qreal v);
 
 protected:
 	void paintEvent(QPaintEvent *event);
+	void mouseDoubleClickEvent(QMouseEvent *event);
+	void mousePressEvent(QMouseEvent *event);
 };
 
 class VolumeMeterTimer : public QTimer {
@@ -229,7 +328,9 @@ private:
 	static void OBSVolumeLevel(void *data,
 		const float magnitude[MAX_AUDIO_CHANNELS],
 		const float peak[MAX_AUDIO_CHANNELS],
-		const float inputPeak[MAX_AUDIO_CHANNELS]);
+		const float inputPeak[MAX_AUDIO_CHANNELS],
+		const struct audio_data audio_buffer,
+		const struct audio_data fft_buffer);
 	static void OBSVolumeMuted(void *data, calldata_t *calldata);
 
 	void EmitConfigClicked();

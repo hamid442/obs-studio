@@ -34,6 +34,87 @@ along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
 #define CLAMP(x, min, max) ((x) < min ? min : ((x) > max ? max : (x)))
 
+//https://en.wikipedia.org/wiki/Cooley–Tukey_FFT_algorithm#The_radix-2_DIT_case
+// simplication for floating type
+void seperate_fixed(float* a, uint32_t n) {
+	static float tmp[AUDIO_OUTPUT_FRAMES];
+
+	for (int i = 0; i<n / 2; i++)    // copy all odd elements to heap storage
+		tmp[i] = a[i * 2 + 1];
+	for (int i = 0; i<n / 2; i++)    // copy all even elements to lower-half of a[]
+		a[i] = a[i * 2];
+	for (int i = 0; i<n / 2; i++)    // copy all odd (from heap) to upper-half of a[]
+		a[i + n / 2] = tmp[i];
+}
+
+#define M_PI       3.14159265358979323846   // pi
+#define M_PI_2     1.57079632679489661923   // pi/2
+#define _RE        0
+#define _IM        1
+
+// N must be a power-of-2, or bad things will happen.
+// Currently no check for this condition.
+//
+// N input samples in X[] are FFT'd and results left in X[].
+// Because of Nyquist theorem, N samples means 
+// only first N/2 FFT results in X[] are the answer.
+// (upper half of X[] is a reflection with no new information).
+void _audio_fft_complex(float* X, float* Xi, int N) {
+	if (N < 2) {
+		// bottom of recursion.
+		// Do nothing here, because already X[0] = x[0]
+	}
+	else {
+		seperate_fixed(X, N);
+		seperate_fixed(Xi, N);
+		//half of N
+		int hN = N / 2;
+		double iHN = 2 / N;
+		//w_r = 1.0 forever and always e^0 = 1
+		//static const float w_r = 1.0;
+
+		double w_r = 1.0;
+		double w_i = 0.0;
+		double q_exp = 0.0;
+		_audio_fft_complex(X, Xi, hN);
+		_audio_fft_complex(X + hN, Xi + hN, hN);
+
+
+		for (int k = 0; k < hN; k++) {
+			double e_r = X[k];
+			double e_i = Xi[k];
+
+			double o_r = X[k + hN];
+			double o_i = Xi[k + hN];
+
+			double t = -2.0*M_PI*k / N;
+			w_r = cos(t);
+			w_i = sin(t);
+			//quick_exp(k, N); 
+			//for audio inputs the imaginary component is 0
+			//w * o;
+			double wo_r = (w_r * o_r) - (w_i * o_i);
+			double wo_i = (w_r * o_i) + (w_i * o_r);
+
+			X[k] = e_r + wo_r; 
+			X[k + hN] = e_r - wo_r;
+
+			Xi[k] = e_i + wo_i;
+			Xi[k + hN] = e_i - wo_i;
+		}
+	}
+}
+
+//stuffs complex results in other half
+void audio_fft_complex_1024(float* X, int N) {
+	float Xi[AUDIO_OUTPUT_FRAMES] = { 0 };
+	_audio_fft_complex(X, Xi, N, N);
+	int hN = N / 2;
+	//copy the complex components
+	memcpy(&(X[hN]), &(Xi[0]), hN*sizeof(float));
+}
+
+
 typedef float (*obs_fader_conversion_t)(const float val);
 
 struct fader_cb {
@@ -74,6 +155,13 @@ struct obs_volmeter {
 
 	float                  vol_magnitude[MAX_AUDIO_CHANNELS];
 	float                  vol_peak[MAX_AUDIO_CHANNELS];
+	
+	enum obs_volume_meter_type    volume_meter;
+	enum obs_volume_meter_options volume_options;
+
+	size_t                 circle_buffer_index;
+	struct audio_data      circle_buffer;
+	struct audio_data      fft_buffer;
 };
 
 static float cubic_def_to_db(const float def)
@@ -202,7 +290,7 @@ static void signal_levels_updated(struct obs_volmeter *volmeter,
 	pthread_mutex_lock(&volmeter->callback_mutex);
 	for (size_t i = volmeter->callbacks.num; i > 0; i--) {
 		struct meter_cb cb = volmeter->callbacks.array[i - 1];
-		cb.callback(cb.param, magnitude, peak, input_peak);
+		cb.callback(cb.param, magnitude, peak, input_peak, audio_buffer, fft_buffer);
 	}
 	pthread_mutex_unlock(&volmeter->callback_mutex);
 }
@@ -289,6 +377,40 @@ static void volmeter_process_audio_data(obs_volmeter_t *volmeter,
 			nr_samples);
 		volmeter->vol_peak[channel_nr] = peak;
 		channel_nr++;
+		
+		float *meter_samples = (float *)volmeter->circle_buffer.data[plane_nr];
+		//copy new frames to the circle buffer
+		for (int sample_nr = nr_samples-1; sample_nr >= 0; sample_nr--) {
+			if (volmeter->circle_buffer_index == 0) {
+				volmeter->circle_buffer_index = volmeter->circle_buffer.frames;
+			}
+			volmeter->circle_buffer_index--;
+			volmeter->circle_buffer_index = volmeter->circle_buffer_index % volmeter->circle_buffer.frames;
+			meter_samples[volmeter->circle_buffer_index] = samples[sample_nr];
+		}
+		
+		//copy the data to the fft array for processing
+		size_t second_chunk = (volmeter->circle_buffer_index) * sizeof(float);
+		size_t first_index = volmeter->circle_buffer.frames - volmeter->circle_buffer_index;
+		size_t first_chunk = (first_index) * sizeof(float);
+		float *fft_samples = (float *)volmeter->fft_buffer.data[plane_nr];
+
+		memcpy(&(fft_samples[0]), &(meter_samples[volmeter->circle_buffer_index]), first_chunk);
+		if (volmeter->circle_buffer_index > 0) {
+			memcpy(&(fft_samples[first_index]), &(meter_samples[0]), second_chunk);
+		}
+		//use the circle buffer to refer to the size of both arrays
+		int buf_frames = volmeter->circle_buffer.frames;
+		int fft_size = get_power_of_two(buf_frames);
+		/* Window Function */
+		
+		for (int i = 0; i < fft_size; i++) {
+			fft_samples[i] *= window_weights[(int)(i*(AUDIO_OUTPUT_FRAMES-1)/fft_size)];
+		}
+		
+		volmeter->fft_buffer.frames = buf_frames;
+		//do the processing
+		audio_fft_complex_1024(volmeter->fft_buffer.data[plane_nr], fft_size);
 	}
 
 	// Clear audio channels that are not in use.
@@ -311,6 +433,19 @@ static void volmeter_source_data_received(void *vptr, obs_source_t *source,
 
 	volmeter_process_audio_data(volmeter, data);
 
+	struct audio_data audio_buffer;
+	struct audio_data fft_buffer;
+	audio_buffer.frames = volmeter->circle_buffer.frames;
+
+	//data past the mid point is symmetric (nyquist freq)
+	fft_buffer.frames = (volmeter->fft_buffer.frames / 2);
+	for (int channel_nr = 0; channel_nr < MAX_AUDIO_CHANNELS;
+		channel_nr++) {
+		audio_buffer.data[channel_nr] = bzalloc(audio_buffer.frames * sizeof(float));
+		// ;3 complex results are stuffed in this one array
+		fft_buffer.data[channel_nr] = bzalloc(volmeter->fft_buffer.frames * sizeof(float));
+	}
+	
 	// Adjust magnitude/peak based on the volume level set by the user.
 	// And convert to dB.
 	mul = muted ? 0.0f : db_to_mul(volmeter->cur_db);
@@ -322,6 +457,25 @@ static void volmeter_source_data_received(void *vptr, obs_source_t *source,
 			volmeter->vol_peak[channel_nr] * mul);
 		input_peak[channel_nr] = mul_to_db(
 			volmeter->vol_peak[channel_nr]);
+			
+		//deal w/ the fft and waveform data
+		int sample_nr = 0;
+		int target_nr = volmeter->circle_buffer_index;
+
+		float *meter_samples = (float *)volmeter->circle_buffer.data[channel_nr];
+		float *fft_samples = (float *)volmeter->fft_buffer.data[channel_nr];
+		float *target_meter_samples = (float *)audio_buffer.data[channel_nr];
+		float *target_fft_samples = (float *)audio_buffer.data[channel_nr];
+
+		for (; sample_nr < audio_buffer.frames; sample_nr++) {
+			target_nr = target_nr % audio_buffer.frames;
+			target_meter_samples[sample_nr] = meter_samples[target_nr] * mul;
+			target_nr++;
+		}
+
+		for (sample_nr = 0; sample_nr < volmeter->fft_buffer.frames; sample_nr++) {
+			target_fft_samples[sample_nr] = fft_samples[sample_nr];
+		}
 	}
 
 	// The input-peak is NOT adjusted with volume, so that the user
@@ -330,6 +484,15 @@ static void volmeter_source_data_received(void *vptr, obs_source_t *source,
 	pthread_mutex_unlock(&volmeter->mutex);
 
 	signal_levels_updated(volmeter, magnitude, peak, input_peak);
+	
+	//free up data
+	for (int channel_nr = 0; channel_nr < MAX_AUDIO_CHANNELS;
+		channel_nr++) {
+		if (audio_buffer.data[channel_nr])
+			bfree(audio_buffer.data[channel_nr]);
+		if (fft_buffer.data[channel_nr])
+			bfree(fft_buffer.data[channel_nr]);
+	}
 
 	UNUSED_PARAMETER(source);
 }
@@ -556,6 +719,20 @@ obs_volmeter_t *obs_volmeter_create(enum obs_fader_type type)
 	struct obs_volmeter *volmeter = bzalloc(sizeof(struct obs_volmeter));
 	if (!volmeter)
 		return NULL;
+	
+	// https://en.wikipedia.org/wiki/Window_function#A_list_of_window_functions
+	// Blackman-Harris window
+	float const a0 = 0.35875;
+	float const a1 = 0.48829;
+	float const a2 = 0.14128;
+	float const a3 = 0.01168;
+	for (int i = 0; i < AUDIO_OUTPUT_FRAMES; i++) {
+		window_weights[i] =
+			a0 -
+			a1*cos(2 * M_PI*i / (AUDIO_OUTPUT_FRAMES - 1)) +
+			a2*cos(4 * M_PI*i / (AUDIO_OUTPUT_FRAMES - 1)) -
+			a3*cos(6 * M_PI*i / (AUDIO_OUTPUT_FRAMES - 1));
+	}
 
 	pthread_mutex_init_value(&volmeter->mutex);
 	pthread_mutex_init_value(&volmeter->callback_mutex);
