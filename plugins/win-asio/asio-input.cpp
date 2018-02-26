@@ -978,7 +978,7 @@ static bool fill_out_buffer_sizes(obs_properties_t *props, obs_property_t *list,
 	obs_property_list_clear(list);
 
 	if (info.bufgran == -1) {
-		size_t gran_buffer = info.bufmin;
+		long long gran_buffer = info.bufmin;
 		while (gran_buffer <= info.bufmax) {
 			int n = snprintf(NULL, 0, "%llu%s", gran_buffer, (gran_buffer == info.bufpref ? " (preferred)" : ""));
 			if (n <= 0) {
