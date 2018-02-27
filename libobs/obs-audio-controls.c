@@ -75,12 +75,77 @@ void _audio_fft_complex(float* X, float* Xi, int N) {
 
 		double w_r = 1.0;
 		double w_i = 0.0;
+		
+		__m256 w_r256;
+		__m256 w_i256;
+		
+		__m128 w_r128;
+		__m128 w_i128;
+		
 		double q_exp = 0.0;
 		_audio_fft_complex(X, Xi, hN);
 		_audio_fft_complex(X + hN, Xi + hN, hN);
-
-
-		for (int k = 0; k < hN; k++) {
+		
+		int k = 0;
+		int end = hN - 8;
+		for (; k < end; k+=8){
+			__m256 e_r = _mm256_load_ps(&X[k]);//*(__m256*)(&X[k]);
+			__m256 e_r = _mm256_load_ps(&Xi[k]);
+			
+			__m256 o_r = _mm256_load_ps(&X[k+hN]);
+			__m256 o_i = _mm256_load_ps(&Xi[k+hN]);
+			
+			__m256 t;
+			t.m256_f32[0] = -2.0*M_PI*(k+0) / N;
+			t.m256_f32[1] = -2.0*M_PI*(k+1) / N;
+			t.m256_f32[2] = -2.0*M_PI*(k+2) / N;
+			t.m256_f32[3] = -2.0*M_PI*(k+3) / N;
+			t.m256_f32[4] = -2.0*M_PI*(k+4) / N;
+			t.m256_f32[5] = -2.0*M_PI*(k+5) / N;
+			t.m256_f32[6] = -2.0*M_PI*(k+6) / N;
+			t.m256_f32[7] = -2.0*M_PI*(k+7) / N;
+			
+			sincos_256ps(t, &w_i256, &w_r256);
+			
+			__m256 wor = _mm256_mul_ps(w_r256, o_r);
+			__m256 wo_r = _mm256_sub_ps(wor, _mm256_mul_ps(w_i256, o_i));
+			__m256 wo_i = _mm256_add_ps(_mm256_mul_ps(w_r256,o_i),wor);
+			
+			_mm256_store_ps(&X[k], _mm256_add_ps(e_r, wo_r));
+			_mm256_store_ps(&X[k+hN], _mm256_sub_ps(e_r, wo_r));
+			
+			_mm256_store_ps(&Xi[k], _mm256_add_ps(e_i, wo_i));
+			_mm256_store_ps(&Xi[k+hN], _mm256_sub_ps(e_i, wo_i));
+		}
+		
+		end = hN - 4;
+		for (; k < end; k+=4){
+			__m128 e_r = _mm_load_ps(&X[k]);//*(__m256*)(&X[k]);
+			__m128 e_r = _mm_load_ps(&Xi[k]);
+			
+			__m128 o_r = _mm_load_ps(&X[k+hN]);
+			__m128 o_i = _mm_load_ps(&Xi[k+hN]);
+			
+			__m128 t;
+			t.m128_f32[0] = -2.0*M_PI*(k+0) / N;
+			t.m128_f32[1] = -2.0*M_PI*(k+1) / N;
+			t.m128_f32[2] = -2.0*M_PI*(k+2) / N;
+			t.m128_f32[3] = -2.0*M_PI*(k+3) / N;
+			
+			sincos_ps(t, &w_i128, &w_r128);
+			
+			__m128 wor = _mm_mul_ps(w_r128, o_r);
+			__m128 wo_r = _mm_sub_ps(wor, _mm_mul_ps(w_i128, o_i));
+			__m128 wo_i = _mm_add_ps(_mm_mul_ps(w_r128,o_i),wor);
+			
+			_mm_store_ps(&X[k], _mm_add_ps(e_r, wo_r));
+			_mm_store_ps(&X[k+hN], _mm_sub_ps(e_r, wo_r));
+			
+			_mm_store_ps(&Xi[k], _mm_add_ps(e_i, wo_i));
+			_mm_store_ps(&Xi[k+hN], _mm_sub_ps(e_i, wo_i));
+		}
+		
+		for (; k < hN; k++) {
 			double e_r = X[k];
 			double e_i = Xi[k];
 
@@ -350,6 +415,11 @@ static void volmeter_process_audio_data(obs_volmeter_t *volmeter,
 	int nr_samples = data->frames;
 	int channel_nr = 0;
 
+	__m256 f256;
+	__m256 w256;
+	__m128 f128;
+	__m128 w128;
+	
 	for (size_t plane_nr = 0; plane_nr < MAX_AV_PLANES; plane_nr++) {
 		float *samples = (float *)data->data[plane_nr];
 		if (!samples) {
@@ -403,8 +473,22 @@ static void volmeter_process_audio_data(obs_volmeter_t *volmeter,
 		int buf_frames = volmeter->circle_buffer.frames;
 		int fft_size = get_power_of_two(buf_frames);
 		/* Window Function */
+		int i = 0;
+		int end = fft_size - 8;
+		for(; i < end; i+=8) {
+			f256 = _mm256_load_ps(&fft_samples[i]);
+			w256 = _mm256_load_ps(&window_weights[(int)(i*(AUDIO_OUTPUT_FRAMES-1)/fft_size)]);
+			_mm256_store_ps(&fft_samples[i], _mm256_mul_ps(f256, w256));
+		}			
 		
-		for (int i = 0; i < fft_size; i++) {
+		end = fft_size -4;
+		for(; i < end; i+=4) {
+			f128 = _mm128_load_ps(&fft_samples[i]);
+			w128 = _mm256_load_ps(&window_weights[(int)(i*(AUDIO_OUTPUT_FRAMES-1)/fft_size)]);
+			_mm_store_ps(&fft_samples[i], _mm_mul_ps(f128, w128));
+		}
+		
+		for (;i < fft_size; i++) {
 			fft_samples[i] *= window_weights[(int)(i*(AUDIO_OUTPUT_FRAMES-1)/fft_size)];
 		}
 		
