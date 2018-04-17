@@ -427,7 +427,10 @@ static void duplicate_filters(obs_source_t *dst, obs_source_t *src,
 
 void obs_source_copy_filters(obs_source_t *dst, obs_source_t *src)
 {
-	duplicate_filters(dst, src, dst->context.private);
+	if (dst == NULL)
+		duplicate_filters(dst, src, dst->context.private);
+	else
+		blog(LOG_WARNING, "paste filters destination cannot be null");
 }
 
 obs_source_t *obs_source_duplicate(obs_source_t *source,
