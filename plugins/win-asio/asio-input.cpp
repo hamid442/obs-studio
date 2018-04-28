@@ -774,13 +774,14 @@ static void close_asio_devices(paasio_data *paasiodata) {
 	}
 
 	if (paasiodata && paasiodata->stream) {
+		err = Pa_CloseStream(*(paasiodata->stream));
+		/*
 		err = Pa_IsStreamActive(*(paasiodata->stream));
 		if (err == 1) {
 			err = Pa_CloseStream(*(paasiodata->stream));
 			if (err != paNoError) {
 				blog(LOG_ERROR, "PortAudio error : %s\n", Pa_GetErrorText(err));
 			}
-			/*
 			err = Pa_Terminate();
 			if (err != paNoError) {
 				blog(LOG_ERROR, "PortAudio error : %s\n", Pa_GetErrorText(err));
@@ -789,8 +790,8 @@ static void close_asio_devices(paasio_data *paasiodata) {
 			if (err != paNoError) {
 				blog(LOG_ERROR, "PortAudio error : %s\n", Pa_GetErrorText(err));
 			}
-			*/
 		}
+		*/
 	}
 }
 
@@ -834,6 +835,44 @@ static void startup_asio_device(uint32_t index, uint64_t buffer_size,
 	err = Pa_StartStream(info->stream);
 }
 
+static void open_asio_device(uint32_t index, uint64_t buffer_size,
+	double sample_rate, std::string audio_format){
+	PaError err;
+	device_buffer *devicebuf = device_list[index];
+	paasio_data* info = (paasio_data*)devicebuf->get_user_data();
+
+	PaStreamParameters inParam;
+	inParam.channelCount = info->info->commonDeviceInfo.maxInputChannels;
+	inParam.device = index;
+	inParam.suggestedLatency = 0;
+	inParam.hostApiSpecificStreamInfo = NULL;
+	if (audio_format == "32 Bit Int") {
+		inParam.sampleFormat = paInt32;
+	}
+	else if (audio_format == "32 Bit Float") {
+		inParam.sampleFormat = paFloat32;
+	}
+	else if (audio_format == "16 Bit Int") {
+		inParam.sampleFormat = paInt16;
+	}
+	else {
+		return;
+	}
+
+	if (!info) {
+		info = new paasio_data();
+	}
+
+	if (!info->stream) {
+		info->stream = new PaStream*;
+	}
+
+	err = Pa_OpenStream(info->stream, &inParam, NULL, sample_rate,
+		buffer_size, paClipOff, create_asio_buffer, devicebuf);
+
+	device_list[index]->set_user_data(info);
+}
+
 static void update_device_selection(AsioSelector* selector) {
 	uint64_t index;
 
@@ -864,11 +903,22 @@ static void update_device_selection(AsioSelector* selector) {
 			else {
 				info = new paasio_data();
 
-				if (!info->stream) {
-					info->stream = new PaStream*;
+				if (!info->info) {
+					info->info = new PaAsioDeviceInfo();
+					info->info->commonDeviceInfo = *(Pa_GetDeviceInfo(index));
+					PaAsio_GetAvailableBufferSizes(index,
+						&(info->info->minBufferSize),
+						&(info->info->maxBufferSize),
+						&(info->info->preferredBufferSize),
+						&(info->info->bufferGranularity));
 				}
 
+				if (!info->stream)
+					info->stream = new PaStream*;
+
 				device_list[index]->set_user_data(info);
+				open_asio_device(index, buffer_size, sample_rate,
+					audio_format);
 			}
 		}
 	} else {
