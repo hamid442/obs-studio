@@ -833,6 +833,7 @@ static void startup_asio_device(uint32_t index, uint64_t buffer_size,
 	device_list[index]->set_user_data(info);
 
 	err = Pa_StartStream(info->stream);
+	return;
 }
 
 static void open_asio_device(uint32_t index, uint64_t buffer_size,
@@ -881,7 +882,7 @@ static void update_device_selection(AsioSelector* selector) {
 
 	//we have a selected device, update it
 	if (active_devices_tmp.size() > 0) {
-		for (index = 0; index < selector->getNumberOfDevices(); index++) {
+		for (index = 0; index < selector->getNumberOfDevices() && active_devices_tmp.size() > 0; index++) {
 			std::string active_device = selector->getDeviceName(active_devices_tmp[0]);
 			obs_data_set_string(module_settings, "device_id", active_device.c_str());
 
@@ -917,8 +918,36 @@ static void update_device_selection(AsioSelector* selector) {
 					info->stream = new PaStream*;
 
 				device_list[index]->set_user_data(info);
-				open_asio_device(index, buffer_size, sample_rate,
-					audio_format);
+
+				if (active_devices_tmp.size() > 0 && active_devices_tmp[0] == index) {
+					startup_asio_device(active_devices_tmp[0], buffer_size, sample_rate,
+						audio_format);
+					active_devices_tmp.erase(active_devices_tmp.begin());
+				}
+			}
+		}
+		for (; index < selector->getNumberOfDevices(); index++) {
+			paasio_data* info = (paasio_data*)device_list[index]->get_user_data();
+			if (info != NULL) {
+				close_asio_devices(info);
+			}
+			else {
+				info = new paasio_data();
+
+				if (!info->info) {
+					info->info = new PaAsioDeviceInfo();
+					info->info->commonDeviceInfo = *(Pa_GetDeviceInfo(index));
+					PaAsio_GetAvailableBufferSizes(index,
+						&(info->info->minBufferSize),
+						&(info->info->maxBufferSize),
+						&(info->info->preferredBufferSize),
+						&(info->info->bufferGranularity));
+				}
+
+				if (!info->stream)
+					info->stream = new PaStream*;
+
+				device_list[index]->set_user_data(info);
 			}
 		}
 	} else {
