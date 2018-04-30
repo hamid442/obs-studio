@@ -229,14 +229,14 @@ bool canSamplerate(int device_index, int sample_rate) {
 	inputParameters.channelCount = deviceInfo->maxInputChannels;
 	inputParameters.device = device_index;
 	inputParameters.hostApiSpecificStreamInfo = NULL;
-	inputParameters.sampleFormat = paFloat32;
+	inputParameters.sampleFormat = paFloat32 | paNonInterleaved;
 	inputParameters.suggestedLatency = deviceInfo->defaultLowInputLatency;
 	inputParameters.hostApiSpecificStreamInfo = NULL;
 
 	outputParameters.channelCount = deviceInfo->maxOutputChannels;
 	outputParameters.device = device_index;
 	outputParameters.hostApiSpecificStreamInfo = NULL;
-	outputParameters.sampleFormat = paFloat32;
+	outputParameters.sampleFormat = paFloat32 | paNonInterleaved;
 	outputParameters.suggestedLatency = deviceInfo->defaultLowOutputLatency;
 	outputParameters.hostApiSpecificStreamInfo = NULL;
 
@@ -515,6 +515,8 @@ void asio_update(void *vptr, obs_data_t *settings)
 
 	//if we have a valid selected index for a device, connect a listener thread
 	if (cur_index != -1 && cur_index < getDeviceCount()) {
+		listener->device_index = selected_device;
+
 		for (int i = 0; i < recorded_channels; i++) {
 			std::string route_str = "route " + std::to_string(i);
 			route[i] = (int)obs_data_get_int(settings, route_str.c_str());
@@ -522,6 +524,9 @@ void asio_update(void *vptr, obs_data_t *settings)
 				listener->route[i] = route[i];
 			}
 		}
+
+		listener->muted_chs = listener->_get_muted_chs(listener->route);
+		listener->unmuted_chs = listener->_get_unmuted_chs(listener->route);
 
 		/* Open an audio I/O stream. */
 		/* this circular buffer is the audio server */
@@ -651,7 +656,7 @@ std::vector<double> get_sample_rates(int index) {
 	PaStreamParameters params;
 	params.device = index;
 	params.channelCount = 1;
-	params.sampleFormat = paInt32;
+	params.sampleFormat = paInt32 | paNonInterleaved;
 	params.hostApiSpecificStreamInfo = NULL;
 
 	PaError err;
@@ -679,7 +684,7 @@ std::vector<std::string> get_audio_formats(int index) {
 	params.device = index;
 	params.channelCount = 1;
 	params.hostApiSpecificStreamInfo = NULL;
-	params.sampleFormat = paInt16;
+	params.sampleFormat = paInt16 | paNonInterleaved;
 
 	PaError err;
 
@@ -690,7 +695,7 @@ std::vector<std::string> get_audio_formats(int index) {
 		audio_formats.push_back("16 Bit Int");
 	}
 
-	params.sampleFormat = paInt32;
+	params.sampleFormat = paInt32 | paNonInterleaved;
 
 	err = Pa_IsFormatSupported(&params, NULL, 44100);
 	if (!err)
@@ -699,7 +704,7 @@ std::vector<std::string> get_audio_formats(int index) {
 		audio_formats.push_back("32 Bit Int");
 	}
 
-	params.sampleFormat = paFloat32;
+	params.sampleFormat = paFloat32 | paNonInterleaved;
 
 	err = Pa_IsFormatSupported(&params, NULL, 44100);
 	if (!err)
@@ -758,13 +763,13 @@ static void startup_asio_device(uint32_t index, uint64_t buffer_size,
 	inParam.suggestedLatency = 0;
 	inParam.hostApiSpecificStreamInfo = NULL;
 	if (audio_format == "32 Bit Int") {
-		inParam.sampleFormat = paInt32;
+		inParam.sampleFormat = paInt32 | paNonInterleaved;
 	}
 	else if (audio_format == "32 Bit Float") {
-		inParam.sampleFormat = paFloat32;
+		inParam.sampleFormat = paFloat32 | paNonInterleaved;
 	}
 	else if (audio_format == "16 Bit Int") {
-		inParam.sampleFormat = paInt16;
+		inParam.sampleFormat = paInt16 | paNonInterleaved;
 	}
 	else {
 		return;
@@ -800,13 +805,13 @@ static void open_asio_device(uint32_t index, uint64_t buffer_size,
 	inParam.suggestedLatency = 0;
 	inParam.hostApiSpecificStreamInfo = NULL;
 	if (audio_format == "32 Bit Int") {
-		inParam.sampleFormat = paInt32;
+		inParam.sampleFormat = paInt32 | paNonInterleaved;
 	}
 	else if (audio_format == "32 Bit Float") {
-		inParam.sampleFormat = paFloat32;
+		inParam.sampleFormat = paFloat32 | paNonInterleaved;
 	}
 	else if (audio_format == "16 Bit Int") {
-		inParam.sampleFormat = paInt16;
+		inParam.sampleFormat = paInt16 | paNonInterleaved;
 	}
 	else {
 		return;
