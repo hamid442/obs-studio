@@ -96,6 +96,7 @@ struct paasio_data {
 	PaAsioDeviceInfo *info;
 	PaStream **stream;
 	obs_data_t *settings;
+	PaError status;
 };
 
 /* ========================================================================== */
@@ -514,75 +515,6 @@ void asio_update(void *vptr, obs_data_t *settings)
 		devicebuf->add_listener(listener);
 	}
 }
-/*
-
-rate = (long)obs_data_get_int(settings, "sample rate");
-
-BitDepth = (audio_format)obs_data_get_int(settings, "bit depth");
-
-BufferSize = (long)obs_data_get_int(settings, "buffer");
-
-// sync listener to global device
-listener->device_index = cur_index;
-listener->device_name = bstrdup(global_device);
-
-listener->muted_chs = listener->_get_muted_chs(listener->route);
-listener->unmuted_chs = listener->_get_unmuted_chs(listener->route);
-
-listener->input_channels = deviceInfo->maxInputChannels;
-listener->output_channels = deviceInfo->maxOutputChannels;
-listener->device_index = cur_index;
-
-// stream parameters
-inParam->channelCount = deviceInfo->maxInputChannels;
-inParam->device = cur_index;
-inParam->sampleFormat = obs_to_portaudio_audio_format(BitDepth) | paNonInterleaved;
-inParam->suggestedLatency = 0;
-inParam->hostApiSpecificStreamInfo = NULL;
-
-err = Pa_CloseStream(global_data->stream);
-delete global_data->stream;
-if (err != paNoError) {
-blog(LOG_ERROR, "PortAudio error : %s\n", Pa_GetErrorText(err));
-}
-err = Pa_Terminate();
-if (err != paNoError) {
-blog(LOG_ERROR, "PortAudio error : %s\n", Pa_GetErrorText(err));
-}
-err = Pa_Initialize();
-if (err != paNoError) {
-blog(LOG_ERROR, "PortAudio error : %s\n", Pa_GetErrorText(err));
-}
-// open a stream which will feed the server (devicebuf)
-err = Pa_OpenStream(stream, inParam, NULL, rate,
-BufferSize, paClipOff, create_asio_buffer, devicebuf);
-if (err != paNoError) {
-blog(LOG_ERROR, "Could not open the stream \n");
-blog(LOG_ERROR, "PortAudio error : %s\n", Pa_GetErrorText(err));
-}
-else {
-blog(LOG_INFO, "ASIO Stream successfully opened.\n");
-// Update and sync user_data in global_listener vector.
-err = PaAsio_GetAvailableBufferSizes(cur_index, &minBuf, &maxBuf, &prefBuf, &gran);
-global_data->stream = stream;
-asioInfo->commonDeviceInfo = *deviceInfo;
-asioInfo->minBufferSize = minBuf;
-asioInfo->maxBufferSize = maxBuf;
-asioInfo->preferredBufferSize = prefBuf;
-asioInfo->bufferGranularity = gran;
-global_data->info = asioInfo;
-std::vector <paasio_data *> asiodata;
-// Try to start the stream once it has opened.
-err = Pa_StartStream(*stream);
-if (err == paNoError) {
-blog(LOG_INFO, "ASIO Stream successfully started.\n");
-}
-else {
-blog(LOG_ERROR, "Could not start the stream \n");
-blog(LOG_ERROR, "PortAudio error : %s\n", Pa_GetErrorText(err));
-}
-}
-*/
 
 const char * asio_get_name(void *unused)
 {
@@ -774,7 +706,9 @@ static void close_asio_devices(paasio_data *paasiodata) {
 	}
 
 	if (paasiodata && paasiodata->stream) {
-		err = Pa_CloseStream(*(paasiodata->stream));
+		if (paasiodata->status == paNoError) {
+			err = Pa_CloseStream(*(paasiodata->stream));
+		}
 		/*
 		err = Pa_IsStreamActive(*(paasiodata->stream));
 		if (err == 1) {
@@ -802,7 +736,7 @@ static void startup_asio_device(uint32_t index, uint64_t buffer_size,
 	paasio_data* info = (paasio_data*)devicebuf->get_user_data();
 	
 	PaStreamParameters inParam;
-	inParam.channelCount;
+	inParam.channelCount = info->info->commonDeviceInfo.maxInputChannels;
 	inParam.device = index;
 	inParam.suggestedLatency = 0;
 	inParam.hostApiSpecificStreamInfo = NULL;
@@ -821,6 +755,7 @@ static void startup_asio_device(uint32_t index, uint64_t buffer_size,
 
 	if (!info) {
 		info = new paasio_data();
+		info->status = -1001;
 	}
 
 	if (!info->stream) {
@@ -829,11 +764,11 @@ static void startup_asio_device(uint32_t index, uint64_t buffer_size,
 
 	err = Pa_OpenStream(info->stream, &inParam, NULL, sample_rate,
 		buffer_size, paClipOff, create_asio_buffer, devicebuf);
+	if(err == paNoError)
+		err = Pa_StartStream(*(info->stream));
 
+	info->status = err;
 	device_list[index]->set_user_data(info);
-
-	err = Pa_StartStream(info->stream);
-	return;
 }
 
 static void open_asio_device(uint32_t index, uint64_t buffer_size,
@@ -862,6 +797,7 @@ static void open_asio_device(uint32_t index, uint64_t buffer_size,
 
 	if (!info) {
 		info = new paasio_data();
+		info->status = -1001;
 	}
 
 	if (!info->stream) {
@@ -870,6 +806,8 @@ static void open_asio_device(uint32_t index, uint64_t buffer_size,
 
 	err = Pa_OpenStream(info->stream, &inParam, NULL, sample_rate,
 		buffer_size, paClipOff, create_asio_buffer, devicebuf);
+
+	info->status = err;
 
 	device_list[index]->set_user_data(info);
 }
@@ -903,6 +841,7 @@ static void update_device_selection(AsioSelector* selector) {
 			}
 			else {
 				info = new paasio_data();
+				info->status = -1001;
 
 				if (!info->info) {
 					info->info = new PaAsioDeviceInfo();
@@ -933,6 +872,7 @@ static void update_device_selection(AsioSelector* selector) {
 			}
 			else {
 				info = new paasio_data();
+				info->status = -1001;
 
 				if (!info->info) {
 					info->info = new PaAsioDeviceInfo();
