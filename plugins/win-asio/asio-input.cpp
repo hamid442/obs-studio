@@ -115,6 +115,20 @@ enum audio_format portaudio_to_obs_audio_format(PaSampleFormat format)
 	return AUDIO_FORMAT_UNKNOWN;
 }
 
+enum audio_format string_to_obs_audio_format(std::string format) {
+	if (format == "32 Bit Int") {
+		return AUDIO_FORMAT_32BIT;
+	}
+	else if (format == "32 Bit Float") {
+		return AUDIO_FORMAT_FLOAT;
+	}
+	else if (format == "16 Bit Int") {
+		return AUDIO_FORMAT_16BIT;
+	}
+
+	return AUDIO_FORMAT_UNKNOWN;
+}
+
 PaSampleFormat obs_to_portaudio_audio_format(audio_format format)
 {
 	switch (format) {
@@ -421,6 +435,9 @@ int create_asio_buffer(const void *inputBuffer, void *outputBuffer, unsigned lon
 	void *userData) {
 	uint64_t ts = os_gettime_ns();
 	device_buffer *device = (device_buffer*)userData;
+	paasio_data* device_data = (paasio_data*)device->get_user_data();
+	audio_format format = device->get_format();
+	uint32_t channels = device->get_input_channels();
 	size_t buf_size = device->get_input_channels() * framesCount * bytedepth_format(device->get_format());
 	device->write_buffer_planar(inputBuffer, buf_size, ts);
 	return paContinue;
@@ -826,16 +843,19 @@ static void update_device_selection(AsioSelector* selector) {
 
 			uint64_t buffer_size = selector->getBufferSizeForDevice(active_devices_tmp[0]);
 			double sample_rate = selector->getSampleRateForDevice(active_devices_tmp[0]);
-			std::string audio_format = selector->getAudioFormatForDevice(active_devices_tmp[0]);
+			std::string string_format = selector->getAudioFormatForDevice(active_devices_tmp[0]);
 
 			paasio_data* info = (paasio_data*)device_list[index]->get_user_data();
 
 			if (info != NULL) {
 				close_asio_devices(info);
-
 				if (active_devices_tmp.size() > 0 && active_devices_tmp[0] == index) {
+					audio_format t = string_to_obs_audio_format(string_format);
+					device_list[index]->prep_circle_buffer(buffer_size);
+					device_list[index]->prep_buffers(buffer_size, (uint32_t)info->info->commonDeviceInfo.maxInputChannels, string_to_obs_audio_format(string_format), (uint32_t)sample_rate);
+
 					startup_asio_device(active_devices_tmp[0], buffer_size, sample_rate,
-						audio_format);
+						string_format);
 					active_devices_tmp.erase(active_devices_tmp.begin());
 				}
 			}
@@ -859,8 +879,12 @@ static void update_device_selection(AsioSelector* selector) {
 				device_list[index]->set_user_data(info);
 
 				if (active_devices_tmp.size() > 0 && active_devices_tmp[0] == index) {
+					audio_format t = string_to_obs_audio_format(string_format);
+					device_list[index]->prep_circle_buffer(buffer_size);
+					device_list[index]->prep_buffers(buffer_size, (uint32_t)info->info->commonDeviceInfo.maxInputChannels, t, (uint32_t)sample_rate);
+
 					startup_asio_device(active_devices_tmp[0], buffer_size, sample_rate,
-						audio_format);
+						string_format);
 					active_devices_tmp.erase(active_devices_tmp.begin());
 				}
 			}
