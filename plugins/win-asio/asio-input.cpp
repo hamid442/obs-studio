@@ -1005,7 +1005,6 @@ bool obs_module_load(void)
 	else {
 		module_settings = obs_data_create_from_json_file_safe(module_settings_path, ".bak");
 	}
-	bfree(module_settings_path);
 
 	// Scan through devices for various capabilities
 	for (int i = 0; i<numOfDevices; i++) {
@@ -1084,12 +1083,11 @@ void obs_module_unload(void) {
 	if (err != paNoError) {
 		blog(LOG_ERROR, "PortAudio error : %s\n", Pa_GetErrorText(err));
 	}
-	/*
-	char* module_settings_path = obs_module_config_path("asio_device.json");
-	*/
+
 	obs_data_save_json_safe(module_settings, module_settings_path, ".tmp", ".bak");
 	if(module_settings_path != NULL)
 		bfree(module_settings_path);
+	module_settings_path = NULL;
 	if(module_settings != NULL)
 		obs_data_release(module_settings);
 }
