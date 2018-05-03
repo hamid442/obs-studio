@@ -25,6 +25,7 @@ along with this program.  If not, see <http://www.gnu.org/licenses/>.
 #pragma once
 
 #include <util/bmem.h>
+#include <util/dstr.h>
 #include <util/platform.h>
 #include <util/threading.h>
 #include <obs-module.h>
@@ -688,11 +689,13 @@ std::vector<std::string> get_audio_formats(int index) {
 
 	PaError err;
 
+	params.sampleFormat = paFloat32 | paNonInterleaved;
+
 	err = Pa_IsFormatSupported(&params, NULL, 44100);
 	if (!err)
-		audio_formats.push_back("16 Bit Int");
+		audio_formats.push_back("32 Bit Float");
 	else if (err != paSampleFormatNotSupported && err != paDeviceUnavailable) {
-		audio_formats.push_back("16 Bit Int");
+		audio_formats.push_back("32 Bit Float");
 	}
 
 	params.sampleFormat = paInt32 | paNonInterleaved;
@@ -704,13 +707,11 @@ std::vector<std::string> get_audio_formats(int index) {
 		audio_formats.push_back("32 Bit Int");
 	}
 
-	params.sampleFormat = paFloat32 | paNonInterleaved;
-
 	err = Pa_IsFormatSupported(&params, NULL, 44100);
 	if (!err)
-		audio_formats.push_back("32 Bit Float");
+		audio_formats.push_back("16 Bit Int");
 	else if (err != paSampleFormatNotSupported && err != paDeviceUnavailable) {
-		audio_formats.push_back("32 Bit Float");
+		audio_formats.push_back("16 Bit Int");
 	}
 
 	return audio_formats;
@@ -948,7 +949,7 @@ static void update_device_selection(AsioSelector* selector) {
 		std::string audio_format = selector->getAudioFormatForDevice(index);
 		std::string device_name = selector->getDeviceName(index);
 
-		obs_data_set_string(item, "device_name", device_name.c_str());
+		obs_data_set_string(item, "device_id", device_name.c_str());
 		obs_data_set_int(item, "buffer_size", buffer_size);
 		obs_data_set_double(item, "sample_rate", sample_rate);
 		obs_data_set_string(item, "audio_format", audio_format.c_str());
@@ -969,8 +970,24 @@ static void update_device_selection(AsioSelector* selector) {
 	obs_data_save_json_safe(module_settings, module_settings_path, ".tmp", ".bak");
 }
 
+char * os_replace_slash(const char *dir)
+{
+	dstr dir_str;
+	int ret;
+
+	dstr_init_copy(&dir_str, dir);
+	dstr_replace(&dir_str, "\\", "/");
+	return dir_str.array;
+}
+
 bool obs_module_load(void)
 {
+	char *config_dir = obs_module_config_path(NULL);
+	if (config_dir) {
+		os_mkdirs(config_dir);
+		bfree(config_dir);
+	}
+
 	struct obs_source_info asio_input_capture = {};
 	asio_input_capture.id = "asio_input_capture";
 	asio_input_capture.type = OBS_SOURCE_TYPE_INPUT;
@@ -996,9 +1013,12 @@ bool obs_module_load(void)
 	device_selector = new AsioSelector();
 	device_selector->setActiveDeviceUnique(true);
 	if (module_settings_path == NULL) {
-		module_settings_path = obs_module_config_path("asio_device.json");
+		char *tmp = obs_module_config_path("asio_device.json");
+		module_settings_path = os_replace_slash(tmp);//"C:\\Users\\Alex\\AppData\\Roaming\\obs-studio\\plugin_config\\win-asio\\asio_device.json";//obs_module_config_path("asio_device.json");
+		bfree(tmp);
 	}
 	if (!os_file_exists(module_settings_path)) {
+		
 		module_settings = obs_data_create();
 		obs_data_save_json_safe(module_settings, module_settings_path, ".tmp", ".bak");
 	}
@@ -1072,6 +1092,8 @@ void obs_module_post_load(void) {
 		obs_data_release(item);
 	}
 	obs_data_array_release(last_settings);
+	update_device_selection(device_selector);
+	return;
 }
 
 void obs_module_unload(void) {
@@ -1084,8 +1106,10 @@ void obs_module_unload(void) {
 		blog(LOG_ERROR, "PortAudio error : %s\n", Pa_GetErrorText(err));
 	}
 
-	obs_data_save_json_safe(module_settings, module_settings_path, ".tmp", ".bak");
-	if(module_settings_path != NULL)
+	bool saved = obs_data_save_json_safe(module_settings, module_settings_path, ".tmp", ".bak");
+	if (!saved)
+		blog(LOG_INFO, "Asio Settings were not saved to %s", module_settings_path);
+	if (module_settings_path != NULL)
 		bfree(module_settings_path);
 	module_settings_path = NULL;
 	if(module_settings != NULL)
