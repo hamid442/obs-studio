@@ -793,7 +793,7 @@ static void startup_asio_device(uint32_t index, uint64_t buffer_size,
 	info->status = err;
 	device_list[index]->set_user_data(info);
 }
-
+/*delete*/
 static void open_asio_device(uint32_t index, uint64_t buffer_size,
 	double sample_rate, std::string audio_format){
 	PaError err;
@@ -928,10 +928,20 @@ static void update_device_selection(AsioSelector* selector) {
 				close_asio_devices(info);
 			} else {
 				info = new paasio_data();
+				info->status = -1001;
 
-				if (!info->stream) {
-					info->stream = new PaStream*;
+				if (!info->info) {
+					info->info = new PaAsioDeviceInfo();
+					info->info->commonDeviceInfo = *(Pa_GetDeviceInfo(index));
+					PaAsio_GetAvailableBufferSizes(index,
+						&(info->info->minBufferSize),
+						&(info->info->maxBufferSize),
+						&(info->info->preferredBufferSize),
+						&(info->info->bufferGranularity));
 				}
+
+				if (!info->stream)
+					info->stream = new PaStream*;
 
 				device_list[index]->set_user_data(info);
 			}
@@ -1014,8 +1024,7 @@ bool obs_module_load(void)
 	device_selector->setActiveDeviceUnique(true);
 	if (module_settings_path == NULL) {
 		char *tmp = obs_module_config_path("asio_device.json");
-		module_settings_path = os_replace_slash(tmp);//"C:\\Users\\Alex\\AppData\\Roaming\\obs-studio\\plugin_config\\win-asio\\asio_device.json";//obs_module_config_path("asio_device.json");
-		bfree(tmp);
+		module_settings_path = os_replace_slash(tmp);//"C:\\Users\\Alex\\AppData\\Roaming\\obs-studio\\plugin_config\\win-asio\\asio_device.json";//obs_module_config_path("asio_device.json");b		bfree(tmp);
 	}
 	if (!os_file_exists(module_settings_path)) {
 		
