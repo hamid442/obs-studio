@@ -487,7 +487,6 @@ void asio_destroy(void *vptr)
 {
 	asio_listener *data = (asio_listener *)vptr;
 	data->disconnect();
-	int index = data->listener_index;
 	paasio_data *paasiodata = (paasio_data *)data->get_user_data();
 	delete paasiodata;
 	for (size_t i = 0; i < listener_list.size(); i++) {
@@ -506,14 +505,12 @@ void asio_update(void *vptr, obs_data_t *settings)
 	paasio_data *user_data = (paasio_data *)listener->get_user_data();
 	const char *device;
 	const PaDeviceInfo *deviceInfo = NULL;
-	int cur_index, listener_index;
+	int cur_index;
 	int route[MAX_AUDIO_CHANNELS];
 
 	// get channel number from output speaker layout set by obs
 	int recorded_channels = get_obs_output_channels();
 	listener->input_channels = recorded_channels;
-
-	listener_index = listener->listener_index;//index the listeners
 
 	device = obs_data_get_string(module_settings, "device_id");
 	uint64_t selected_device = get_device_index(device);

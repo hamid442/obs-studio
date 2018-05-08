@@ -49,7 +49,6 @@ public:
 	/*asio device and info */
 	char * device_name;
 	uint8_t device_index;
-	int listener_index;			// this is the index of this listener in the listener global vector
 	uint64_t first_ts;			//first timestamp
 
 	/* channels info */
