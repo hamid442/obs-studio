@@ -82,8 +82,7 @@ obs_properties_t * asio_get_properties(void *unused);
 void asio_get_defaults(obs_data_t *settings);
 
 /* main structs */
-typedef struct PaAsioDeviceInfo
-{
+typedef struct PaAsioDeviceInfo {
 	PaDeviceInfo commonDeviceInfo;
 	long minBufferSize;
 	long maxBufferSize;
@@ -99,6 +98,8 @@ struct paasio_data {
 	obs_data_t *settings;
 	PaError status;
 };
+
+std::vector<asio_listener *> listener_list;
 
 /* ========================================================================== */
 /*          conversions between portaudio and obs and utility functions       */
@@ -116,7 +117,8 @@ enum audio_format portaudio_to_obs_audio_format(PaSampleFormat format)
 	return AUDIO_FORMAT_UNKNOWN;
 }
 
-enum audio_format string_to_obs_audio_format(std::string format) {
+enum audio_format string_to_obs_audio_format(std::string format)
+{
 	if (format == "32 Bit Int") {
 		return AUDIO_FORMAT_32BIT;
 	}
@@ -177,12 +179,14 @@ int bytedepth_format(audio_format format)
 }
 
 // returns the size in bytes of a sample from a Portaudio audio_format
-int bytedepth_format(PaSampleFormat format) {
+int bytedepth_format(PaSampleFormat format)
+{
 	return bytedepth_format(portaudio_to_obs_audio_format(format));
 }
 
 // get number of output channels (this is set in obs general audio settings
-int get_obs_output_channels() {
+int get_obs_output_channels()
+{
 	// get channel number from output speaker layout set by obs
 	struct obs_audio_info aoi;
 	obs_get_audio_info(&aoi);
@@ -192,7 +196,8 @@ int get_obs_output_channels() {
 
 // get asio device count: portaudio needs to be compiled with only asio support
 // or it will report more devices
-int getDeviceCount() {
+int getDeviceCount()
+{
 	int numDevices;
 	numDevices = Pa_GetDeviceCount();
 	if (numDevices < 0)
@@ -207,7 +212,7 @@ int get_device_index(const char *device) {
 	const   PaDeviceInfo *deviceInfo = NULL;
 	int device_index = -1;
 	int numOfDevices = getDeviceCount();
-	for (uint8_t i = 0; i<numOfDevices; i++) {
+	for (uint8_t i = 0; i < numOfDevices; i++) {
 		deviceInfo = Pa_GetDeviceInfo(i);
 		if (strcmp(device, deviceInfo->name) == 0) {
 			device_index = i;
@@ -218,7 +223,8 @@ int get_device_index(const char *device) {
 }
 
 // utility function checking if sample rate is supported by device
-bool canSamplerate(int device_index, int sample_rate) {
+bool canSamplerate(int device_index, int sample_rate)
+{
 	const   PaDeviceInfo *deviceInfo = new PaDeviceInfo;
 	deviceInfo = Pa_GetDeviceInfo(device_index);
 	PaStreamParameters outputParameters;
@@ -227,6 +233,7 @@ bool canSamplerate(int device_index, int sample_rate) {
 
 	memset(&inputParameters, 0, sizeof(inputParameters));
 	memset(&outputParameters, 0, sizeof(outputParameters));
+
 	inputParameters.channelCount = deviceInfo->maxInputChannels;
 	inputParameters.device = device_index;
 	inputParameters.hostApiSpecificStreamInfo = NULL;
@@ -243,7 +250,6 @@ bool canSamplerate(int device_index, int sample_rate) {
 
 	err = Pa_IsFormatSupported(&inputParameters, &outputParameters, (double)sample_rate);
 	return (err == paFormatIsSupported) ? true : false;
-
 }
 
 /* ========================================================================== */
@@ -265,12 +271,14 @@ static bool credits(obs_properties_t *props,
 	mybox.setIconPixmap(QPixmap(":/res/images/asiologo.png"));
 	mybox.setWindowTitle(QString("Credits: obs-asio"));
 	mybox.exec();
+
 	return true;
 }
 
 // calls the driver control panel; Portaudio code is quite contrived btw.
 static bool DeviceControlPanel(obs_properties_t *props,
-	obs_property_t *property, void *data) {
+	obs_property_t *property, void *data)
+{
 	PaError err;
 	asio_listener *listener = (asio_listener*)data;
 	paasio_data *paasiodata = (paasio_data *)listener->get_user_data();
@@ -281,28 +289,26 @@ static bool DeviceControlPanel(obs_properties_t *props,
 	err = Pa_IsStreamActive(*(paasiodata->stream));
 	if (err == 1) {
 		err = Pa_CloseStream(*(paasiodata->stream));
-		if (err != paNoError) {
+		if (err != paNoError)
 			blog(LOG_ERROR, "PortAudio error : %s\n", Pa_GetErrorText(err));
-		}
+
 		err = Pa_Terminate();
-		if (err != paNoError) {
+		if (err != paNoError)
 			blog(LOG_ERROR, "PortAudio error : %s\n", Pa_GetErrorText(err));
-		}
+
 		err = Pa_Initialize();
-		if (err != paNoError) {
+		if (err != paNoError)
 			blog(LOG_ERROR, "PortAudio error : %s\n", Pa_GetErrorText(err));
-		}
 	}
 
 	err = PaAsio_ShowControlPanel(listener->device_index, asio_main_hwnd);
 
-	if (err == paNoError) {
+	if (err == paNoError)
 		blog(LOG_INFO, "Console loaded for device %s with index %i\n",
 			listener->get_id(), listener->device_index);
-	}
-	else {
+	else
 		blog(LOG_ERROR, "Could not load the Console panel; PortAudio error : %s\n", Pa_GetErrorText(err));
-	}
+
 	// update round
 	asio_update((void *)listener, paasiodata->settings);
 
@@ -310,13 +316,14 @@ static bool DeviceControlPanel(obs_properties_t *props,
 }
 
 //creates the device list
-void fill_out_devices(obs_property_t *list) {
+void fill_out_devices(obs_property_t *list)
+{
 
-	const   PaDeviceInfo *deviceInfo = new PaDeviceInfo;
+	const   PaDeviceInfo *deviceInfo = NULL;
 	int numOfDevices = getDeviceCount();
 	blog(LOG_INFO, "ASIO Devices: %i\n", numOfDevices);
 	// Scan through devices for various capabilities
-	for (int i = 0; i<numOfDevices; i++) {
+	for (int i = 0; i < numOfDevices; i++) {
 		deviceInfo = Pa_GetDeviceInfo(i);
 		if (deviceInfo) {
 			blog(LOG_INFO, "device  %i = %s\n", i, deviceInfo->name);
@@ -338,10 +345,10 @@ void fill_out_devices(obs_property_t *list) {
 */
 static bool fill_out_channels_modified(obs_properties_t *props, obs_property_t *list, obs_data_t *settings) {
 	const char* device = obs_data_get_string(settings, "device_id");
-	const   PaDeviceInfo *deviceInfo = new PaDeviceInfo;
+	const   PaDeviceInfo *deviceInfo = NULL;
 	size_t input_channels;
 	int index = get_device_index(device);
-	const char *channelName = new char;
+	const char *channelName = NULL;
 
 	//get the device info
 	deviceInfo = Pa_GetDeviceInfo(index);
@@ -357,6 +364,7 @@ static bool fill_out_channels_modified(obs_properties_t *props, obs_property_t *
 		namestr += " " + chnamestr;
 		obs_property_list_add_int(list, namestr.c_str(), i);
 	}
+
 	return true;
 }
 
@@ -383,7 +391,7 @@ static bool asio_device_changed(obs_properties_t *props,
 	DWORD recorded_channels = get_obs_output_channels();
 	// be sure to set device as current one
 
-	size_t itemCount = obs_property_list_item_count(list);// = getDeviceCount()
+	size_t itemCount = obs_property_list_item_count(list);
 	bool itemFound = false;
 
 	for (i = 0; i < itemCount; i++) {
@@ -407,6 +415,7 @@ static bool asio_device_changed(obs_properties_t *props,
 			obs_property_set_modified_callback(route[i], fill_out_channels_modified);
 		}
 	}
+	delete deviceInfo;
 
 	return true;
 }
@@ -423,8 +432,6 @@ static bool asio_settings_changed(obs_properties_t *props,
 	long cur_rate = obs_data_get_int(settings, "sample rate");
 	long cur_buffer = obs_data_get_int(settings, "buffer");
 	audio_format cur_format = (audio_format)obs_data_get_int(settings, "bit depth");
-
-
 
 	return true;
 }
@@ -468,6 +475,8 @@ static void * asio_create(obs_data_t *settings, obs_source_t *source)
 	user_data->stream = NULL;
 	data->set_user_data(user_data);
 
+	listener_list.push_back(data);
+
 	asio_update(data, settings);
 
 	return data;
@@ -480,14 +489,14 @@ void asio_destroy(void *vptr)
 	data->disconnect();
 	int index = data->listener_index;
 	paasio_data *paasiodata = (paasio_data *)data->get_user_data();
-	/*
-	if (any listeners) {
-		delete paasiodata->stream;
-	}
-	*/
 	delete paasiodata;
+	for (size_t i = 0; i < listener_list.size(); i++) {
+		if (data == listener_list[i]) {
+			listener_list.erase(listener_list.begin() + i);
+			break;
+		}
+	}
 	delete data;
-	//decrement source count
 }
 
 /* set all settings to listener, update global settings, open and start audio stream */
@@ -665,15 +674,14 @@ std::vector<double> get_sample_rates(int index) {
 	err = Pa_IsFormatSupported(&params, NULL, 44100);
 	if (!err)
 		sample_rates.push_back(44100);
-	else if (err != paInvalidSampleRate && err != paDeviceUnavailable) {
+	else if (err != paInvalidSampleRate && err != paDeviceUnavailable)
 		sample_rates.push_back(44100);
-	}
+
 	err = Pa_IsFormatSupported(&params, NULL, 48000);
 	if (!err)
 		sample_rates.push_back(48000);
-	else if (err != paInvalidSampleRate && err != paDeviceUnavailable) {
+	else if (err != paInvalidSampleRate && err != paDeviceUnavailable)
 		sample_rates.push_back(48000);
-	}
 
 	return sample_rates;
 }
@@ -694,9 +702,8 @@ std::vector<std::string> get_audio_formats(int index) {
 	err = Pa_IsFormatSupported(&params, NULL, 44100);
 	if (!err)
 		audio_formats.push_back("32 Bit Float");
-	else if (err != paSampleFormatNotSupported && err != paDeviceUnavailable) {
+	else if (err != paSampleFormatNotSupported && err != paDeviceUnavailable)
 		audio_formats.push_back("32 Bit Float");
-	}
 
 	params.sampleFormat = paInt32 | paNonInterleaved;
 
@@ -710,9 +717,8 @@ std::vector<std::string> get_audio_formats(int index) {
 	err = Pa_IsFormatSupported(&params, NULL, 44100);
 	if (!err)
 		audio_formats.push_back("16 Bit Int");
-	else if (err != paSampleFormatNotSupported && err != paDeviceUnavailable) {
+	else if (err != paSampleFormatNotSupported && err != paDeviceUnavailable)
 		audio_formats.push_back("16 Bit Int");
-	}
 
 	return audio_formats;
 }
@@ -720,44 +726,25 @@ std::vector<std::string> get_audio_formats(int index) {
 static void close_asio_devices(paasio_data *paasiodata) {
 	PaError err;
 
-	if (paasiodata == NULL) {
+	if (paasiodata == NULL)
 		paasiodata = new paasio_data();
-	}
 
-	if (paasiodata->stream == NULL) {
+	if (paasiodata->stream == NULL)
 		paasiodata->stream = new PaStream*;
-	}
 
 	if (paasiodata && paasiodata->stream) {
-		if (paasiodata->status == paNoError) {
+		if (paasiodata->status == paNoError)
 			err = Pa_CloseStream(*(paasiodata->stream));
-		}
-		/*
-		err = Pa_IsStreamActive(*(paasiodata->stream));
-		if (err == 1) {
-			err = Pa_CloseStream(*(paasiodata->stream));
-			if (err != paNoError) {
-				blog(LOG_ERROR, "PortAudio error : %s\n", Pa_GetErrorText(err));
-			}
-			err = Pa_Terminate();
-			if (err != paNoError) {
-				blog(LOG_ERROR, "PortAudio error : %s\n", Pa_GetErrorText(err));
-			}
-			err = Pa_Initialize();
-			if (err != paNoError) {
-				blog(LOG_ERROR, "PortAudio error : %s\n", Pa_GetErrorText(err));
-			}
-		}
-		*/
 	}
 }
 
 static void startup_asio_device(uint32_t index, uint64_t buffer_size,
-	double sample_rate, std::string audio_format) {
+	double sample_rate, std::string audio_format)
+{
 	PaError err;
 	device_buffer *devicebuf = device_list[index];
 	paasio_data* info = (paasio_data*)devicebuf->get_user_data();
-	
+
 	PaStreamParameters inParam;
 	inParam.channelCount = info->info->commonDeviceInfo.maxInputChannels;
 	inParam.device = index;
@@ -787,55 +774,15 @@ static void startup_asio_device(uint32_t index, uint64_t buffer_size,
 
 	err = Pa_OpenStream(info->stream, &inParam, NULL, sample_rate,
 		buffer_size, paClipOff, create_asio_buffer, devicebuf);
-	if(err == paNoError)
+	if (err == paNoError)
 		err = Pa_StartStream(*(info->stream));
 
 	info->status = err;
 	device_list[index]->set_user_data(info);
 }
-/*delete*/
-static void open_asio_device(uint32_t index, uint64_t buffer_size,
-	double sample_rate, std::string audio_format){
-	PaError err;
-	device_buffer *devicebuf = device_list[index];
-	paasio_data* info = (paasio_data*)devicebuf->get_user_data();
 
-	PaStreamParameters inParam;
-	inParam.channelCount = info->info->commonDeviceInfo.maxInputChannels;
-	inParam.device = index;
-	inParam.suggestedLatency = 0;
-	inParam.hostApiSpecificStreamInfo = NULL;
-	if (audio_format == "32 Bit Int") {
-		inParam.sampleFormat = paInt32 | paNonInterleaved;
-	}
-	else if (audio_format == "32 Bit Float") {
-		inParam.sampleFormat = paFloat32 | paNonInterleaved;
-	}
-	else if (audio_format == "16 Bit Int") {
-		inParam.sampleFormat = paInt16 | paNonInterleaved;
-	}
-	else {
-		return;
-	}
-
-	if (!info) {
-		info = new paasio_data();
-		info->status = -1001;
-	}
-
-	if (!info->stream) {
-		info->stream = new PaStream*;
-	}
-
-	err = Pa_OpenStream(info->stream, &inParam, NULL, sample_rate,
-		buffer_size, paClipOff, create_asio_buffer, devicebuf);
-
-	info->status = err;
-
-	device_list[index]->set_user_data(info);
-}
-
-static void update_device_selection(AsioSelector* selector) {
+static void update_device_selection(AsioSelector* selector)
+{
 	uint64_t index;
 
 	std::vector<uint32_t> active_devices = selector->getActiveDevices();
@@ -858,10 +805,13 @@ static void update_device_selection(AsioSelector* selector) {
 				if (active_devices_tmp.size() > 0 && active_devices_tmp[0] == index) {
 					audio_format t = string_to_obs_audio_format(string_format);
 					device_list[index]->prep_circle_buffer(buffer_size);
-					device_list[index]->prep_buffers(buffer_size, (uint32_t)info->info->commonDeviceInfo.maxInputChannels, string_to_obs_audio_format(string_format), (uint32_t)sample_rate);
+					device_list[index]->prep_buffers(buffer_size,
+						(uint32_t)info->info->commonDeviceInfo.maxInputChannels,
+						string_to_obs_audio_format(string_format),
+						(uint32_t)sample_rate);
 
-					startup_asio_device(active_devices_tmp[0], buffer_size, sample_rate,
-						string_format);
+					startup_asio_device(active_devices_tmp[0], buffer_size,
+						sample_rate, string_format);
 					active_devices_tmp.erase(active_devices_tmp.begin());
 				}
 			}
@@ -887,7 +837,9 @@ static void update_device_selection(AsioSelector* selector) {
 				if (active_devices_tmp.size() > 0 && active_devices_tmp[0] == index) {
 					audio_format t = string_to_obs_audio_format(string_format);
 					device_list[index]->prep_circle_buffer(buffer_size);
-					device_list[index]->prep_buffers(buffer_size, (uint32_t)info->info->commonDeviceInfo.maxInputChannels, t, (uint32_t)sample_rate);
+					device_list[index]->prep_buffers(buffer_size,
+						(uint32_t)info->info->commonDeviceInfo.maxInputChannels,
+						t, (uint32_t)sample_rate);
 
 					startup_asio_device(active_devices_tmp[0], buffer_size, sample_rate,
 						string_format);
@@ -920,13 +872,15 @@ static void update_device_selection(AsioSelector* selector) {
 				device_list[index]->set_user_data(info);
 			}
 		}
-	} else {
+	}
+	else {
 		//stop asio streams
 		for (index = 0; index < selector->getNumberOfDevices(); index++) {
 			paasio_data* info = (paasio_data*)device_list[index]->get_user_data();
 			if (info != NULL) {
 				close_asio_devices(info);
-			} else {
+			}
+			else {
 				info = new paasio_data();
 				info->status = -1001;
 
@@ -949,7 +903,6 @@ static void update_device_selection(AsioSelector* selector) {
 		obs_data_set_string(module_settings, "device_id", "");
 	}
 
-
 	active_devices_tmp = active_devices;
 	obs_data_array_t *array = obs_data_array_create();
 	for (index = 0; index < selector->getNumberOfDevices(); index++) {
@@ -966,18 +919,25 @@ static void update_device_selection(AsioSelector* selector) {
 		if (active_devices_tmp.size() > 0 && active_devices_tmp[0] == index) {
 			obs_data_set_bool(item, "_device_active", true);
 			active_devices_tmp.erase(active_devices_tmp.begin());
-		} else {
+		}
+		else {
 			obs_data_set_bool(item, "_device_active", false);
 		}
 		obs_data_array_push_back(array, item);
 		obs_data_release(item);
-		
+
 	}
 	obs_data_set_array(module_settings, "asio_device_settings", array);
 	obs_data_array_release(array);
-	if(module_settings_path == NULL)
+	if (module_settings_path == NULL)
 		module_settings_path = obs_module_config_path("asio_device.json");
 	obs_data_save_json_safe(module_settings, module_settings_path, ".tmp", ".bak");
+	
+	for (size_t i = 0; i < listener_list.size(); i++) {
+		paasio_data *info = (paasio_data *)listener_list[i]->get_user_data();
+		asio_update(listener_list[i], info->settings);
+	}
+	
 }
 
 char * os_replace_slash(const char *dir)
@@ -1024,10 +984,11 @@ bool obs_module_load(void)
 	device_selector->setActiveDeviceUnique(true);
 	if (module_settings_path == NULL) {
 		char *tmp = obs_module_config_path("asio_device.json");
-		module_settings_path = os_replace_slash(tmp);//"C:\\Users\\Alex\\AppData\\Roaming\\obs-studio\\plugin_config\\win-asio\\asio_device.json";//obs_module_config_path("asio_device.json");b		bfree(tmp);
+		module_settings_path = os_replace_slash(tmp);
+		bfree(tmp);
 	}
 	if (!os_file_exists(module_settings_path)) {
-		
+
 		module_settings = obs_data_create();
 		obs_data_save_json_safe(module_settings, module_settings_path, ".tmp", ".bak");
 	}
@@ -1036,7 +997,7 @@ bool obs_module_load(void)
 	}
 
 	// Scan through devices for various capabilities
-	for (int i = 0; i<numOfDevices; i++) {
+	for (int i = 0; i < numOfDevices; i++) {
 		deviceInfo = Pa_GetDeviceInfo(i);
 		if (deviceInfo) {
 			blog(LOG_INFO, "device %i = %s\n", i, deviceInfo->name);
@@ -1086,34 +1047,38 @@ void obs_module_post_load(void) {
 
 		for (uint64_t j = 0; j < devices_count; j++) {
 			if (device_id == device_selector->getDeviceName(j)) {
-				device_selector->setSampleRateForDevice(i, 
+				device_selector->setSampleRateForDevice(i,
 					(double)obs_data_get_double(item, "sample_rate"));
-				device_selector->setBufferSizeForDevice(i, 
+				device_selector->setBufferSizeForDevice(i,
 					(uint64_t)obs_data_get_int(item, "buffer_size"));
-				device_selector->setAudioFormatForDevice(i, 
+				device_selector->setAudioFormatForDevice(i,
 					std::string(obs_data_get_string(item, "audio_format")));
 				device_selector->setDeviceActive(i,
 					(bool)obs_data_get_bool(item, "_device_active"));
 				break;
 			}
 		}
-
 		obs_data_release(item);
 	}
+
 	obs_data_array_release(last_settings);
 	update_device_selection(device_selector);
+
 	return;
 }
 
-void obs_module_unload(void) {
+void obs_module_unload(void)
+{
 	for (int i = 0; i < getDeviceCount(); i++) {
 		bfree((void*)device_list[i]->device_options.name);
+		delete ((paasio_data*)device_list[i]->get_user_data())->stream;
+		delete ((paasio_data*)device_list[i]->get_user_data())->info;
+		delete ((paasio_data*)device_list[i]->get_user_data());
 		delete device_list[i];
 	}
 	PaError err = Pa_Terminate();
-	if (err != paNoError) {
+	if (err != paNoError)
 		blog(LOG_ERROR, "PortAudio error : %s\n", Pa_GetErrorText(err));
-	}
 
 	bool saved = obs_data_save_json_safe(module_settings, module_settings_path, ".tmp", ".bak");
 	if (!saved)
@@ -1121,6 +1086,8 @@ void obs_module_unload(void) {
 	if (module_settings_path != NULL)
 		bfree(module_settings_path);
 	module_settings_path = NULL;
-	if(module_settings != NULL)
+	if (module_settings != NULL)
 		obs_data_release(module_settings);
+
+	delete device_selector;
 }
