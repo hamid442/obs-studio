@@ -11,6 +11,10 @@
 
 using namespace std;
 
+static const char *sourceExtensions[] = {
+	"obssrc", "json", nullptr
+};
+
 static const char *textExtensions[] = {
 	"txt", "log", nullptr
 };
@@ -105,6 +109,13 @@ void OBSBasic::AddDropSource(const char *data, DropType image)
 		name = QUrl::fromLocalFile(QString(data)).fileName();
 		type = "browser_source";
 		break;
+	case DropType_Source:
+		obs_data_t *source_settings = obs_data_create_from_json_file(data);
+		settings = obs_data_get_obj(source_settings, "settings");
+		name = obs_data_get_string(source_settings, "name");
+		type = obs_data_get_string(source_settings, "id");
+		obs_data_release(source_settings);
+		break;
 	}
 
 	if (!obs_source_get_display_name(type))
@@ -179,6 +190,7 @@ if (found) \
 			CHECK_SUFFIX(htmlExtensions, DropType_Html);
 			CHECK_SUFFIX(imageExtensions, DropType_Image);
 			CHECK_SUFFIX(mediaExtensions, DropType_Media);
+			CHECK_SUFFIX(sourceExtensions, DropType_Source);
 
 #undef CHECK_SUFFIX
 		}

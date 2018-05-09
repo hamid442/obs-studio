@@ -142,6 +142,14 @@ public:
 
     void set_load_visibility(bool visible);
 
+	void set_use_minimal_latency_visibliity(bool visible);
+
+	void set_use_optimal_format_visibility(bool visible);
+
+	void set_device_timing_visibility(bool visible);
+
+	void set_menu_bar_visibility(bool visible);
+
     void addDevice(std::string device_name, std::vector<double> sample_rates, std::vector<uint64_t> buffer_sizes, std::vector<std::string> audio_formats);
 
     void addDevice(std::string device_name, std::vector<double> sample_rates, double default_sample_rate,

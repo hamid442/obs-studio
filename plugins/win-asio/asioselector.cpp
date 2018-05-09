@@ -253,17 +253,30 @@ void AsioSelector::on_actionSave_As_triggered()
 
 void AsioSelector::set_save_visibility(bool visible){
     ui->actionSave->setVisible(visible);
-    //ui->actionSave->setDisabled(visible);
 }
 
 void AsioSelector::set_save_as_visibility(bool visible){
     ui->actionSave_As->setVisible(visible);
-    //ui->actionSave_As->setDisabled(visible);
 }
 
 void AsioSelector::set_load_visibility(bool visible){
     ui->actionLoad->setVisible(visible);
-    //ui->actionLoad->setDisabled(visible);
+}
+
+void AsioSelector::set_use_minimal_latency_visibliity(bool visible) {
+	ui->lowestLatency->setVisible(visible);
+}
+
+void AsioSelector::set_use_optimal_format_visibility(bool visible) {
+	ui->optimalFormat->setVisible(visible);
+}
+
+void AsioSelector::set_device_timing_visibility(bool visible) {
+	ui->deviceTiming->setVisible(visible);
+}
+
+void AsioSelector::set_menu_bar_visibility(bool visible) {
+	ui->menuBar->setVisible(visible);
 }
 
 void AsioSelector::on_actionSave_triggered()
