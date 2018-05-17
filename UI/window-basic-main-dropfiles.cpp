@@ -132,6 +132,58 @@ void OBSBasic::AddDropSource(const char *data, DropType image)
 	if (source) {
 		OBSScene scene = main->GetCurrentScene();
 		obs_scene_add(scene, source);
+
+		obs_sceneitem_t *sceneitem = NULL;
+		if (strcmp(type, "scene") == 0) {
+
+			obs_scene_t *target = obs_scene_from_source(source);
+			if (target) {
+				obs_data_array_t *items = obs_data_get_array(settings, "items");
+				size_t item_count = obs_data_array_count(items);
+				for (size_t i = 0; i < item_count; i++) {
+					obs_data_t *item = obs_data_array_item(items, i);
+					QString item_name = bstrdup(obs_data_get_string(item, "name"));
+					obs_source_t *source_clone = obs_get_source_by_name(QT_TO_UTF8(item_name));
+					//obs_source_t *dup_source = obs_source_duplicate(source_clone, GenerateSourceName(QT_TO_UTF8(item_name)).c_str(), false);
+					if (source_clone && target) {
+						sceneitem = obs_scene_add(target, source_clone);
+						//obs_source_release(source_clone);
+
+						obs_sceneitem_set_visible(sceneitem, obs_data_get_bool(item, "visible"));
+						obs_sceneitem_set_rot(sceneitem, obs_data_get_double(item, "rot"));
+						vec2 pos;
+						obs_data_get_vec2(item, "pos", &pos);
+						obs_sceneitem_set_pos(sceneitem, &pos);
+						vec2 scale;
+						obs_data_get_vec2(item, "scale", &scale);
+						obs_sceneitem_set_scale(sceneitem, &scale);
+						obs_sceneitem_set_alignment(sceneitem, obs_data_get_int(item, "align"));
+						vec2 bounds;
+						obs_data_get_vec2(item, "bounds", &bounds);
+						obs_sceneitem_set_bounds(sceneitem, &bounds);
+						obs_sceneitem_set_bounds_alignment(sceneitem, obs_data_get_int(item, "bounds_align"));
+						obs_sceneitem_set_bounds_type(sceneitem, (obs_bounds_type)obs_data_get_int(item, "bounds_type"));
+
+						obs_sceneitem_set_locked(sceneitem, obs_data_get_bool(item, "locked"));
+						obs_sceneitem_crop crop;
+						crop.bottom = obs_data_get_int(item, "crop_bottom");
+						crop.top = obs_data_get_int(item, "crop_top");
+						crop.left = obs_data_get_int(item, "crop_left");
+						crop.right = obs_data_get_int(item, "crop_right");
+						obs_sceneitem_set_crop(sceneitem, &crop);
+					}
+					else {
+
+					}
+					obs_data_release(item);
+				}
+				obs_data_array_release(items);
+				//obs_scene_release(target);
+			}
+			//main->SetCurrentScene(scene, true, true);
+			//obs_scene_release(target);
+		}
+
 		obs_source_release(source);
 	}
 
