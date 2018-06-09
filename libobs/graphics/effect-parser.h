@@ -133,8 +133,8 @@ static inline void ep_struct_init(struct ep_struct *eps)
 static inline void ep_struct_free(struct ep_struct *eps)
 {
 	size_t i;
-
 	bfree(eps->name);
+
 	for (i = 0; i < eps->vars.num; i++)
 		ep_var_free(eps->vars.array+i);
 	da_free(eps->vars);
