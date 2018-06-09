@@ -61,6 +61,7 @@ struct gs_effect_param {
 
 	/*char *full_name;
 	float scroller_min, scroller_max, scroller_inc, scroller_mul;*/
+	DARRAY(struct gs_effect_param) annotations;
 };
 
 static inline void effect_param_init(struct gs_effect_param *param)
@@ -94,11 +95,13 @@ struct gs_effect_pass {
 	gs_shader_t *pixelshader;
 	DARRAY(struct pass_shaderparam) vertshader_params;
 	DARRAY(struct pass_shaderparam) pixelshader_params;
+	DARRAY(struct gs_effect_param) annotations;
 };
 
 static inline void effect_pass_init(struct gs_effect_pass *pass)
 {
 	memset(pass, 0, sizeof(struct gs_effect_pass));
+	da_init(pass->annotations);
 }
 
 static inline void effect_pass_free(struct gs_effect_pass *pass)
@@ -106,6 +109,12 @@ static inline void effect_pass_free(struct gs_effect_pass *pass)
 	bfree(pass->name);
 	da_free(pass->vertshader_params);
 	da_free(pass->pixelshader_params);
+
+	size_t i;
+
+	for (i = 0; i < pass->annotations.num; i++)
+		effect_param_free(pass->annotations.array + i);
+
 	gs_shader_destroy(pass->vertshader);
 	gs_shader_destroy(pass->pixelshader);
 }
@@ -118,11 +127,13 @@ struct gs_effect_technique {
 	struct gs_effect *effect;
 
 	DARRAY(struct gs_effect_pass) passes;
+	DARRAY(struct gs_effect_param) annotations;
 };
 
 static inline void effect_technique_init(struct gs_effect_technique *t)
 {
 	memset(t, 0, sizeof(struct gs_effect_technique));
+	da_init(t->annotations);
 }
 
 static inline void effect_technique_free(struct gs_effect_technique *t)
@@ -130,6 +141,8 @@ static inline void effect_technique_free(struct gs_effect_technique *t)
 	size_t i;
 	for (i = 0; i < t->passes.num; i++)
 		effect_pass_free(t->passes.array+i);
+	for (i = 0; i < t->annotations.num; i++)
+		effect_param_free(t->annotations.array + i);
 	da_free(t->passes);
 	bfree(t->name);
 }
