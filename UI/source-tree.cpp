@@ -70,7 +70,11 @@ SourceTreeItem::SourceTreeItem(SourceTree *tree_, OBSSceneItem sceneitem_)
 	auto setItemVisible = [this] (bool checked)
 	{
 		SignalBlocker sourcesSignalBlocker(this);
-		obs_sceneitem_set_visible(sceneitem, checked);
+		OBSBasic *main =
+				reinterpret_cast<OBSBasic*>(
+				App()->GetMainWindow());
+
+		main->VisibilityTransition(sceneitem, checked);
 	};
 
 	auto setItemLocked = [this] (bool checked)

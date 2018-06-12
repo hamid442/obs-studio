@@ -3836,6 +3836,10 @@ void OBSBasic::CreateSourcePopupMenu(int idx, bool preview)
 	ui->actionCopyFilters->setEnabled(false);
 	ui->actionCopySource->setEnabled(false);
 
+	popup.addSeparator();
+	QMenu *transitionMenu = CreateVisibilityTransitionMenu();
+	popup.addMenu(transitionMenu);
+
 	if (ui->sources->MultipleBaseSelected()) {
 		popup.addSeparator();
 		popup.addAction(QTStr("Basic.Main.GroupItems"),

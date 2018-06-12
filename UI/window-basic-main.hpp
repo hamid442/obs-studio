@@ -130,6 +130,7 @@ private:
 	const char *copyString;
 	const char *copyFiltersString;
 	bool copyVisible = true;
+	bool first = true;
 
 	QPointer<QThread> updateCheckThread;
 	QPointer<QThread> logUploadThread;
@@ -296,6 +297,7 @@ private:
 	void CreateDefaultQuickTransitions();
 
 	QMenu *CreatePerSceneTransitionMenu();
+	QMenu *CreateVisibilityTransitionMenu();
 
 	QuickTransition *GetQuickTransition(int id);
 	int GetQuickTransitionIdx(int id);
@@ -558,6 +560,8 @@ public:
 	void CreateInteractionWindow(obs_source_t *source);
 	void CreatePropertiesWindow(obs_source_t *source);
 	void CreateFiltersWindow(obs_source_t *source);
+
+	void VisibilityTransition(OBSSceneItem sceneitem, bool visible);
 
 protected:
 	virtual void closeEvent(QCloseEvent *event) override;

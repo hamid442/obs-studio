@@ -8,6 +8,7 @@
 #include <QHBoxLayout>
 #include <QMessageBox>
 #include <QLabel>
+#include "window-basic-main.hpp"
 
 VisibilityItemWidget::VisibilityItemWidget(obs_source_t *source_)
 	: source        (source_),
