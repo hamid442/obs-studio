@@ -71,6 +71,7 @@ private:
 	void FilterNameEdited(QWidget *editor, QListWidget *list);
 
 	bool isAsync;
+	bool drawablePreview;
 
 private slots:
 	void AddFilter(OBSSource filter);

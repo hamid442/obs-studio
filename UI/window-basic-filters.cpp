@@ -125,9 +125,12 @@ OBSBasicFilters::OBSBasicFilters(QWidget *parent, OBSSource source_)
 	bool drawable_type = type == OBS_SOURCE_TYPE_INPUT ||
 		type == OBS_SOURCE_TYPE_SCENE;
 
-	if (drawable_type && (caps & OBS_SOURCE_VIDEO) != 0)
+	drawablePreview = drawable_type && (caps & OBS_SOURCE_VIDEO) != 0;
+	if (drawablePreview)
 		connect(ui->preview, &OBSQTDisplay::DisplayCreated,
-				addDrawCallback);
+			addDrawCallback);
+	else
+		ui->preview->hide();
 }
 
 OBSBasicFilters::~OBSBasicFilters()
@@ -178,6 +181,12 @@ void OBSBasicFilters::UpdatePropertiesView(int row, bool async)
 			"update_properties",
 			OBSBasicFilters::UpdateProperties,
 			this);
+
+	uint32_t caps = obs_source_get_output_flags(filter);
+	if (drawablePreview && (caps & OBS_OUTPUT_VIDEO))
+		ui->preview->show();
+	else
+		ui->preview->hide();
 
 	obs_data_release(settings);
 

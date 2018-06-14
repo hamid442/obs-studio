@@ -84,6 +84,9 @@ OBSBasicProperties::OBSBasicProperties(QWidget *parent, OBSSource source_)
 
 	// Create a QSplitter to keep a unified workflow here.
 	windowSplitter = new QSplitter(Qt::Orientation::Vertical, this);
+	uint32_t flags = obs_source_get_output_flags(source_);
+	if (!(flags & OBS_OUTPUT_VIDEO))
+		preview->hide();
 	windowSplitter->addWidget(preview);
 	windowSplitter->addWidget(view);
 	windowSplitter->setChildrenCollapsible(false);
