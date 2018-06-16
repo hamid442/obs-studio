@@ -487,6 +487,7 @@ gs_device::gs_device(uint32_t adapterIdx)
 	InitFactory(adapterIdx);
 	InitDevice(adapterIdx);
 	device_set_render_target(this, NULL, NULL);
+	//device_set_render_targets(this, NULL, 8, NULL);
 }
 
 gs_device::~gs_device()
@@ -1278,9 +1279,9 @@ void device_set_render_targets(gs_device_t *device, gs_texture_t **texs,
 		device->curRenderTargetCount = texture_count;
 	} else {
 		//clear?
-		/*
 		ID3D11RenderTargetView *rt[GS_MAX_TEXTURES];
 		ID3D11RenderTargetView **rts = &rt[0];
+		texture_count = GS_MAX_TEXTURES;
 		for (i = 0; i < texture_count; i++) {
 			rt[i] = nullptr;
 		}
@@ -1291,7 +1292,6 @@ void device_set_render_targets(gs_device_t *device, gs_texture_t **texs,
 		device->context->OMSetRenderTargets(texture_count, rts,
 			zstencil ? zstencil->view : nullptr);
 		device->curRenderTargetCount = texture_count;
-		*/
 	}
 }
 
@@ -1471,8 +1471,11 @@ void device_draw(gs_device_t *device, enum gs_draw_mode draw_mode,
 		if (!device->curVertexBuffer)
 			throw "No vertex buffer specified";
 
-		if (!device->curSwapChain && !device->curRenderTarget)
-			throw "No render target or swap chain to render to";
+		if (!device->curSwapChain)
+			throw "No swap chain to render to";
+
+		if ((!device->curRenderTarget && !device->curRenderTargets))
+			throw "No render target to render to";
 
 		gs_effect_t *effect = gs_get_effect();
 		if (effect)

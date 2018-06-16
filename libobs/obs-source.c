@@ -2891,6 +2891,49 @@ static inline void render_filter_tex(gs_texture_t *tex, gs_effect_t *effect,
 	}
 	gs_technique_end(tech);
 }
+ 
+static inline void render_filter_multi_tex(gs_texture_t **tex, gs_effect_t *effect,
+	uint32_t width, uint32_t height, const char *tech_name)
+{
+	gs_technique_t *tech = gs_effect_get_technique(effect, tech_name);
+	gs_eparam_t    *image_0 = gs_effect_get_param_by_name(effect, "image");
+	if(!image_0)
+		image_0 = gs_effect_get_param_by_name(effect, "image_0");
+	gs_eparam_t    *image_1 = gs_effect_get_param_by_name(effect, "image_1");
+	gs_eparam_t    *image_2 = gs_effect_get_param_by_name(effect, "image_2");
+	gs_eparam_t    *image_3 = gs_effect_get_param_by_name(effect, "image_3");
+	gs_eparam_t    *image_4 = gs_effect_get_param_by_name(effect, "image_4");
+	gs_eparam_t    *image_5 = gs_effect_get_param_by_name(effect, "image_5");
+	gs_eparam_t    *image_6 = gs_effect_get_param_by_name(effect, "image_6");
+	gs_eparam_t    *image_7 = gs_effect_get_param_by_name(effect, "image_7");
+	size_t      passes, i;
+
+	if (tex) {
+		gs_effect_set_texture(image_0, tex[0]);
+		gs_effect_set_texture(image_1, tex[1]);
+		gs_effect_set_texture(image_2, tex[2]);
+		gs_effect_set_texture(image_3, tex[3]);
+		gs_effect_set_texture(image_4, tex[4]);
+		gs_effect_set_texture(image_5, tex[5]);
+		gs_effect_set_texture(image_6, tex[6]);
+		gs_effect_set_texture(image_7, tex[7]);
+	}
+
+	passes = gs_technique_begin(tech);
+	for (i = 0; i < passes; i++) {
+		gs_technique_begin_pass(tech, i);
+		gs_draw_sprite(tex[0], 0, width, height);
+		gs_draw_sprite(tex[1], 0, width, height);
+		gs_draw_sprite(tex[2], 0, width, height);
+		gs_draw_sprite(tex[3], 0, width, height);
+		gs_draw_sprite(tex[4], 0, width, height);
+		gs_draw_sprite(tex[5], 0, width, height);
+		gs_draw_sprite(tex[6], 0, width, height);
+		gs_draw_sprite(tex[7], 0, width, height);
+		gs_technique_end_pass(tech);
+	}
+	gs_technique_end(tech);
+}
 
 static inline bool can_bypass(obs_source_t *target, obs_source_t *parent,
 		uint32_t parent_flags,
@@ -3024,6 +3067,9 @@ void obs_source_process_filter_end(obs_source_t *filter, gs_effect_t *effect,
 		textures = gs_texrender_get_textures(filter->filter_texrender);
 		if (texture)
 			render_filter_tex(texture, effect, width, height,
+					"Draw");
+		else if (textures)
+			render_filter_multi_tex(textures, effect, width, height,
 					"Draw");
 	}
 }
