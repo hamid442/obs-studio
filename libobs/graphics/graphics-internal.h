@@ -90,6 +90,7 @@ struct gs_exports {
 	gs_shader_t *(*device_get_vertex_shader)(const gs_device_t *device);
 	gs_shader_t *(*device_get_pixel_shader)(const gs_device_t *device);
 	gs_texture_t *(*device_get_render_target)(const gs_device_t *device);
+	gs_texture_t **(*device_get_render_targets)(const gs_device_t *device);
 	gs_zstencil_t *(*device_get_zstencil_target)(const gs_device_t *device);
 	void (*device_set_render_target)(gs_device_t *device, gs_texture_t *tex,
 			gs_zstencil_t *zstencil);

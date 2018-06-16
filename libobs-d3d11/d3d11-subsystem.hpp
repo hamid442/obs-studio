@@ -606,7 +606,8 @@ struct gs_swap_chain : gs_obj {
 	gs_init_data                   initData;
 	DXGI_SWAP_CHAIN_DESC           swapDesc = {};
 
-	gs_texture_2d                  target;
+	gs_texture_2d                  target[GS_MAX_TEXTURES];
+//	gs_texture_2d                  targets[GS_MAX_TEXTURES];
 	gs_zstencil_buffer             zs;
 	ComPtr<IDXGISwapChain>         swap;
 
@@ -619,7 +620,9 @@ struct gs_swap_chain : gs_obj {
 
 	inline void Release()
 	{
-		target.Release();
+		size_t i;
+		for (i = 0; i < GS_MAX_TEXTURES; i++)
+			target[i].Release();
 		zs.Release();
 		swap.Release();
 	}
@@ -781,6 +784,8 @@ struct gs_device {
 	uint32_t                    adpIdx = 0;
 
 	gs_texture_2d               *curRenderTarget = nullptr;
+	gs_texture_2d               **curRenderTargets = nullptr;
+	uint32_t                    curRenderTargetCount = 0;
 	gs_zstencil_buffer          *curZStencilBuffer = nullptr;
 	int                         curRenderSide = 0;
 	gs_texture                  *curTextures[GS_MAX_TEXTURES];

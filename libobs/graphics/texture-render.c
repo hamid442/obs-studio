@@ -25,7 +25,10 @@
 
 struct gs_texture_render {
 	gs_texture_t  *target, *prev_target;
+	gs_texture_t **targets, **prev_targets;
 	gs_zstencil_t *zs, *prev_zs;
+
+	uint32_t target_count;
 
 	uint32_t cx, cy;
 
@@ -99,7 +102,10 @@ bool gs_texrender_begin(gs_texrender_t *texrender, uint32_t cx, uint32_t cy)
 		if (!texrender_resetbuffer(texrender, cx, cy))
 			return false;
 
-	if (!texrender->target)
+	if (!texrender->target && !texrender->targets)
+		return false;
+
+	if (texrender->targets && texrender->target_count == 0)
 		return false;
 
 	gs_viewport_push();
@@ -107,9 +113,16 @@ bool gs_texrender_begin(gs_texrender_t *texrender, uint32_t cx, uint32_t cy)
 	gs_matrix_push();
 	gs_matrix_identity();
 
-	texrender->prev_target = gs_get_render_target();
-	texrender->prev_zs     = gs_get_zstencil_target();
-	gs_set_render_target(texrender->target, texrender->zs);
+	texrender->prev_zs = gs_get_zstencil_target();
+	if (texrender->targets) {
+		texrender->prev_targets = gs_get_render_targets();
+		for (uint32_t i = 0; i < texrender->target_count; i++) {
+			gs_set_render_target(texrender->targets[i], texrender->zs);
+		}
+	} else {
+		texrender->prev_target = gs_get_render_target();
+		gs_set_render_target(texrender->target, texrender->zs);
+	}
 
 	gs_set_viewport(0, 0, texrender->cx, texrender->cy);
 
@@ -139,4 +152,9 @@ void gs_texrender_reset(gs_texrender_t *texrender)
 gs_texture_t *gs_texrender_get_texture(const gs_texrender_t *texrender)
 {
 	return texrender ? texrender->target : NULL;
+}
+
+gs_texture_t *gs_texrender_get_textures(const gs_texrender_t *texrender)
+{
+	return texrender ? texrender->targets : NULL;
 }
