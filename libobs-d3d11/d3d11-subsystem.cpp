@@ -83,19 +83,21 @@ static inline void make_swap_desc(DXGI_SWAP_CHAIN_DESC &desc,
 void gs_swap_chain::InitTarget(uint32_t cx, uint32_t cy)
 {
 	HRESULT hr;
+	size_t i;
+	for (i = 0; i < GS_MAX_TEXTURES; i++) {
+		target[i].width = cx;
+		target[i].height = cy;
 
-	target.width  = cx;
-	target.height = cy;
+		hr = swap->GetBuffer(0, __uuidof(ID3D11Texture2D),
+			(void**)target[i].texture.Assign());
+		if (FAILED(hr))
+			throw HRError("Failed to get swap buffer texture", hr);
 
-	hr = swap->GetBuffer(0, __uuidof(ID3D11Texture2D),
-			(void**)target.texture.Assign());
-	if (FAILED(hr))
-		throw HRError("Failed to get swap buffer texture", hr);
-
-	hr = device->device->CreateRenderTargetView(target.texture, NULL,
-			target.renderTarget[0].Assign());
-	if (FAILED(hr))
-		throw HRError("Failed to create swap render target view", hr);
+		hr = device->device->CreateRenderTargetView(target[i].texture, NULL,
+			target[i].renderTarget[0].Assign());
+		if (FAILED(hr))
+			throw HRError("Failed to create swap render target view", hr);
+	}
 }
 
 void gs_swap_chain::InitZStencilBuffer(uint32_t cx, uint32_t cy)
@@ -116,8 +118,11 @@ void gs_swap_chain::Resize(uint32_t cx, uint32_t cy)
 	RECT clientRect;
 	HRESULT hr;
 
-	target.texture.Clear();
-	target.renderTarget[0].Clear();
+	size_t i;
+	for (i = 0; i < GS_MAX_TEXTURES; i++) {
+		target[i].texture.Clear();
+		target[i].renderTarget[0].Clear();
+	}
 	zs.texture.Clear();
 	zs.view.Clear();
 
@@ -130,9 +135,11 @@ void gs_swap_chain::Resize(uint32_t cx, uint32_t cy)
 		if (cy == 0) cy = clientRect.bottom;
 	}
 
-	hr = swap->ResizeBuffers(numBuffers, cx, cy, target.dxgiFormat, 0);
-	if (FAILED(hr))
-		throw HRError("Failed to resize swap buffers", hr);
+	for (i = 0; i < GS_MAX_TEXTURES; i++) {
+		hr = swap->ResizeBuffers(numBuffers, cx, cy, target[i].dxgiFormat, 0);
+		if (FAILED(hr))
+			throw HRError("Failed to resize swap buffers", hr);
+	}
 
 	InitTarget(cx, cy);
 	InitZStencilBuffer(cx, cy);
@@ -140,10 +147,13 @@ void gs_swap_chain::Resize(uint32_t cx, uint32_t cy)
 
 void gs_swap_chain::Init()
 {
-	target.device         = device;
-	target.isRenderTarget = true;
-	target.format         = initData.format;
-	target.dxgiFormat     = ConvertGSTextureFormat(initData.format);
+	size_t i;
+	for (i = 0; i < GS_MAX_TEXTURES; i++) {
+		target[i].device = device;
+		target[i].isRenderTarget = true;
+		target[i].format = initData.format;
+		target[i].dxgiFormat = ConvertGSTextureFormat(initData.format);
+	}
 	InitTarget(initData.cx, initData.cy);
 
 	zs.device     = device;
@@ -700,8 +710,8 @@ void device_resize(gs_device_t *device, uint32_t cx, uint32_t cy)
 void device_get_size(const gs_device_t *device, uint32_t *cx, uint32_t *cy)
 {
 	if (device->curSwapChain) {
-		*cx = device->curSwapChain->target.width;
-		*cy = device->curSwapChain->target.height;
+		*cx = device->curSwapChain->target[0].width;
+		*cy = device->curSwapChain->target[0].height;
 	} else {
 		blog(LOG_ERROR, "device_get_size (D3D11): no active swap");
 		*cx = 0;
@@ -712,7 +722,7 @@ void device_get_size(const gs_device_t *device, uint32_t *cx, uint32_t *cy)
 uint32_t device_get_width(const gs_device_t *device)
 {
 	if (device->curSwapChain) {
-		return device->curSwapChain->target.width;
+		return device->curSwapChain->target[0].width;
 	} else {
 		blog(LOG_ERROR, "device_get_size (D3D11): no active swap");
 		return 0;
@@ -722,7 +732,7 @@ uint32_t device_get_width(const gs_device_t *device)
 uint32_t device_get_height(const gs_device_t *device)
 {
 	if (device->curSwapChain) {
-		return device->curSwapChain->target.height;
+		return device->curSwapChain->target[0].height;
 	} else {
 		blog(LOG_ERROR, "device_get_size (D3D11): no active swap");
 		return 0;
@@ -1124,7 +1134,7 @@ gs_shader_t *device_get_pixel_shader(const gs_device_t *device)
 
 gs_texture_t *device_get_render_target(const gs_device_t *device)
 {
-	if (device->curRenderTarget == &device->curSwapChain->target)
+	if (device->curRenderTarget == &device->curSwapChain->target[0])
 		return NULL;
 
 	return device->curRenderTarget;
@@ -1143,7 +1153,7 @@ void device_set_render_target(gs_device_t *device, gs_texture_t *tex,
 {
 	if (device->curSwapChain) {
 		if (!tex)
-			tex = &device->curSwapChain->target;
+			tex = &device->curSwapChain->target[0];
 		if (!zstencil)
 			zstencil = &device->curSwapChain->zs;
 	}
@@ -1179,7 +1189,7 @@ void device_set_cube_render_target(gs_device_t *device, gs_texture_t *tex,
 {
 	if (device->curSwapChain) {
 		if (!tex) {
-			tex = &device->curSwapChain->target;
+			tex = &device->curSwapChain->target[0];
 			side = 0;
 		}
 
@@ -1406,7 +1416,7 @@ void device_load_swapchain(gs_device_t *device, gs_swapchain_t *swapchain)
 		(device->curRenderTarget->type == GS_TEXTURE_CUBE) : false;
 
 	if (device->curSwapChain) {
-		if (target == &device->curSwapChain->target)
+		if (target == &device->curSwapChain->target[0])
 			target = NULL;
 		if (zs == &device->curSwapChain->zs)
 			zs = NULL;
