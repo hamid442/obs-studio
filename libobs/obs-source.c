@@ -3007,6 +3007,7 @@ void obs_source_process_filter_end(obs_source_t *filter, gs_effect_t *effect,
 {
 	obs_source_t *target, *parent;
 	gs_texture_t *texture;
+	gs_texture_t **textures;
 	uint32_t     parent_flags;
 
 	if (!obs_ptr_valid(filter, "obs_source_process_filter_end"))
@@ -3020,6 +3021,7 @@ void obs_source_process_filter_end(obs_source_t *filter, gs_effect_t *effect,
 		render_filter_bypass(target, effect, "Draw");
 	} else {
 		texture = gs_texrender_get_texture(filter->filter_texrender);
+		textures = gs_texrender_get_textures(filter->filter_texrender);
 		if (texture)
 			render_filter_tex(texture, effect, width, height,
 					"Draw");

@@ -1126,12 +1126,21 @@ void device_load_default_samplerstate(gs_device_t *device, bool b_3d, int unit)
 bool same_textures(gs_texture_t **tex_ts, gs_texture_2d **tex_2ds,
 	size_t texture_count) {
 	size_t i;
-	for (i = 0; i < texture_count; i++) {
-		if (tex_ts[i] != tex_2ds[i]) {
+	if (tex_ts) {
+		if (tex_2ds) {
+			for (i = 0; i < texture_count; i++) {
+				if (tex_ts[i] != tex_2ds[i]) {
+					return false;
+				}
+			}
+			return true;
+		} else {
 			return false;
 		}
+	} else {
+		//both are NULL
+		return tex_2ds;
 	}
-	return true;
 }
 
 gs_shader_t *device_get_vertex_shader(const gs_device_t *device)
@@ -1146,7 +1155,7 @@ gs_shader_t *device_get_pixel_shader(const gs_device_t *device)
 
 gs_texture_t *device_get_render_target(const gs_device_t *device)
 {
-	if (device->curRenderTargets[0] == &device->curSwapChain->target[0])
+	if (!device->curRenderTargets || device->curRenderTargets[0] == &device->curSwapChain->target[0])
 		return NULL;
 
 	return device->curRenderTargets[0];
@@ -1237,35 +1246,53 @@ void device_set_render_targets(gs_device_t *device, gs_texture_t **texs,
 		return;
 	
 	//ID3D11RenderTargetView **rt = new ID3D11RenderTargetView*[GS_MAX_TEXTURES];
-	ID3D11RenderTargetView *rt[GS_MAX_TEXTURES];
-	ID3D11RenderTargetView **rts = &rt[0];
-	gs_texture_2d **tex2ds = new gs_texture_2d*[GS_MAX_TEXTURES];
-	for (i = 0; i < texture_count; i++) {
-		gs_texture_t *tex = texs[i];
-		if (tex && tex->type != GS_TEXTURE_2D) {
-			blog(LOG_ERROR, "device_set_render_target (D3D11): "
-				"texture[%iu] is not a 2D texture", i);
-			return;
+	if (texs) {
+		ID3D11RenderTargetView *rt[GS_MAX_TEXTURES];
+		ID3D11RenderTargetView **rts = &rt[0];
+		gs_texture_2d **tex2ds = new gs_texture_2d*[GS_MAX_TEXTURES];
+		for (i = 0; i < texture_count; i++) {
+			gs_texture_t *tex = texs[i];
+			if (tex && tex->type != GS_TEXTURE_2D) {
+				blog(LOG_ERROR, "device_set_render_target (D3D11): "
+					"texture[%iu] is not a 2D texture", i);
+				return;
+			}
+
+			gs_texture_2d *tex2d = static_cast<gs_texture_2d*>(tex);
+			if (tex2d && !tex2d->renderTarget[0]) {
+				blog(LOG_ERROR, "device_set_render_target (D3D11): "
+					"texture[%iu] is not a render target", i);
+				return;
+			}
+
+			rt[i] = tex2d ? tex2d->renderTarget[0] : nullptr;
+			tex2ds[i] = tex2d;
 		}
 
-		gs_texture_2d *tex2d = static_cast<gs_texture_2d*>(tex);
-		if (tex2d && !tex2d->renderTarget[0]) {
-			blog(LOG_ERROR, "device_set_render_target (D3D11): "
-				"texture[%iu] is not a render target", i);
-			return;
+		device->curRenderTarget = nullptr;
+		device->curRenderTargets = tex2ds;
+		device->curRenderSide = 0;
+		device->curZStencilBuffer = zstencil;
+		device->context->OMSetRenderTargets(texture_count, rts,
+			zstencil ? zstencil->view : nullptr);
+		device->curRenderTargetCount = texture_count;
+	} else {
+		//clear?
+		/*
+		ID3D11RenderTargetView *rt[GS_MAX_TEXTURES];
+		ID3D11RenderTargetView **rts = &rt[0];
+		for (i = 0; i < texture_count; i++) {
+			rt[i] = nullptr;
 		}
-
-		rt[i] = tex2d ? tex2d->renderTarget[0] : nullptr;
-		tex2ds[i] = tex2d;
+		device->curRenderTarget = nullptr;
+		device->curRenderTargets = nullptr;
+		device->curRenderSide = 0;
+		device->curZStencilBuffer = zstencil;
+		device->context->OMSetRenderTargets(texture_count, rts,
+			zstencil ? zstencil->view : nullptr);
+		device->curRenderTargetCount = texture_count;
+		*/
 	}
-
-	device->curRenderTarget = nullptr;
-	device->curRenderTargets = tex2ds;
-	device->curRenderSide = 0;
-	device->curZStencilBuffer = zstencil;
-	device->context->OMSetRenderTargets(texture_count, rts,
-		zstencil ? zstencil->view : nullptr);
-	device->curRenderTargetCount = texture_count;
 }
 
 void device_set_cube_render_target(gs_device_t *device, gs_texture_t *tex,
@@ -1535,10 +1562,23 @@ void device_clear(gs_device_t *device, uint32_t clear_flags,
 		const struct vec4 *color, float depth, uint8_t stencil)
 {
 	int side = device->curRenderSide;
-	if ((clear_flags & GS_CLEAR_COLOR) != 0 && device->curRenderTarget)
-		device->context->ClearRenderTargetView(
+	if ((clear_flags & GS_CLEAR_COLOR) != 0) {
+		if (device->curRenderTarget)
+			device->context->ClearRenderTargetView(
 				device->curRenderTarget->renderTarget[side],
 				color->ptr);
+		if (device->curRenderTargets) {
+			size_t i;
+			for (i = 0; i < device->curRenderTargetCount; i++) {
+				if (device->curRenderTargets[i]) {
+					device->context->ClearRenderTargetView(
+						device->curRenderTargets[i]->renderTarget[0],
+						color->ptr);
+				}
+			}
+		}
+
+	}
 
 	if (device->curZStencilBuffer) {
 		uint32_t flags = 0;
