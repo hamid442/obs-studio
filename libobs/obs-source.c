@@ -2892,6 +2892,48 @@ static inline void render_filter_tex(gs_texture_t *tex, gs_effect_t *effect,
 	gs_technique_end(tech);
 }
 
+//not used yet
+static inline void render_filter_texs(gs_texture_t **tex, gs_effect_t *effect,
+	uint32_t width, uint32_t height, const char *tech_name, uint32_t count)
+{
+	gs_technique_t *tech = gs_effect_get_technique(effect, tech_name);
+	gs_eparam_t    *image[GS_MAX_TEXTURES];
+	size_t      passes, i, j, texs_needed = min(GS_MAX_TEXTURES, count);
+
+	uint32_t digits = texs_needed > 0 ?
+		(int)log10((double)texs_needed) + 1 : 1;
+	char* image_name = (char*)bzalloc(7 + digits);
+
+	i = 0;
+	image[0] = gs_effect_get_param_by_name(
+		effect, "image");
+	if (image[0])
+		i++;
+
+	for (; i < texs_needed; i++) {
+		sprintf(image_name, "image_%llu", i);
+		image[i] = gs_effect_get_param_by_name(
+			effect, image_name);
+	}
+	bfree(image_name);
+
+	if(tex)
+		for (i = 0; i < texs_needed; i++)
+			gs_effect_set_texture(image[i], tex[i]);
+	else
+		for (i = 0; i < texs_needed; i++)
+			gs_effect_set_texture(image[i], NULL);
+
+	passes = gs_technique_begin(tech);
+	for (i = 0; i < passes; i++) {
+		gs_technique_begin_pass(tech, i);
+		for(j = 0; j < texs_needed; j++)
+			gs_draw_sprite(tex[i], 0, width, height);
+		gs_technique_end_pass(tech);
+	}
+	gs_technique_end(tech);
+}
+
 static inline bool can_bypass(obs_source_t *target, obs_source_t *parent,
 		uint32_t parent_flags,
 		enum obs_allow_direct_render allow_direct)
@@ -3007,6 +3049,7 @@ void obs_source_process_filter_end(obs_source_t *filter, gs_effect_t *effect,
 {
 	obs_source_t *target, *parent;
 	gs_texture_t *texture;
+	gs_texture_t **textures;
 	uint32_t     parent_flags;
 
 	if (!obs_ptr_valid(filter, "obs_source_process_filter_end"))
@@ -3019,10 +3062,16 @@ void obs_source_process_filter_end(obs_source_t *filter, gs_effect_t *effect,
 	if (can_bypass(target, parent, parent_flags, filter->allow_direct)) {
 		render_filter_bypass(target, effect, "Draw");
 	} else {
-		texture = gs_texrender_get_texture(filter->filter_texrender);
+		//texture = gs_texrender_get_texture(filter->filter_texrender);
+		textures = gs_texrender_get_textures(filter->filter_texrender);
+		/*
 		if (texture)
 			render_filter_tex(texture, effect, width, height,
 					"Draw");
+		*/
+		if (textures)
+			render_filter_texs(textures, effect, width, height,
+					"Draw", GS_MAX_TEXTURES);
 	}
 }
 

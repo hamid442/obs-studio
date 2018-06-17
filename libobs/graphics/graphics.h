@@ -621,6 +621,8 @@ EXPORT gs_texture_t  *gs_get_render_target(void);
 EXPORT gs_zstencil_t *gs_get_zstencil_target(void);
 
 EXPORT void gs_set_render_target(gs_texture_t *tex, gs_zstencil_t *zstencil);
+EXPORT void gs_set_render_targets(gs_texture_t **texs, gs_zstencil_t *zstencil,
+	uint32_t count);
 EXPORT void gs_set_cube_render_target(gs_texture_t *cubetex, int side,
 		gs_zstencil_t *zstencil);
 

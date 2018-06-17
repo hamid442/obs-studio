@@ -24,7 +24,7 @@
 #include "graphics.h"
 
 struct gs_texture_render {
-	gs_texture_t  *target, *prev_target;
+	gs_texture_t  *target[GS_MAX_TEXTURES], *prev_target[GS_MAX_TEXTURES];
 	gs_zstencil_t *zs, *prev_zs;
 
 	uint32_t cx, cy;
@@ -49,7 +49,9 @@ gs_texrender_t *gs_texrender_create(enum gs_color_format format,
 void gs_texrender_destroy(gs_texrender_t *texrender)
 {
 	if (texrender) {
-		gs_texture_destroy(texrender->target);
+		size_t i;
+		for(i = 0; i < GS_MAX_TEXTURES; i++)
+			gs_texture_destroy(texrender->target[i]);
 		gs_zstencil_destroy(texrender->zs);
 		bfree(texrender);
 	}
@@ -60,25 +62,30 @@ static bool texrender_resetbuffer(gs_texrender_t *texrender, uint32_t cx,
 {
 	if (!texrender)
 		return false;
-
-	gs_texture_destroy(texrender->target);
+	size_t i;
+	for(i = 0; i < GS_MAX_TEXTURES; i++)
+		gs_texture_destroy(texrender->target[i]);
 	gs_zstencil_destroy(texrender->zs);
 
-	texrender->target = NULL;
+	for(i = 0; i < GS_MAX_TEXTURES; i++)
+		texrender->target[i] = NULL;
 	texrender->zs     = NULL;
 	texrender->cx     = cx;
 	texrender->cy     = cy;
 
-	texrender->target = gs_texture_create(cx, cy, texrender->format,
-			1, NULL, GS_RENDER_TARGET);
+	for(i = 0; i < GS_MAX_TEXTURES; i++)
+		texrender->target[i] = gs_texture_create(cx, cy, texrender->format,
+				1, NULL, GS_RENDER_TARGET);
 	if (!texrender->target)
 		return false;
 
 	if (texrender->zsformat != GS_ZS_NONE) {
 		texrender->zs = gs_zstencil_create(cx, cy, texrender->zsformat);
 		if (!texrender->zs) {
-			gs_texture_destroy(texrender->target);
-			texrender->target = NULL;
+			for (i = 0; i < GS_MAX_TEXTURES; i++) {
+				gs_texture_destroy(texrender->target[i]);
+				texrender->target[i] = NULL;
+			}
 
 			return false;
 		}
@@ -107,9 +114,9 @@ bool gs_texrender_begin(gs_texrender_t *texrender, uint32_t cx, uint32_t cy)
 	gs_matrix_push();
 	gs_matrix_identity();
 
-	texrender->prev_target = gs_get_render_target();
+	texrender->prev_target[0] = gs_get_render_target();
 	texrender->prev_zs     = gs_get_zstencil_target();
-	gs_set_render_target(texrender->target, texrender->zs);
+	gs_set_render_target(texrender->target[0], texrender->zs);
 
 	gs_set_viewport(0, 0, texrender->cx, texrender->cy);
 
@@ -121,7 +128,10 @@ void gs_texrender_end(gs_texrender_t *texrender)
 	if (!texrender)
 		return;
 
-	gs_set_render_target(texrender->prev_target, texrender->prev_zs);
+	//gs_set_render_target(texrender->prev_target[0], texrender->prev_zs);
+	//gs_set_render_target(gs_texture_t *, stencil, slot?)
+	//gs_set_render_targets(gs_texture_t **, stencil, count)
+	gs_set_render_targets(&texrender->prev_target[0], texrender->prev_zs, GS_MAX_TEXTURES);
 
 	gs_matrix_pop();
 	gs_projection_pop();
@@ -138,5 +148,10 @@ void gs_texrender_reset(gs_texrender_t *texrender)
 
 gs_texture_t *gs_texrender_get_texture(const gs_texrender_t *texrender)
 {
-	return texrender ? texrender->target : NULL;
+	return texrender ? texrender->target[0] : NULL;
+}
+
+gs_texture_t **gs_texrender_get_textures(const gs_texrender_t *texrender)
+{
+	return texrender ? &texrender->target[0] : NULL;
 }

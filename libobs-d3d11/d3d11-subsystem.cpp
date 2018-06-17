@@ -153,6 +153,7 @@ void gs_swap_chain::Init()
 		target[i].isRenderTarget = true;
 		target[i].format = initData.format;
 		target[i].dxgiFormat = ConvertGSTextureFormat(initData.format);
+		targets[i] = &target[i];
 	}
 	InitTarget(initData.cx, initData.cy);
 
@@ -1140,6 +1141,13 @@ gs_texture_t *device_get_render_target(const gs_device_t *device)
 	return device->curRenderTarget;
 }
 
+gs_texture_t **device_get_render_targets(const gs_device_t *device)
+{
+	if (device->curRenderTargets)
+		return NULL;
+	return (gs_texture_t **)device->curRenderTargets;
+}
+
 gs_zstencil_t *device_get_zstencil_target(const gs_device_t *device)
 {
 	if (device->curZStencilBuffer == &device->curSwapChain->zs)
@@ -1182,6 +1190,53 @@ void device_set_render_target(gs_device_t *device, gs_texture_t *tex,
 	device->curZStencilBuffer = zstencil;
 	device->context->OMSetRenderTargets(1, &rt,
 			zstencil ? zstencil->view : nullptr);
+}
+
+void device_set_render_targets(gs_device_t *device, gs_texture_t **texs,
+	gs_zstencil_t *zstencil, uint32_t count)
+{
+	size_t i;
+	if (device->curSwapChain) {
+		if (!texs) {
+			texs = (gs_texture_t**)device->curSwapChain->targets;
+			count = GS_MAX_TEXTURES;
+		}
+		if (!zstencil)
+			zstencil = &device->curSwapChain->zs;
+	}
+
+	if ((gs_texture_t**)device->curRenderTargets == texs &&
+		device->curZStencilBuffer == zstencil)
+		return;
+
+	ID3D11RenderTargetView *rt[GS_MAX_TEXTURES];
+		//= tex2d ? tex2d->renderTarget[0] : nullptr;
+
+	if (texs) {
+		for (i = 0; i < count; i++) {
+			gs_texture_t *tex = texs[i];
+			if (tex && tex->type != GS_TEXTURE_2D) {
+				blog(LOG_ERROR, "device_set_render_target (D3D11): "
+					"texture is not a 2D texture");
+				return;
+			}
+
+			gs_texture_2d *tex2d = static_cast<gs_texture_2d*>(tex);
+			if (tex2d && !tex2d->renderTarget[0]) {
+				blog(LOG_ERROR, "device_set_render_target (D3D11): "
+					"texture is not a render target");
+				return;
+			}
+			rt[i] = tex2d ? tex2d->renderTarget[0] : nullptr;
+		}
+	}
+
+	device->curRenderTarget = static_cast<gs_texture_2d*>(texs[0]);
+	device->curRenderTargets = (gs_texture_2d**)texs;
+	device->curRenderSide = 0;
+	device->curZStencilBuffer = zstencil;
+	device->context->OMSetRenderTargets(1, &rt[0],
+		zstencil ? zstencil->view : nullptr);
 }
 
 void device_set_cube_render_target(gs_device_t *device, gs_texture_t *tex,
