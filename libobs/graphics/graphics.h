@@ -618,6 +618,7 @@ EXPORT gs_shader_t *gs_get_vertex_shader(void);
 EXPORT gs_shader_t *gs_get_pixel_shader(void);
 
 EXPORT gs_texture_t  *gs_get_render_target(void);
+EXPORT gs_texture_t  **gs_get_render_targets(void);
 EXPORT gs_zstencil_t *gs_get_zstencil_target(void);
 
 EXPORT void gs_set_render_target(gs_texture_t *tex, gs_zstencil_t *zstencil);

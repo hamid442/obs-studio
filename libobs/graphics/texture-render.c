@@ -114,7 +114,17 @@ bool gs_texrender_begin(gs_texrender_t *texrender, uint32_t cx, uint32_t cy)
 	gs_matrix_push();
 	gs_matrix_identity();
 
-	texrender->prev_target[0] = gs_get_render_target();
+	//texrender->prev_target[0] = gs_get_render_target();
+	gs_texture_t ** tmp = gs_get_render_targets();
+	size_t i;
+	if (tmp)
+		for (i = 0; i < GS_MAX_TEXTURES; i++)
+			texrender->prev_target[i] = tmp[i];
+	else
+		for (i = 0; i < GS_MAX_TEXTURES; i++)
+			texrender->prev_target[i] = NULL;
+
+	//texrender->prev_target = gs_get_render_targets();
 	texrender->prev_zs     = gs_get_zstencil_target();
 	gs_set_render_target(texrender->target[0], texrender->zs);
 

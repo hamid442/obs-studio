@@ -460,6 +460,7 @@ struct fbo_info {
 	enum gs_color_format format;
 
 	gs_texture_t         *cur_render_target;
+	gs_texture_t         **cur_render_targets;
 	int                  cur_render_side;
 	gs_zstencil_t        *cur_zstencil_buffer;
 };

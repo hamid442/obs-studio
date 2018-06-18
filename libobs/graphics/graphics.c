@@ -1643,6 +1643,16 @@ gs_texture_t *gs_get_render_target(void)
 	return graphics->exports.device_get_render_target(graphics->device);
 }
 
+gs_texture_t **gs_get_render_targets(void)
+{
+	graphics_t *graphics = thread_graphics;
+
+	if (!gs_valid("gs_get_render_targets"))
+		return NULL;
+
+	return graphics->exports.device_get_render_targets(graphics->device);
+}
+
 gs_zstencil_t *gs_get_zstencil_target(void)
 {
 	graphics_t *graphics = thread_graphics;

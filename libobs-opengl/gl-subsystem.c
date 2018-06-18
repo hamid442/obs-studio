@@ -743,6 +743,23 @@ static bool attach_rendertarget(struct fbo_info *fbo, gs_texture_t *tex,
 	return gl_success("glFramebufferTexture2D");
 }
 
+static bool attach_rendertargets(struct fbo_info *fbo, gs_texture_t **texs,
+	int count) 
+{
+	if (fbo->cur_render_targets == texs)
+		return true;
+
+	fbo->cur_render_targets = texs;
+
+	size_t i;
+	uint32_t needed_textures = min(count, GS_MAX_TEXTURES);
+	for (i = 0; i < count; i++) {
+		
+	}
+
+
+}
+
 static bool attach_zstencil(struct fbo_info *fbo, gs_zstencil_t *zs)
 {
 	GLuint zsbuffer = 0;
