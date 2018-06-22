@@ -59,6 +59,16 @@ technique Draw\
 	}\
 }";
 
+struct long4 {
+	union {
+		struct {
+			long x, y, z, w;
+		};
+		long ptr[4];
+		__m128 m;
+	};
+};
+
 struct effect_param_data
 {
 	struct dstr name;
@@ -74,6 +84,8 @@ struct effect_param_data
 	{
 		long long i;
 		double f;
+		struct vec4 v4;
+		struct long4 l4;
 	} value;
 };
 
@@ -477,121 +489,29 @@ static obs_properties_t *shader_filter_properties(void *data)
 		bool is_vec4 = false;
 		struct dstr n_param_name;
 		struct dstr n_param_desc;
+		dstr_init(&n_param_name);
+		dstr_init(&n_param_desc);
 		bool is_slider = false;
+		bool hide_descs = false;
+		bool hide_all_descs = false;
 
-		/* extract params that we expect */
+		/* extract annotations that we should expect */
 
 		/* handles <...[int|float] min [=]...>*/
 		f_min = get_eparam_float(param->param, "min", f_min);
 		i_min = get_eparam_int(param->param, "min", i_min);
-		/*
-		note = gs_param_get_annotation_by_name(param->param, "min");
-		gs_effect_get_param_info(note, &note_info);
 
-		if (note) {
-			if (note_info.type == GS_SHADER_PARAM_FLOAT) {
-				f_tmp = (double*)gs_effect_get_default_val(note);
-				if (f_tmp) {
-					f_min = *f_tmp;
-					i_min = (int)f_min;
-					bfree(f_tmp);
-					f_tmp = NULL;
-				}
-			} else if (note_info.type == GS_SHADER_PARAM_INT) {
-				i_tmp = (int*)gs_effect_get_default_val(note);
-				if (i_tmp) {
-					i_min = *i_tmp;
-					f_min = (float)i_min;
-					bfree(i_tmp);
-					i_tmp = NULL;
-				}
-			}
-		}
-		*/
 		/* handles <...[int|float] max [=]...>*/
 		f_max = get_eparam_float(param->param, "max", f_max);
 		i_max = get_eparam_int(param->param, "max", i_max);
-		/*
-		note = gs_param_get_annotation_by_name(param->param, "max");
-		gs_effect_get_param_info(note, &note_info);
 
-		if (note) {
-			if (note_info.type == GS_SHADER_PARAM_FLOAT) {
-				f_tmp = (double*)gs_effect_get_default_val(note);
-				if (f_tmp) {
-					f_max = *f_tmp;
-					i_max = (int)f_max;
-					bfree(f_tmp);
-					f_tmp = NULL;
-				}
-			} else if (note_info.type == GS_SHADER_PARAM_INT) {
-				i_tmp = (int*)gs_effect_get_default_val(note);
-				if (i_tmp) {
-					i_max = *i_tmp;
-					f_max = (float)i_max;
-					bfree(i_tmp);
-					i_tmp = NULL;
-				}
-			}
-		}
-		*/
 		/* handles <...[int|float] step [=];...>*/
 		f_step = get_eparam_float(param->param, "step", f_step);
 		i_step = get_eparam_int(param->param, "step", i_step);
-		/*
-		note = gs_param_get_annotation_by_name(param->param, "step");
-		gs_effect_get_param_info(note, &note_info);
-
-		if (note) {
-			if (note_info.type == GS_SHADER_PARAM_FLOAT) {
-				f_tmp = (double*)gs_effect_get_default_val(note);
-				if (f_tmp) {
-					f_step = *f_tmp;
-					i_step = (int)f_step;
-					bfree(f_tmp);
-					f_tmp = NULL;
-				}
-			} else if (note_info.type == GS_SHADER_PARAM_INT) {
-				i_tmp = (int*)gs_effect_get_default_val(note);
-				if (i_tmp) {
-					i_step = *i_tmp;
-					f_step = (float)i_step;
-					bfree(i_tmp);
-					i_tmp = NULL;
-				}
-			}
-		}
-		*/
 
 		/* handles <...bool module_text [= true|false];...>*/
-		uses_module_text = get_eparam_bool(param->param, "module_text", false);
-
-		/*
-		note = gs_param_get_annotation_by_name(param->param, "module_text");
-		gs_effect_get_param_info(note, &note_info);
-
-		if (note) {
-			uses_module_text = true;
-			if (note_info.type == GS_SHADER_PARAM_FLOAT) {
-				f_tmp = (double*)gs_effect_get_default_val(note);
-
-				if (f_tmp) {
-					uses_module_text = *f_tmp != 0.0;
-					bfree(f_tmp);
-					f_tmp = NULL;
-				}
-			} else if (note_info.type == GS_SHADER_PARAM_INT ||
-				note_info.type == GS_SHADER_PARAM_BOOL) {
-				i_tmp = (int*)gs_effect_get_default_val(note);
-
-				if (i_tmp) {
-					uses_module_text = *i_tmp != 0;
-					bfree(i_tmp);
-					i_tmp = NULL;
-				}
-			}
-		}
-		*/
+		uses_module_text = get_eparam_bool(param->param, "module_text",
+			false);
 
 		/* handles <...string name [= '...'|= "..."];...>*/
 		char* desc = get_eparam_string(param->param, "name", param_name);
@@ -609,34 +529,13 @@ static obs_properties_t *shader_filter_properties(void *data)
 				dstr_copy_dstr(&param->desc, _MT(&param->name));
 		}
 
-		/*
-		note = gs_param_get_annotation_by_name(param->param, "name");
-		gs_effect_get_param_info(note, &note_info);
+		hide_all_descs = get_eparam_bool(param->param,
+			"hide_all_descs", false);
+		hide_descs = get_eparam_bool(param->param, "hide_descs",
+			false);
 
-		if (note && note_info.type == GS_SHADER_PARAM_STRING) {
-			c_tmp = (char*)gs_effect_get_default_val(note);
-			if (c_tmp) {
-				if (uses_module_text)
-					dstr_copy(&param->desc, c_tmp);
-				else
-					dstr_copy(&param->desc, _MT(c_tmp));
-
-				bfree(c_tmp);
-				c_tmp = NULL;
-			} else {
-				if (uses_module_text)
-					dstr_copy_dstr(&param->desc, &param->name);
-				else
-					dstr_copy_dstr(&param->desc, _MT(&param->name));
-			}
-		} else {
-			if (uses_module_text)
-				dstr_copy_dstr(&param->desc, &param->name);
-			else
-				dstr_copy_dstr(&param->desc, _MT(&param->name));
-		}
-		*/
-		const char *param_desc = param->desc.array;
+		const char *param_desc = !hide_all_descs ? param->desc.array :
+			NULL;
 
 		/*todo: control gui elements added via annotations*/
 		switch (param->type)
@@ -644,117 +543,116 @@ static obs_properties_t *shader_filter_properties(void *data)
 		case GS_SHADER_PARAM_BOOL:
 			obs_properties_add_bool(props, param_name, param_desc);
 
-			//obs_properties_add_list(props, param_name, param_name, type, format);
 			break;
 		case GS_SHADER_PARAM_FLOAT:
 		case GS_SHADER_PARAM_INT:
-			note = gs_param_get_annotation_by_name(param->param, "is_slider");
+			note = gs_param_get_annotation_by_name(param->param,
+				"is_slider");
+
 			gs_effect_get_param_info(note, &note_info);
 
 			bool is_float = param->type == GS_SHADER_PARAM_FLOAT;
+			is_slider = get_eparam_bool(param->param, "is_slider",
+				false);
 
-			if (note) {
-				
-				is_slider = true;
-				if (note_info.type == GS_SHADER_PARAM_FLOAT) {
-					f_tmp = (double*)gs_effect_get_default_val(note);
-
-					if (f_tmp) {
-						is_slider = *f_tmp != 0.0;
-						bfree(f_tmp);
-						f_tmp = NULL;
-					}
-				} else if (note_info.type == GS_SHADER_PARAM_INT ||
-							note_info.type == GS_SHADER_PARAM_BOOL) {
-					i_tmp = (int*)gs_effect_get_default_val(note);
-					
-					if (i_tmp) {
-						is_slider = *i_tmp != 0;
-						bfree(i_tmp);
-						i_tmp = NULL;
-					}
-				}
-
-				if (is_float) {
-					if (is_slider)
-						obs_properties_add_float_slider(props, param_name,
-							param_desc, f_min, f_max, f_step);
-					else
-						obs_properties_add_float(props, param_name,
-							param_desc, f_min, f_max, f_step);
-				} else {
-					if (is_slider)
-						obs_properties_add_int_slider(props, param_name,
-							param_desc, i_min, i_max, i_step);
-					else
-						obs_properties_add_int(props, param_name,
-							param_desc, i_min, i_max, i_step);
-				}
-
-			} else {
-				if(is_float)
-					obs_properties_add_float(props, param_name,
-						param_desc, f_min, f_max, f_step);
+			if (is_float) {
+				if (is_slider)
+					obs_properties_add_float_slider(props,
+						param_name, param_desc, f_min,
+						f_max, f_step);
 				else
-					obs_properties_add_int(props, param_name,
-						param_desc, i_min, i_max, i_step);
+					obs_properties_add_float(props,
+						param_name, param_desc, f_min,
+						f_max, f_step);
+			} else {
+				if (is_slider)
+					obs_properties_add_int_slider(props,
+						param_name, param_desc, i_min,
+						i_max, i_step);
+				else
+					obs_properties_add_int(props,
+						param_name, param_desc, i_min,
+						i_max, i_step);
 			}
+
 
 			break;
 		case GS_SHADER_PARAM_INT2:
 		case GS_SHADER_PARAM_INT3:
 		case GS_SHADER_PARAM_INT4:
-			is_slider = get_eparam_bool(param->param, "is_slider", false);
+			is_slider = get_eparam_bool(param->param, "is_slider",
+				false);
 
 			dstr_copy(&n_param_name, param_name);
 			dstr_cat(&n_param_name, ".x");
 			dstr_copy(&n_param_desc, param_desc);
 			dstr_cat(&n_param_desc, ".x");
+
 			if(is_slider)
-				obs_properties_add_int_slider(props, n_param_name.array,
-					n_param_desc.array, i_min, i_max, i_step);
+				obs_properties_add_int_slider(props,
+					n_param_name.array, n_param_desc.array,
+					i_min, i_max, i_step);
 			else
-				obs_properties_add_int(props, n_param_name.array,
-					n_param_desc.array, i_min, i_max, i_step);
+				obs_properties_add_int(props,
+					n_param_name.array, n_param_desc.array,
+					i_min, i_max, i_step);
 
 			dstr_copy(&n_param_name, param_name);
 			dstr_cat(&n_param_name, ".y");
-			dstr_copy(&n_param_desc, param_desc);
-			dstr_cat(&n_param_desc, ".y");
-			if (is_slider)
-				obs_properties_add_int_slider(props, n_param_name.array,
-					n_param_desc.array, i_min, i_max, i_step);
+			if (hide_descs)
+				dstr_copy(&n_param_desc, "");
 			else
-				obs_properties_add_int(props, n_param_name.array,
-					n_param_desc.array, i_min, i_max, i_step);
+				dstr_copy(&n_param_desc, param_desc);
+			dstr_cat(&n_param_desc, ".y");
+
+			if (is_slider)
+				obs_properties_add_int_slider(props,
+					n_param_name.array, n_param_desc.array,
+					i_min, i_max, i_step);
+			else
+				obs_properties_add_int(props,
+					n_param_name.array, n_param_desc.array,
+					i_min, i_max, i_step);
 
 			if (param->type == GS_SHADER_PARAM_INT2)
 				break;
 
 			dstr_copy(&n_param_name, param_name);
 			dstr_cat(&n_param_name, ".z");
-			dstr_copy(&n_param_desc, param_desc);
-			dstr_cat(&n_param_desc, ".z");
-			if (is_slider)
-				obs_properties_add_int_slider(props, n_param_name.array,
-					n_param_desc.array, i_min, i_max, i_step);
+			if (hide_descs)
+				dstr_copy(&n_param_desc, "");
 			else
-				obs_properties_add_int(props, n_param_name.array,
-					n_param_desc.array, i_min, i_max, i_step);
+				dstr_copy(&n_param_desc, param_desc);
+			dstr_cat(&n_param_desc, ".z");
+
+			if (is_slider)
+				obs_properties_add_int_slider(props,
+					n_param_name.array, n_param_desc.array,
+					i_min, i_max, i_step);
+			else
+				obs_properties_add_int(props,
+					n_param_name.array, n_param_desc.array,
+					i_min, i_max, i_step);
 
 			if (param->type == GS_SHADER_PARAM_INT3)
 				break;
 
 			dstr_copy(&n_param_name, param_name);
 			dstr_cat(&n_param_name, ".w");
-			dstr_copy(&n_param_desc, param_desc);
-			dstr_cat(&n_param_desc, ".w");
-			if (is_slider)
-				obs_properties_add_int_slider(props, n_param_name.array,
-					n_param_desc.array, i_min, i_max, i_step);
+			if (hide_descs)
+				dstr_copy(&n_param_desc, "");
 			else
-				obs_properties_add_int(props, n_param_name.array,
-					n_param_desc.array, i_min, i_max, i_step);
+				dstr_copy(&n_param_desc, param_desc);
+			dstr_cat(&n_param_desc, ".w");
+
+			if (is_slider)
+				obs_properties_add_int_slider(props,
+					n_param_name.array, n_param_desc.array,
+					i_min, i_max, i_step);
+			else
+				obs_properties_add_int(props,
+					n_param_name.array, n_param_desc.array,
+					i_min, i_max, i_step);
 
 			break;
 		case GS_SHADER_PARAM_VEC2:
@@ -763,35 +661,9 @@ static obs_properties_t *shader_filter_properties(void *data)
 			is_vec4 = param->type == GS_SHADER_PARAM_VEC4 &&
 				get_eparam_bool(param->param, "is_vec4", false);
 
-			/*
-			note = gs_param_get_annotation_by_name(param->param, "is_vec4");
-			gs_effect_get_param_info(note, &note_info);
-
-			bool is_vec4 = false;
-
-			if (note) {
-				if (note_info.type == GS_SHADER_PARAM_FLOAT) {
-					f_tmp = (double*)gs_effect_get_default_val(note);
-
-					if (f_tmp) {
-						is_vec4 = *f_tmp != 0.0;
-						bfree(f_tmp);
-						f_tmp = NULL;
-					}
-				} else if (note_info.type == GS_SHADER_PARAM_INT ||
-					note_info.type == GS_SHADER_PARAM_BOOL) {
-					i_tmp = (int*)gs_effect_get_default_val(note);
-
-					if (i_tmp) {
-						is_vec4 = *i_tmp != 0;
-						bfree(i_tmp);
-						i_tmp = NULL;
-					}
-				}
-			}
-			*/
 			if (!is_vec4 && param->type == GS_SHADER_PARAM_VEC4) {
-				obs_properties_add_color(props, param_name, param_desc);
+				obs_properties_add_color(props, param_name,
+					param_desc);
 				break;
 			}
 			is_slider = get_eparam_bool(param->param, "is_slider", false);
@@ -801,50 +673,67 @@ static obs_properties_t *shader_filter_properties(void *data)
 			dstr_copy(&n_param_desc, param_desc);
 			dstr_cat(&n_param_desc, ".x");
 			if(is_slider)
-				obs_properties_add_float_slider(props, n_param_name.array,
-					n_param_desc.array, f_min, f_max, f_step);
+				obs_properties_add_float_slider(props,
+					n_param_name.array, n_param_desc.array,
+					f_min, f_max, f_step);
 			else
-				obs_properties_add_float(props, n_param_name.array,
-					n_param_desc.array, f_min, f_max, f_step);
+				obs_properties_add_float(props,
+					n_param_name.array, n_param_desc.array,
+					f_min, f_max, f_step);
 
 			dstr_copy(&n_param_name, param_name);
 			dstr_cat(&n_param_name, ".y");
-			dstr_copy(&n_param_desc, param_desc);
+			if (hide_descs)
+				dstr_copy(&n_param_desc, "");
+			else
+				dstr_copy(&n_param_desc, param_desc);
 			dstr_cat(&n_param_desc, ".y");
 			if (is_slider)
-				obs_properties_add_float_slider(props, n_param_name.array,
-					n_param_desc.array, f_min, f_max, f_step);
+				obs_properties_add_float_slider(props,
+					n_param_name.array, n_param_desc.array,
+					f_min, f_max, f_step);
 			else
-				obs_properties_add_float(props, n_param_name.array,
-					n_param_desc.array, f_min, f_max, f_step);
+				obs_properties_add_float(props,
+					n_param_name.array, n_param_desc.array,
+					f_min, f_max, f_step);
 
 			if (param->type == GS_SHADER_PARAM_VEC2)
 				break;
 
 			dstr_copy(&n_param_name, param_name);
 			dstr_cat(&n_param_name, ".z");
-			dstr_copy(&n_param_desc, param_desc);
+			if (hide_descs)
+				dstr_copy(&n_param_desc, "");
+			else
+				dstr_copy(&n_param_desc, param_desc);
 			dstr_cat(&n_param_desc, ".z");
 			if (is_slider)
-				obs_properties_add_float_slider(props, n_param_name.array,
-					n_param_desc.array, f_min, f_max, f_step);
+				obs_properties_add_float_slider(props,
+					n_param_name.array, n_param_desc.array,
+					f_min, f_max, f_step);
 			else
-				obs_properties_add_float(props, n_param_name.array,
-					n_param_desc.array, f_min, f_max, f_step);
+				obs_properties_add_float(props,
+					n_param_name.array, n_param_desc.array,
+					f_min, f_max, f_step);
 
 			if (param->type == GS_SHADER_PARAM_VEC3)
 				break;
 
 			dstr_copy(&n_param_name, param_name);
 			dstr_cat(&n_param_name, ".w");
-			dstr_copy(&n_param_desc, param_desc);
+			if (hide_descs)
+				dstr_copy(&n_param_desc, "");
+			else
+				dstr_copy(&n_param_desc, param_desc);
 			dstr_cat(&n_param_desc, ".w");
 			if (is_slider)
-				obs_properties_add_float_slider(props, n_param_name.array,
-					n_param_desc.array, f_min, f_max, f_step);
+				obs_properties_add_float_slider(props,
+					n_param_name.array, n_param_desc.array,
+					f_min, f_max, f_step);
 			else
-				obs_properties_add_float(props, n_param_name.array,
-					n_param_desc.array, f_min, f_max, f_step);
+				obs_properties_add_float(props,
+					n_param_name.array, n_param_desc.array,
+					f_min, f_max, f_step);
 
 			break;
 		case GS_SHADER_PARAM_TEXTURE:
@@ -853,6 +742,8 @@ static obs_properties_t *shader_filter_properties(void *data)
 			break;
 		}
 		param->is_vec4 = is_vec4;
+		dstr_free(&n_param_name);
+		dstr_free(&n_param_desc);
 	}
 
 	dstr_free(&shaders_path);
@@ -884,6 +775,18 @@ static void shader_filter_update(void *data, obs_data_t *settings)
 		struct effect_param_data *param =
 			(filter->stored_param_list.array + param_index);
 		const char *param_name = param->name.array;
+		struct dstr n_param_name_x;
+		struct dstr n_param_name_y;
+		struct dstr n_param_name_z;
+		struct dstr n_param_name_w;
+		dstr_init_copy(&n_param_name_x, param_name);
+		dstr_init_copy(&n_param_name_y, param_name);
+		dstr_init_copy(&n_param_name_z, param_name);
+		dstr_init_copy(&n_param_name_w, param_name);
+		dstr_cat(&n_param_name_x, ".x");
+		dstr_cat(&n_param_name_y, ".y");
+		dstr_cat(&n_param_name_z, ".z");
+		dstr_cat(&n_param_name_w, ".w");
 
 		switch (param->type)
 		{
@@ -899,13 +802,55 @@ static void shader_filter_update(void *data, obs_data_t *settings)
 			param->value.i = obs_data_get_int(settings,
 				param_name);
 			break;
+		case GS_SHADER_PARAM_INT2:
+		case GS_SHADER_PARAM_INT3:
+		case GS_SHADER_PARAM_INT4:
+			param->value.l4.x = obs_data_get_int(settings,
+				n_param_name_x.array);
+			param->value.l4.y = obs_data_get_int(settings,
+				n_param_name_y.array);
+			if (param->type == GS_SHADER_PARAM_INT2) {
+				break;
+			}
+			param->value.l4.z = obs_data_get_int(settings,
+				n_param_name_z.array);
+			if (param->type == GS_SHADER_PARAM_INT3) {
+				break;
+			}
+			param->value.l4.w = obs_data_get_int(settings,
+				n_param_name_w.array);
+			break;
+		case GS_SHADER_PARAM_VEC2:
+		case GS_SHADER_PARAM_VEC3:
+			param->value.v4.x = (float)obs_data_get_double(
+				settings, n_param_name_x.array);
+			param->value.v4.y = (float)obs_data_get_double(
+				settings, n_param_name_y.array);
+			if (param->type == GS_SHADER_PARAM_INT2) {
+				break;
+			}
+			param->value.v4.z = (float)obs_data_get_double(
+				settings, n_param_name_z.array);
+			break;
 		case GS_SHADER_PARAM_VEC4: // Assumed to be a color.
 			/*todo: assume nothing, when annotations are around*/
 			// Hack to ensure we have a default...
-			obs_data_set_default_int(settings, param_name,
-				0xff000000);
+			if (param->is_vec4) {
+				param->value.v4.x = (float)obs_data_get_double(
+					settings, n_param_name_x.array);
+				param->value.v4.y = (float)obs_data_get_double(
+					settings, n_param_name_y.array);
+				param->value.v4.z = (float)obs_data_get_double(
+					settings, n_param_name_z.array);
+				param->value.v4.w = (float)obs_data_get_double(
+					settings, n_param_name_w.array);
+			} else {
+				obs_data_set_default_int(settings, param_name,
+					0xff000000);
 
-			param->value.i = obs_data_get_int(settings, param_name);
+				param->value.i = obs_data_get_int(settings,
+					param_name);
+			}
 			break;
 		case GS_SHADER_PARAM_TEXTURE:
 			/*an assumption is made here that the param being
@@ -1015,12 +960,38 @@ static void shader_filter_render(void *data, gs_effect_t *effect)
 				gs_effect_set_int(param->param,
 					(int)param->value.i);
 				break;
+			case GS_SHADER_PARAM_INT2:
+				gs_effect_set_vec2(param->param,
+					&param->value.l4);
+				break;
+			case GS_SHADER_PARAM_INT3:
+				gs_effect_set_vec3(param->param,
+					&param->value.l4);
+				break;
+			case GS_SHADER_PARAM_INT4:
+				gs_effect_set_vec4(param->param,
+					&param->value.l4);
+				break;
+			case GS_SHADER_PARAM_VEC2:
+				gs_effect_set_vec2(param->param,
+					&param->value.v4);
+				break;
+			case GS_SHADER_PARAM_VEC3:
+				gs_effect_set_vec3(param->param,
+					&param->value.v4);
+				break;
 			case GS_SHADER_PARAM_VEC4:
 				/*assumption from earlier*, also something to
 				change w/ annotations*/
-				vec4_from_rgba(&color,
-					(unsigned int)param->value.i);
-				gs_effect_set_vec4(param->param, &color);
+				if (param->is_vec4) {
+					gs_effect_set_vec4(param->param,
+						&param->value.v4);
+				} else {
+					vec4_from_rgba(&color,
+						(unsigned int)param->value.i);
+					gs_effect_set_vec4(param->param,
+						&color);
+				}
 				break;
 			case GS_SHADER_PARAM_TEXTURE:
 				gs_effect_set_texture(param->param,
