@@ -1613,24 +1613,7 @@ static void ep_compile_annotations(struct darray *ep_annotations,
 		param->effect = ep->effect;
 		da_move(param->default_val, param_in->default_val);
 
-		if (strcmp(param_in->type, "bool") == 0)
-			param->type = GS_SHADER_PARAM_BOOL;
-		else if (strcmp(param_in->type, "float") == 0)
-			param->type = GS_SHADER_PARAM_FLOAT;
-		else if (strcmp(param_in->type, "int") == 0)
-			param->type = GS_SHADER_PARAM_INT;
-		else if (strcmp(param_in->type, "string") == 0)
-			param->type = GS_SHADER_PARAM_STRING;
-		else if (strcmp(param_in->type, "float2") == 0)
-			param->type = GS_SHADER_PARAM_VEC2;
-		else if (strcmp(param_in->type, "float3") == 0)
-			param->type = GS_SHADER_PARAM_VEC3;
-		else if (strcmp(param_in->type, "float4") == 0)
-			param->type = GS_SHADER_PARAM_VEC4;
-		else if (strcmp(param_in->type, "float4x4") == 0)
-			param->type = GS_SHADER_PARAM_MATRIX4X4;
-		else if (param_in->is_texture)
-			param->type = GS_SHADER_PARAM_TEXTURE;
+		param->type = get_shader_param_type(param_in->type);
 	}
 }
 
@@ -1655,24 +1638,7 @@ static void ep_compile_param(struct effect_parser *ep, size_t idx)
 	param->effect  = ep->effect;
 	da_move(param->default_val, param_in->default_val);
 
-	if (strcmp(param_in->type, "bool") == 0)
-		param->type = GS_SHADER_PARAM_BOOL;
-	else if (strcmp(param_in->type, "float") == 0)
-		param->type = GS_SHADER_PARAM_FLOAT;
-	else if (strcmp(param_in->type, "int") == 0)
-		param->type = GS_SHADER_PARAM_INT;
-	else if (strcmp(param_in->type, "string") == 0)
-		param->type = GS_SHADER_PARAM_STRING;
-	else if (strcmp(param_in->type, "float2") == 0)
-		param->type = GS_SHADER_PARAM_VEC2;
-	else if (strcmp(param_in->type, "float3") == 0)
-		param->type = GS_SHADER_PARAM_VEC3;
-	else if (strcmp(param_in->type, "float4") == 0)
-		param->type = GS_SHADER_PARAM_VEC4;
-	else if (strcmp(param_in->type, "float4x4") == 0)
-		param->type = GS_SHADER_PARAM_MATRIX4X4;
-	else if (param_in->is_texture)
-		param->type = GS_SHADER_PARAM_TEXTURE;
+	param->type = get_shader_param_type(param_in->type);
 
 	if (strcmp(param_in->name, "ViewProj") == 0)
 		ep->effect->view_proj = param;
