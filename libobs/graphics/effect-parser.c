@@ -975,6 +975,30 @@ static inline int ep_parse_param_assign_intfloat(struct effect_parser *ep,
 	return PARSE_SUCCESS;
 }
 
+static inline int ep_parse_param_assign_bool(struct effect_parser *ep,
+	struct ep_param *param)
+{
+	int code;
+	bool is_negative = false;
+
+	if (!cf_next_valid_token(&ep->cfp))
+		return PARSE_EOF;
+
+	if (cf_token_is(&ep->cfp, "true")) {
+		long l = 1;
+		da_push_back_array(param->default_val, &l, sizeof(long));
+		return PARSE_SUCCESS;
+	} else if (cf_token_is(&ep->cfp, "false")) {
+		long l = 0;
+		da_push_back_array(param->default_val, &l, sizeof(long));
+		return PARSE_SUCCESS;
+	}
+
+	cf_adderror_expecting(&ep->cfp, "true or false");
+
+	return PARSE_EOF;
+}
+
 /*
  * parses assignment for float1, float2, float3, float4, and any combination
  * for float3x3, float4x4, etc
@@ -1019,6 +1043,50 @@ static inline int ep_parse_param_assign_float_array(struct effect_parser *ep,
 	return PARSE_SUCCESS;
 }
 
+/*
+* parses assignment for int1, int2, int3, int4, and any combination
+* for int3x3, int4x4, etc
+*/
+static inline int ep_parse_param_assign_int_array(struct effect_parser *ep,
+	struct ep_param *param)
+{
+	const char *int_type = param->type + 5;
+	int int_count = 0, code, i;
+
+	/* -------------------------------------------- */
+
+	if (int_type[0] < '1' || int_type[0] > '4')
+		cf_adderror(&ep->cfp, "Invalid row count", LEX_ERROR,
+			NULL, NULL, NULL);
+
+	int_count = int_type[0] - '0';
+
+	if (int_type[1] == 'x') {
+		if (int_type[2] < '1' || int_type[2] > '4')
+			cf_adderror(&ep->cfp, "Invalid column count",
+				LEX_ERROR, NULL, NULL, NULL);
+
+		int_count *= int_type[2] - '0';
+	}
+
+	/* -------------------------------------------- */
+
+	code = cf_next_token_should_be(&ep->cfp, "{", ";", NULL);
+	if (code != PARSE_SUCCESS) return code;
+
+	for (i = 0; i < int_count; i++) {
+		char *next = ((i + 1) < int_count) ? "," : "}";
+
+		code = ep_parse_param_assign_intfloat(ep, param, false);
+		if (code != PARSE_SUCCESS) return code;
+
+		code = cf_next_token_should_be(&ep->cfp, next, ";", NULL);
+		if (code != PARSE_SUCCESS) return code;
+	}
+
+	return PARSE_SUCCESS;
+}
+
 static int ep_parse_param_assignment_val(struct effect_parser *ep,
 		struct ep_param *param)
 {
@@ -1028,10 +1096,14 @@ static int ep_parse_param_assignment_val(struct effect_parser *ep,
 		return ep_parse_param_assign_intfloat(ep, param, false);
 	else if (strcmp(param->type, "float") == 0)
 		return ep_parse_param_assign_intfloat(ep, param, true);
+	else if (astrcmp_n(param->type, "int", 3) == 0)
+		return ep_parse_param_assign_int_array(ep, param);
 	else if (astrcmp_n(param->type, "float", 5) == 0)
 		return ep_parse_param_assign_float_array(ep, param);
 	else if (astrcmp_n(param->type, "string", 6) == 0)
 		return ep_parse_param_assign_string(ep, param);
+	else if (strcmp(param->type, "bool") == 0)
+		return ep_parse_param_assign_bool(ep, param);
 
 	cf_adderror(&ep->cfp, "Invalid type '$1' used for assignment",
 			LEX_ERROR, param->type, NULL, NULL);
