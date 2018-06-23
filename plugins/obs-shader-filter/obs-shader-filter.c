@@ -62,12 +62,115 @@ technique Draw\
 struct long4 {
 	union {
 		struct {
-			long x, y, z, w;
+			int32_t x, y, z, w;
 		};
-		long ptr[4];
+		int32_t ptr[4];
 		__m128 m;
 	};
 };
+
+/* space saving functions */
+void obs_properties_add_float_prop(obs_properties_t *props,
+	const char *name, const char *desc, double min, double max,
+	double step, bool is_slider)
+{
+	if (is_slider)
+		obs_properties_add_float_slider(props, name, desc, min, max,
+			step);
+	else
+		obs_properties_add_float(props, name, desc, min, max, step);
+}
+
+void obs_properties_add_int_prop(obs_properties_t *props,
+	const char *name, const char *desc, int min, int max, int step,
+	bool is_slider)
+{
+	if (is_slider)
+		obs_properties_add_int_slider(props, name, desc, min, max,
+			step);
+	else
+		obs_properties_add_int(props, name, desc, min, max, step);
+}
+
+void obs_properties_add_numerical_prop(obs_properties_t *props,
+	const char *name, const char *desc, double min, double max, double step,
+	bool is_slider, bool is_float)
+{
+	if (is_float)
+		obs_properties_add_float_prop(props, name, desc, min, max,
+			step, is_slider);
+	else
+		obs_properties_add_int_prop(props, name, desc, min, max,
+			step, is_slider);
+}
+
+void obs_properties_add_vec_prop(obs_properties_t *props,
+	const char *name, const char *desc, double min, double max,
+	double step, bool is_slider, bool is_float, int vec_num)
+{
+	const char* mixin = "xyzw";
+	struct dstr n_param_name;
+	struct dstr n_param_desc;
+	dstr_init(&n_param_name);
+	dstr_init(&n_param_desc);
+	int vec_count = vec_num <= 4 ? (vec_num >= 0 ? vec_num : 0) : 4;
+	for (int i = 0; i < vec_count; i++) {
+		dstr_copy(&n_param_name, name);
+		dstr_cat(&n_param_name, ".");
+		dstr_ncat(&n_param_name, mixin + i, 1);
+		dstr_copy(&n_param_desc, desc);
+		dstr_cat(&n_param_desc, ".");
+		dstr_ncat(&n_param_desc, mixin + i, 1);
+
+		obs_properties_add_numerical_prop(props,
+			n_param_name.array, n_param_desc.array,
+			min, max, step, is_slider, is_float);
+	}
+	dstr_free(&n_param_name);
+	dstr_free(&n_param_desc);
+}
+
+void obs_properties_add_vec_array(obs_properties_t *props,
+	const char *name, const char *desc, double min, double max,
+	double step, bool is_slider, int vec_num)
+{
+	obs_properties_add_vec_prop(props, name, desc, min, max,
+		step, is_slider, true, vec_num);
+}
+
+void obs_properties_add_int_array(obs_properties_t *props,
+	const char *name, const char *desc, double min, double max,
+	double step, bool is_slider, int vec_num)
+{
+	obs_properties_add_vec_prop(props, name, desc, min, max,
+		step, is_slider, false, vec_num);
+}
+/*
+obs_properties_add_list(props, "samplerate",
+obs_module_text("OutputSamplerate"),
+OBS_COMBO_TYPE_LIST, OBS_COMBO_FORMAT_INT)
+*/
+
+
+int obs_get_vec_num(enum gs_shader_param_type type) {
+	switch (type) {
+	case GS_SHADER_PARAM_VEC4:
+	case GS_SHADER_PARAM_INT4:
+		return 4;
+	case GS_SHADER_PARAM_VEC3:
+	case GS_SHADER_PARAM_INT3:
+		return 3;
+	case GS_SHADER_PARAM_VEC2:
+	case GS_SHADER_PARAM_INT2:
+		return 2;
+	case GS_SHADER_PARAM_FLOAT:
+	case GS_SHADER_PARAM_INT:
+		return 1;
+	case GS_SHADER_PARAM_MATRIX4X4:
+		return 16;
+	}
+	return 0;
+}
 
 struct effect_param_data
 {
@@ -116,10 +219,10 @@ struct shader_filter_data
 	struct vec2 uv_pixel_interval;
 	float elapsed_time;
 
+	obs_properties_t *props;
+
 	DARRAY(struct effect_param_data) stored_param_list;
 };
-
-
 
 static void shader_filter_reload_effect(struct shader_filter_data *filter)
 {
@@ -489,8 +592,10 @@ static obs_properties_t *shader_filter_properties(void *data)
 		bool is_vec4 = false;
 		struct dstr n_param_name;
 		struct dstr n_param_desc;
+		struct dstr list_json;
 		dstr_init(&n_param_name);
 		dstr_init(&n_param_desc);
+		dstr_init(&list_json);
 		bool is_slider = false;
 		bool hide_descs = false;
 		bool hide_all_descs = false;
@@ -533,15 +638,42 @@ static obs_properties_t *shader_filter_properties(void *data)
 			"hide_all_descs", false);
 		hide_descs = get_eparam_bool(param->param, "hide_descs",
 			false);
+		obs_data_t *list_data = NULL;
 
 		const char *param_desc = !hide_all_descs ? param->desc.array :
 			NULL;
+
+		int vec_num = 1;
+		bool is_list = get_eparam_bool(param->param, "is_list",
+			false);
+		
+		if (is_list) {
+			c_tmp = get_eparam_string(param->param,
+				"list_data", "");
+			dstr_copy(&list_json, c_tmp);
+
+			list_data = obs_data_create_from_json(list_json.array);
+		}
 
 		/*todo: control gui elements added via annotations*/
 		switch (param->type)
 		{
 		case GS_SHADER_PARAM_BOOL:
-			obs_properties_add_bool(props, param_name, param_desc);
+
+
+			if (is_list) {
+				/*
+				obs_properties_add_bool(props, param_name,
+					param_desc);
+					*/
+				obs_properties_add_list(props, param_name,
+					param_desc, OBS_COMBO_TYPE_LIST,
+					OBS_COMBO_FORMAT_INT);
+				
+			}
+			else
+				obs_properties_add_bool(props, param_name,
+					param_desc);
 
 			break;
 		case GS_SHADER_PARAM_FLOAT:
@@ -555,26 +687,9 @@ static obs_properties_t *shader_filter_properties(void *data)
 			is_slider = get_eparam_bool(param->param, "is_slider",
 				false);
 
-			if (is_float) {
-				if (is_slider)
-					obs_properties_add_float_slider(props,
-						param_name, param_desc, f_min,
-						f_max, f_step);
-				else
-					obs_properties_add_float(props,
-						param_name, param_desc, f_min,
-						f_max, f_step);
-			} else {
-				if (is_slider)
-					obs_properties_add_int_slider(props,
-						param_name, param_desc, i_min,
-						i_max, i_step);
-				else
-					obs_properties_add_int(props,
-						param_name, param_desc, i_min,
-						i_max, i_step);
-			}
-
+			obs_properties_add_numerical_prop(props,
+				param_name, param_desc, f_min,
+				f_max, f_step, is_slider, is_float);
 
 			break;
 		case GS_SHADER_PARAM_INT2:
@@ -583,76 +698,11 @@ static obs_properties_t *shader_filter_properties(void *data)
 			is_slider = get_eparam_bool(param->param, "is_slider",
 				false);
 
-			dstr_copy(&n_param_name, param_name);
-			dstr_cat(&n_param_name, ".x");
-			dstr_copy(&n_param_desc, param_desc);
-			dstr_cat(&n_param_desc, ".x");
+			vec_num = obs_get_vec_num(param->type);
 
-			if(is_slider)
-				obs_properties_add_int_slider(props,
-					n_param_name.array, n_param_desc.array,
-					i_min, i_max, i_step);
-			else
-				obs_properties_add_int(props,
-					n_param_name.array, n_param_desc.array,
-					i_min, i_max, i_step);
-
-			dstr_copy(&n_param_name, param_name);
-			dstr_cat(&n_param_name, ".y");
-			if (hide_descs)
-				dstr_copy(&n_param_desc, "");
-			else
-				dstr_copy(&n_param_desc, param_desc);
-			dstr_cat(&n_param_desc, ".y");
-
-			if (is_slider)
-				obs_properties_add_int_slider(props,
-					n_param_name.array, n_param_desc.array,
-					i_min, i_max, i_step);
-			else
-				obs_properties_add_int(props,
-					n_param_name.array, n_param_desc.array,
-					i_min, i_max, i_step);
-
-			if (param->type == GS_SHADER_PARAM_INT2)
-				break;
-
-			dstr_copy(&n_param_name, param_name);
-			dstr_cat(&n_param_name, ".z");
-			if (hide_descs)
-				dstr_copy(&n_param_desc, "");
-			else
-				dstr_copy(&n_param_desc, param_desc);
-			dstr_cat(&n_param_desc, ".z");
-
-			if (is_slider)
-				obs_properties_add_int_slider(props,
-					n_param_name.array, n_param_desc.array,
-					i_min, i_max, i_step);
-			else
-				obs_properties_add_int(props,
-					n_param_name.array, n_param_desc.array,
-					i_min, i_max, i_step);
-
-			if (param->type == GS_SHADER_PARAM_INT3)
-				break;
-
-			dstr_copy(&n_param_name, param_name);
-			dstr_cat(&n_param_name, ".w");
-			if (hide_descs)
-				dstr_copy(&n_param_desc, "");
-			else
-				dstr_copy(&n_param_desc, param_desc);
-			dstr_cat(&n_param_desc, ".w");
-
-			if (is_slider)
-				obs_properties_add_int_slider(props,
-					n_param_name.array, n_param_desc.array,
-					i_min, i_max, i_step);
-			else
-				obs_properties_add_int(props,
-					n_param_name.array, n_param_desc.array,
-					i_min, i_max, i_step);
+			obs_properties_add_int_array(props,
+				param_name, param_desc, i_min, i_max, i_step,
+				is_slider, vec_num);
 
 			break;
 		case GS_SHADER_PARAM_VEC2:
@@ -668,72 +718,11 @@ static obs_properties_t *shader_filter_properties(void *data)
 			}
 			is_slider = get_eparam_bool(param->param, "is_slider", false);
 
-			dstr_copy(&n_param_name, param_name);
-			dstr_cat(&n_param_name, ".x");
-			dstr_copy(&n_param_desc, param_desc);
-			dstr_cat(&n_param_desc, ".x");
-			if(is_slider)
-				obs_properties_add_float_slider(props,
-					n_param_name.array, n_param_desc.array,
-					f_min, f_max, f_step);
-			else
-				obs_properties_add_float(props,
-					n_param_name.array, n_param_desc.array,
-					f_min, f_max, f_step);
+			vec_num = obs_get_vec_num(param->type);
 
-			dstr_copy(&n_param_name, param_name);
-			dstr_cat(&n_param_name, ".y");
-			if (hide_descs)
-				dstr_copy(&n_param_desc, "");
-			else
-				dstr_copy(&n_param_desc, param_desc);
-			dstr_cat(&n_param_desc, ".y");
-			if (is_slider)
-				obs_properties_add_float_slider(props,
-					n_param_name.array, n_param_desc.array,
-					f_min, f_max, f_step);
-			else
-				obs_properties_add_float(props,
-					n_param_name.array, n_param_desc.array,
-					f_min, f_max, f_step);
-
-			if (param->type == GS_SHADER_PARAM_VEC2)
-				break;
-
-			dstr_copy(&n_param_name, param_name);
-			dstr_cat(&n_param_name, ".z");
-			if (hide_descs)
-				dstr_copy(&n_param_desc, "");
-			else
-				dstr_copy(&n_param_desc, param_desc);
-			dstr_cat(&n_param_desc, ".z");
-			if (is_slider)
-				obs_properties_add_float_slider(props,
-					n_param_name.array, n_param_desc.array,
-					f_min, f_max, f_step);
-			else
-				obs_properties_add_float(props,
-					n_param_name.array, n_param_desc.array,
-					f_min, f_max, f_step);
-
-			if (param->type == GS_SHADER_PARAM_VEC3)
-				break;
-
-			dstr_copy(&n_param_name, param_name);
-			dstr_cat(&n_param_name, ".w");
-			if (hide_descs)
-				dstr_copy(&n_param_desc, "");
-			else
-				dstr_copy(&n_param_desc, param_desc);
-			dstr_cat(&n_param_desc, ".w");
-			if (is_slider)
-				obs_properties_add_float_slider(props,
-					n_param_name.array, n_param_desc.array,
-					f_min, f_max, f_step);
-			else
-				obs_properties_add_float(props,
-					n_param_name.array, n_param_desc.array,
-					f_min, f_max, f_step);
+			obs_properties_add_vec_array(props,
+				param_name, param_desc, f_min, f_max, f_step,
+				is_slider, vec_num);
 
 			break;
 		case GS_SHADER_PARAM_TEXTURE:
@@ -744,23 +733,30 @@ static obs_properties_t *shader_filter_properties(void *data)
 		param->is_vec4 = is_vec4;
 		dstr_free(&n_param_name);
 		dstr_free(&n_param_desc);
+		dstr_free(&list_json);
 	}
 
 	dstr_free(&shaders_path);
 
+	filter->props = props;
+
 	return props;
 }
+
+/* obs_property_list_type() */
 
 static void shader_filter_update(void *data, obs_data_t *settings)
 {
 	struct shader_filter_data *filter = data;
 
 	// Get expansions. Will be used in the video_tick() callback.
+	/*
 	filter->expand_left = (int)obs_data_get_int(settings, "expand_left");
 	filter->expand_right = (int)obs_data_get_int(settings, "expand_right");
 	filter->expand_top = (int)obs_data_get_int(settings, "expand_top");
 	filter->expand_bottom = (int)obs_data_get_int(settings,
 		"expand_bottom");
+	*/
 
 	if (filter->reload_effect)
 	{
@@ -775,6 +771,9 @@ static void shader_filter_update(void *data, obs_data_t *settings)
 		struct effect_param_data *param =
 			(filter->stored_param_list.array + param_index);
 		const char *param_name = param->name.array;
+		obs_property_t *prop = obs_properties_get(filter->props,
+			param_name);
+
 		struct dstr n_param_name_x;
 		struct dstr n_param_name_y;
 		struct dstr n_param_name_z;
@@ -875,6 +874,12 @@ static void shader_filter_update(void *data, obs_data_t *settings)
 			break;
 		}
 	}
+
+	filter->expand_left = (int)obs_data_get_int(settings, "expand_left");
+	filter->expand_right = (int)obs_data_get_int(settings, "expand_right");
+	filter->expand_top = (int)obs_data_get_int(settings, "expand_top");
+	filter->expand_bottom = (int)obs_data_get_int(settings,
+		"expand_bottom");
 }
 
 static void shader_filter_tick(void *data, float seconds)
