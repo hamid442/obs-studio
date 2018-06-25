@@ -1286,6 +1286,7 @@ static void shader_filter_render(void *data, gs_effect_t *effect)
 						struct vec4 clear_color;
 						vec4_zero(&clear_color);
 
+						gs_clear(GS_CLEAR_COLOR, &clear_color, 1, 0);
 						gs_matrix_scale3f(scale_x, scale_y, 1.0f);
 						obs_source_video_render(param->media_source);
 
