@@ -59,6 +59,150 @@ technique Draw\
 	}\
 }";
 
+bool get_annotation_bool(gs_eparam_t *annotation, bool default_value)
+{
+	struct gs_effect_param_info note_info;
+
+	void* val = NULL;
+
+	gs_effect_get_param_info(annotation, &note_info);
+
+	bool is_true = default_value;
+
+	if (annotation) {
+		if (note_info.type == GS_SHADER_PARAM_FLOAT) {
+			val = (void *)gs_effect_get_default_val(annotation);
+
+			if (val) {
+				is_true = *((float*)val) != 0.0;
+				bfree(val);
+				val = NULL;
+			}
+		} else if (note_info.type == GS_SHADER_PARAM_INT ||
+			note_info.type == GS_SHADER_PARAM_BOOL) {
+			val = (void *)gs_effect_get_default_val(annotation);
+
+			if (val) {
+				is_true = *((int*)val) != 0;
+				bfree(val);
+				val = NULL;
+			}
+		}
+	}
+
+	return is_true;
+}
+
+bool get_eparam_bool(gs_eparam_t *param, const char* name, bool default_value)
+{
+	gs_eparam_t *note = gs_param_get_annotation_by_name(param, name);
+	return get_annotation_bool(note, default_value);
+}
+
+int get_annotation_int(gs_eparam_t *annotation, int default_value)
+{
+	struct gs_effect_param_info note_info;
+
+	void* val = NULL;
+	int ret = default_value;
+
+	gs_effect_get_param_info(annotation, &note_info);
+
+	if (annotation) {
+		if (note_info.type == GS_SHADER_PARAM_FLOAT) {
+			val = (void*)gs_effect_get_default_val(annotation);
+			if (val) {
+				ret = (int)*((float*)val);
+				bfree(val);
+				val = NULL;
+			}
+		} else if (note_info.type == GS_SHADER_PARAM_INT ||
+			note_info.type == GS_SHADER_PARAM_BOOL) {
+			val = (void*)gs_effect_get_default_val(annotation);
+			if (val) {
+				ret = *((int*)val);
+				bfree(val);
+				val = NULL;
+			}
+		}
+	}
+
+	return ret;
+}
+
+int get_eparam_int(gs_eparam_t *param, const char* name, int default_value)
+{
+	gs_eparam_t *note = gs_param_get_annotation_by_name(param, name);
+	return get_annotation_int(note, default_value);
+}
+
+float get_annotation_float(gs_eparam_t *annotation, float default_value)
+{
+	struct gs_effect_param_info note_info;
+
+	void* val = NULL;
+	float ret = default_value;
+
+	gs_effect_get_param_info(annotation, &note_info);
+
+	if (annotation) {
+		if (note_info.type == GS_SHADER_PARAM_FLOAT) {
+			val = (void*)gs_effect_get_default_val(annotation);
+			if (val) {
+				ret = *((float*)val);
+				bfree(val);
+				val = NULL;
+			}
+		} else if (note_info.type == GS_SHADER_PARAM_INT ||
+			note_info.type == GS_SHADER_PARAM_BOOL) {
+			val = (void*)gs_effect_get_default_val(annotation);
+			if (val) {
+				ret = (float)*((int*)val);
+				bfree(val);
+				val = NULL;
+			}
+		}
+	}
+
+	return ret;
+}
+
+float get_eparam_float(gs_eparam_t *param, const char* name, float default_value)
+{
+	gs_eparam_t *note = gs_param_get_annotation_by_name(param, name);
+}
+
+/* free w/ bfree */
+char *get_annotation_string(gs_eparam_t *annotation, const char* default_value)
+{
+	struct gs_effect_param_info note_info;
+
+	char* val = NULL;
+	struct dstr ret;
+	dstr_init_copy(&ret, default_value);
+
+	gs_effect_get_param_info(annotation, &note_info);
+
+	if (annotation && note_info.type == GS_SHADER_PARAM_STRING) {
+		val = (char*)gs_effect_get_default_val(annotation);
+		if (val) {
+			dstr_copy(&ret, val);
+			bfree(val);
+			val = NULL;
+		}
+	}
+
+	return ret.array;
+}
+
+/* free w/ bfree */
+char *get_eparam_string(gs_eparam_t *param, const char* name,
+	const char* default_value)
+{
+	gs_eparam_t *note = gs_param_get_annotation_by_name(param, name);
+	return get_annotation_string(note, default_value);
+}
+
 struct long4 {
 	union {
 		struct {
@@ -145,12 +289,163 @@ void obs_properties_add_int_array(obs_properties_t *props,
 	obs_properties_add_vec_prop(props, name, desc, min, max,
 		step, is_slider, false, vec_num);
 }
-/*
-obs_properties_add_list(props, "samplerate",
-obs_module_text("OutputSamplerate"),
-OBS_COMBO_TYPE_LIST, OBS_COMBO_FORMAT_INT)
-*/
 
+void fill_int_list(obs_property_t *p, gs_eparam_t *param)
+{
+	uint32_t notes_count = gs_param_get_num_annotations(param);
+	struct gs_effect_param_info info;
+
+	bool uses_module_text = get_eparam_bool(param, "list_module_text",
+		false);
+
+	char *c_tmp = NULL;
+	int value = 0;
+
+	struct dstr name_variable;
+	struct dstr value_string;
+	dstr_init(&name_variable);
+	dstr_init(&value_string);
+	dstr_ensure_capacity(&value_string, 21);
+	for (uint32_t i = 0; i < notes_count; i++) {
+		gs_eparam_t *note = gs_param_get_annotation_by_idx(param, i);
+		gs_effect_get_param_info(note, &info);
+
+		if (info.type == GS_SHADER_PARAM_INT
+			|| info.type == GS_SHADER_PARAM_FLOAT
+			|| info.type == GS_SHADER_PARAM_BOOL) {
+
+			if (astrcmpi_n(info.name, "list_item", 9) == 0){
+				dstr_copy(&name_variable, info.name);
+				dstr_cat(&name_variable, "_name");
+
+				value = get_annotation_int(note, 0);
+
+				sprintf(value_string.array, "%d", value);
+
+				c_tmp = get_eparam_string(param,
+					name_variable.array,
+					value_string.array);
+
+				obs_property_list_add_int(p, uses_module_text ?
+					_MT(c_tmp) : c_tmp, value);
+
+				bfree(c_tmp);
+			}
+		}
+	}
+	dstr_free(&name_variable);
+	dstr_free(&value_string);
+}
+
+void fill_float_list(obs_property_t *p, gs_eparam_t *param)
+{
+	uint32_t notes_count = gs_param_get_num_annotations(param);
+	struct gs_effect_param_info info;
+
+	bool uses_module_text = get_eparam_bool(param, "list_module_text",
+		false);
+
+	char *c_tmp = NULL;
+	float value = 0;
+
+	struct dstr name_variable;
+	struct dstr value_string;
+	dstr_init(&name_variable);
+	dstr_init(&value_string);
+	dstr_ensure_capacity(&value_string, 21);
+	for (uint32_t i = 0; i < notes_count; i++) {
+		gs_eparam_t *note = gs_param_get_annotation_by_idx(param, i);
+		gs_effect_get_param_info(note, &info);
+
+		if (info.type == GS_SHADER_PARAM_INT
+			|| info.type == GS_SHADER_PARAM_FLOAT
+			|| info.type == GS_SHADER_PARAM_BOOL) {
+
+			if (astrcmpi_n(info.name, "list_item", 9) == 0) {
+				dstr_copy(&name_variable, info.name);
+				dstr_cat(&name_variable, "_name");
+
+				value = get_annotation_float(note, 0);
+
+				sprintf(value_string.array, "%f", value);
+
+				c_tmp = get_eparam_string(param,
+					name_variable.array,
+					value_string.array);
+
+				obs_property_list_add_float(p, uses_module_text
+					? _MT(c_tmp) : c_tmp, value);
+
+				bfree(c_tmp);
+			}
+		}
+	}
+	dstr_free(&name_variable);
+	dstr_free(&value_string);
+}
+
+void fill_string_list(obs_property_t *p, gs_eparam_t *param)
+{
+	uint32_t notes_count = gs_param_get_num_annotations(param);
+	struct gs_effect_param_info info;
+
+	bool uses_module_text = get_eparam_bool(param, "list_module_text",
+		false);
+
+	char *c_tmp = NULL;
+	char *value = NULL;
+
+	struct dstr name_variable;
+	struct dstr value_string;
+	dstr_init(&name_variable);
+	dstr_init(&value_string);
+	for (uint32_t i = 0; i < notes_count; i++) {
+		gs_eparam_t *note = gs_param_get_annotation_by_idx(param, i);
+		gs_effect_get_param_info(note, &info);
+
+		if (info.type == GS_SHADER_PARAM_STRING) {
+
+			if (astrcmpi_n(info.name, "list_item_", 10) == 0) {
+				dstr_copy(&name_variable, info.name);
+				if (dstr_find(&name_variable, "_name"))
+					continue;
+				dstr_cat(&name_variable, "_name");
+
+				value = get_annotation_string(note, "");
+				dstr_copy(&value_string, value);
+
+				c_tmp = get_eparam_string(param,
+					name_variable.array,
+					value_string.array);
+
+				obs_property_list_add_string(p,
+					uses_module_text ? _MT(c_tmp) : c_tmp,
+					value);
+
+				bfree(c_tmp);
+				bfree(value);
+			}
+		}
+	}
+	dstr_free(&name_variable);
+	dstr_free(&value_string);
+}
+
+bool fill_properties_source_list(void *param, obs_source_t *source)
+{
+	obs_property_t *p = (obs_property_t*)param;
+	uint32_t flags = obs_source_get_output_flags(source);
+	const char* source_name = obs_source_get_name(source);
+	if ((flags & OBS_SOURCE_VIDEO) != 0 && obs_source_active(source)) {
+		obs_property_list_add_string(p, source_name, source_name);
+		//dialog->AddAudioSource(source);
+	}
+	return true;
+}
+
+void fill_source_list(obs_property_t *p) {
+	obs_enum_sources(&fill_properties_source_list, (void*)p);
+}
 
 int obs_get_vec_num(enum gs_shader_param_type type) {
 	switch (type) {
@@ -182,6 +477,12 @@ struct effect_param_data
 	gs_image_file_t *image;
 
 	bool is_vec4;
+	bool is_list;
+	bool is_source;
+	bool is_media;
+
+	obs_source_t *media_source;
+	gs_texrender_t *texrender;
 
 	union
 	{
@@ -191,6 +492,17 @@ struct effect_param_data
 		struct long4 l4;
 	} value;
 };
+
+void effect_param_data_release(struct effect_param_data *param) {
+	dstr_free(&param->name);
+	dstr_free(&param->desc);
+	gs_texrender_destroy(param->texrender);
+	obs_source_release(param->media_source);
+
+	obs_enter_graphics();
+	gs_image_file_free(param->image);
+	obs_leave_graphics();
+}
 
 struct shader_filter_data
 {
@@ -373,6 +685,11 @@ static void shader_filter_destroy(void *data)
 	struct shader_filter_data *filter = data;
 
 	dstr_free(&filter->last_path);
+
+	size_t i;
+	for (i = 0; i < filter->stored_param_list.num; i++)
+		effect_param_data_release(&filter->stored_param_list.array[i]);
+
 	da_free(filter->stored_param_list);
 
 	bfree(filter);
@@ -410,129 +727,8 @@ static bool shader_filter_reload_effect_clicked(obs_properties_t *props,
 static const char *shader_filter_texture_file_filter =
 "Textures (*.bmp *.tga *.png *.jpeg *.jpg *.gif);;";
 
-bool get_eparam_bool(gs_eparam_t *param, const char* name, bool default_value)
-{
-	gs_eparam_t *note = gs_param_get_annotation_by_name(param, name);
-	struct gs_effect_param_info note_info;
-
-	void* val = NULL;
-
-	gs_effect_get_param_info(note, &note_info);
-
-	bool is_true = default_value;
-
-	if (note) {
-		if (note_info.type == GS_SHADER_PARAM_FLOAT) {
-			val = (void *)gs_effect_get_default_val(note);
-
-			if (val) {
-				is_true = *((float*)val) != 0.0;
-				bfree(val);
-				val = NULL;
-			}
-		} else if (note_info.type == GS_SHADER_PARAM_INT ||
-			note_info.type == GS_SHADER_PARAM_BOOL) {
-			val = (void *)gs_effect_get_default_val(note);
-
-			if (val) {
-				is_true = *((int*)val) != 0;
-				bfree(val);
-				val = NULL;
-			}
-		}
-	}
-
-	return is_true;
-}
-
-int get_eparam_int(gs_eparam_t *param, const char* name, int default_value)
-{
-	gs_eparam_t *note = gs_param_get_annotation_by_name(param, name);
-	struct gs_effect_param_info note_info;
-
-	void* val = NULL;
-	int ret = default_value;
-
-	gs_effect_get_param_info(note, &note_info);
-
-	if (note) {
-		if (note_info.type == GS_SHADER_PARAM_FLOAT) {
-			val = (void*)gs_effect_get_default_val(note);
-			if (val) {
-				ret = (int)*((float*)val);
-				bfree(val);
-				val = NULL;
-			}
-		} else if (note_info.type == GS_SHADER_PARAM_INT ||
-			note_info.type == GS_SHADER_PARAM_BOOL) {
-			val = (void*)gs_effect_get_default_val(note);
-			if (val) {
-				ret = *((int*)val);
-				bfree(val);
-				val = NULL;
-			}
-		}
-	}
-
-	return ret;
-}
-
-float get_eparam_float(gs_eparam_t *param, const char* name, float default_value)
-{
-	gs_eparam_t *note = gs_param_get_annotation_by_name(param, name);
-	struct gs_effect_param_info note_info;
-
-	void* val = NULL;
-	float ret = default_value;
-
-	gs_effect_get_param_info(note, &note_info);
-
-	if (note) {
-		if (note_info.type == GS_SHADER_PARAM_FLOAT) {
-			val = (void*)gs_effect_get_default_val(note);
-			if (val) {
-				ret = *((float*)val);
-				bfree(val);
-				val = NULL;
-			}
-		} else if (note_info.type == GS_SHADER_PARAM_INT ||
-			note_info.type == GS_SHADER_PARAM_BOOL) {
-			val = (void*)gs_effect_get_default_val(note);
-			if (val) {
-				ret = (float)*((int*)val);
-				bfree(val);
-				val = NULL;
-			}
-		}
-	}
-
-	return ret;
-}
-
-/* free w/ bfree */
-char *get_eparam_string(gs_eparam_t *param, const char* name,
-	const char* default_value)
-{
-	gs_eparam_t *note = gs_param_get_annotation_by_name(param, name);
-	struct gs_effect_param_info note_info;
-
-	char* val = NULL;
-	struct dstr ret;
-	dstr_init_copy(&ret, default_value);
-
-	gs_effect_get_param_info(note, &note_info);
-
-	if (note && note_info.type == GS_SHADER_PARAM_STRING) {
-		val = (char*)gs_effect_get_default_val(note);
-		if (val) {
-			dstr_copy(&ret, val);
-			bfree(val);
-			val = NULL;
-		}
-	}
-
-	return ret.array;
-}
+static const char *shader_filter_media_file_filter =
+"Video Files (*.mp4 *.ts *.mov *.wmv *.flv *.mkv *.avi *.gif *.webm);;";
 
 static obs_properties_t *shader_filter_properties(void *data)
 {
@@ -569,7 +765,7 @@ static obs_properties_t *shader_filter_properties(void *data)
 	obs_property_set_modified_callback(file_name,
 		shader_filter_file_name_changed);
 
-
+	obs_property_t *p = NULL;
 	size_t param_count = filter->stored_param_list.num;
 	for (size_t param_index = 0; param_index < param_count; param_index++)
 	{
@@ -589,14 +785,14 @@ static obs_properties_t *shader_filter_properties(void *data)
 		int *i_tmp = NULL;
 		char *c_tmp = NULL;
 		bool uses_module_text = false;
-		bool is_vec4 = false;
 		struct dstr n_param_name;
 		struct dstr n_param_desc;
-		struct dstr list_json;
 		dstr_init(&n_param_name);
 		dstr_init(&n_param_desc);
-		dstr_init(&list_json);
 		bool is_slider = false;
+		bool is_vec4 = false;
+		bool is_source = false;
+		bool is_media = false;
 		bool hide_descs = false;
 		bool hide_all_descs = false;
 
@@ -646,35 +842,35 @@ static obs_properties_t *shader_filter_properties(void *data)
 		int vec_num = 1;
 		bool is_list = get_eparam_bool(param->param, "is_list",
 			false);
-		
-		if (is_list) {
-			c_tmp = get_eparam_string(param->param,
-				"list_data", "");
-			dstr_copy(&list_json, c_tmp);
-
-			list_data = obs_data_create_from_json(list_json.array);
-		}
 
 		/*todo: control gui elements added via annotations*/
 		switch (param->type)
 		{
 		case GS_SHADER_PARAM_BOOL:
-
-
 			if (is_list) {
-				/*
-				obs_properties_add_bool(props, param_name,
-					param_desc);
-					*/
-				obs_properties_add_list(props, param_name,
+				p = obs_properties_add_list(props, param_name,
 					param_desc, OBS_COMBO_TYPE_LIST,
 					OBS_COMBO_FORMAT_INT);
-				
-			}
-			else
+
+				i_tmp = get_eparam_bool(param->param,
+					"enabled_module_text", false);
+				c_tmp = get_eparam_string(param->param,
+					"enabled_string", "On");
+				obs_property_list_add_int(p, i_tmp ?
+					_MT(c_tmp) : c_tmp, 1);
+				bfree(c_tmp);
+
+				i_tmp = get_eparam_bool(param->param,
+					"disabled_module_text", false);
+				c_tmp = get_eparam_string(param->param,
+					"disabled_string", "Off");
+				obs_property_list_add_int(p, i_tmp ?
+					_MT(c_tmp) : c_tmp, 0);
+				bfree(c_tmp);
+			} else {
 				obs_properties_add_bool(props, param_name,
 					param_desc);
-
+			}
 			break;
 		case GS_SHADER_PARAM_FLOAT:
 		case GS_SHADER_PARAM_INT:
@@ -687,9 +883,32 @@ static obs_properties_t *shader_filter_properties(void *data)
 			is_slider = get_eparam_bool(param->param, "is_slider",
 				false);
 
-			obs_properties_add_numerical_prop(props,
-				param_name, param_desc, f_min,
-				f_max, f_step, is_slider, is_float);
+			if (is_list) {
+				if (is_float) {
+					p = obs_properties_add_list(props,
+						param_name, param_desc,
+						OBS_COMBO_TYPE_LIST,
+						OBS_COMBO_FORMAT_FLOAT);
+
+					fill_float_list(p, param->param);
+				} else {
+					p = obs_properties_add_list(props,
+						param_name, param_desc,
+						OBS_COMBO_TYPE_LIST,
+						OBS_COMBO_FORMAT_INT);
+
+					fill_int_list(p, param->param);
+				}
+			} else {
+				if (is_float)
+					obs_properties_add_float_prop(props,
+						param_name, param_desc, f_min, f_max,
+						f_step, is_slider);
+				else
+					obs_properties_add_int_prop(props,
+						param_name, param_desc, i_min, i_max,
+						i_step, is_slider);
+			}
 
 			break;
 		case GS_SHADER_PARAM_INT2:
@@ -726,14 +945,32 @@ static obs_properties_t *shader_filter_properties(void *data)
 
 			break;
 		case GS_SHADER_PARAM_TEXTURE:
+			is_source = get_eparam_bool(param->param, "is_source", false);
+			if (is_source) {
+				p = obs_properties_add_list(props,
+					param_name, param_desc,
+					OBS_COMBO_TYPE_LIST,
+					OBS_COMBO_FORMAT_STRING);
+				fill_source_list(p);
+				break;
+			}
+			is_media = get_eparam_bool(param->param, "is_media", false);
+			if (is_media) {
+				obs_properties_add_path(props, param_name, param_desc,
+					OBS_PATH_FILE, shader_filter_media_file_filter, NULL);
+				break;
+			}
+
 			obs_properties_add_path(props, param_name, param_desc,
 				OBS_PATH_FILE, shader_filter_texture_file_filter, NULL);
 			break;
 		}
 		param->is_vec4 = is_vec4;
+		param->is_list = is_list;
+		param->is_source = is_source;
+		param->is_media = is_media;
 		dstr_free(&n_param_name);
 		dstr_free(&n_param_desc);
-		dstr_free(&list_json);
 	}
 
 	dstr_free(&shaders_path);
@@ -790,8 +1027,12 @@ static void shader_filter_update(void *data, obs_data_t *settings)
 		switch (param->type)
 		{
 		case GS_SHADER_PARAM_BOOL:
-			param->value.i = obs_data_get_bool(settings,
-				param_name);
+			if (param->is_list)
+				param->value.i = obs_data_get_int(settings,
+					param_name);
+			else
+				param->value.i = obs_data_get_bool(settings,
+					param_name);
 			break;
 		case GS_SHADER_PARAM_FLOAT:
 			param->value.f = obs_data_get_double(settings,
@@ -855,24 +1096,53 @@ static void shader_filter_update(void *data, obs_data_t *settings)
 			/*an assumption is made here that the param being
 			used here is a plain old image...could easily be a
 			source (something to do w/ annotations)*/
-			if (param->image == NULL)
-			{
-				param->image = bzalloc(sizeof(gs_image_file_t));
-			} else
-			{
+			if (param->is_source) {
+				if (!param->texrender)
+					param->texrender = gs_texrender_create(GS_RGBA, GS_ZS_NONE);
+
+				obs_source_release(param->media_source);
+				param->media_source = obs_get_source_by_name(
+					obs_data_get_string(settings,
+						param_name)
+				);
+				break;
+			} else if (param->is_media) {
+				if(!param->texrender)
+					param->texrender = gs_texrender_create(GS_RGBA, GS_ZS_NONE);
+				//obs_source_release
+				const char *path = obs_data_get_string(settings, param_name);
+
+				obs_data_t *media_settings = obs_data_create();
+				obs_data_set_string(media_settings, "local_file", path);
+
+				obs_source_release(param->media_source);
+				param->media_source = obs_source_create_private("ffmpeg_source", NULL,
+					media_settings);
+				obs_data_release(media_settings);
+				break;
+			} else {
+				if (param->image == NULL)
+				{
+					param->image = bzalloc(sizeof(gs_image_file_t));
+				} else
+				{
+					obs_enter_graphics();
+					gs_image_file_free(param->image);
+					obs_leave_graphics();
+				}
+				gs_image_file_init(param->image,
+					obs_data_get_string(settings, param_name));
+
 				obs_enter_graphics();
-				gs_image_file_free(param->image);
+				gs_image_file_init_texture(param->image);
 				obs_leave_graphics();
 			}
-
-			gs_image_file_init(param->image,
-				obs_data_get_string(settings, param_name));
-
-			obs_enter_graphics();
-			gs_image_file_init_texture(param->image);
-			obs_leave_graphics();
 			break;
 		}
+		dstr_free(&n_param_name_x);
+		dstr_free(&n_param_name_y);
+		dstr_free(&n_param_name_z);
+		dstr_free(&n_param_name_w);
 	}
 
 	filter->expand_left = (int)obs_data_get_int(settings, "expand_left");
@@ -942,6 +1212,8 @@ static void shader_filter_render(void *data, gs_effect_t *effect)
 			gs_effect_set_float(filter->param_elapsed_time,
 				filter->elapsed_time);
 
+		float source_cx = (float)obs_source_get_width(filter->context);
+		float source_cy = (float)obs_source_get_height(filter->context);
 
 		size_t param_count = filter->stored_param_list.num;
 		for (size_t param_index = 0; param_index < param_count;
@@ -999,6 +1271,35 @@ static void shader_filter_render(void *data, gs_effect_t *effect)
 				}
 				break;
 			case GS_SHADER_PARAM_TEXTURE:
+				if (param->is_source || param->is_media) {
+					uint32_t media_cx = obs_source_get_width(param->media_source);
+					uint32_t media_cy = obs_source_get_height(param->media_source);
+
+					if (!media_cx || !media_cy)
+						break;
+
+					float scale_x = source_cx / (float)media_cx;
+					float scale_y = source_cy / (float)media_cy;
+
+					gs_texrender_reset(param->texrender);
+					if (gs_texrender_begin(param->texrender, media_cx, media_cy)) {
+						struct vec4 clear_color;
+						vec4_zero(&clear_color);
+
+						gs_matrix_scale3f(scale_x, scale_y, 1.0f);
+						obs_source_video_render(param->media_source);
+
+						gs_texrender_end(param->texrender);
+					} else {
+						break;
+					}
+
+					gs_texture_t *tex = gs_texrender_get_texture(param->texrender);
+					gs_effect_set_texture(param->param, tex);
+
+					break;
+				}
+				//else, basic image texture
 				gs_effect_set_texture(param->param,
 					(param->image ? param->image->texture
 						: NULL));
