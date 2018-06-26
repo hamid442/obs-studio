@@ -438,7 +438,6 @@ bool fill_properties_source_list(void *param, obs_source_t *source)
 	const char* source_name = obs_source_get_name(source);
 	if ((flags & OBS_SOURCE_VIDEO) != 0 && obs_source_active(source)) {
 		obs_property_list_add_string(p, source_name, source_name);
-		//dialog->AddAudioSource(source);
 	}
 	return true;
 }
@@ -497,11 +496,15 @@ void effect_param_data_release(struct effect_param_data *param) {
 	dstr_free(&param->name);
 	dstr_free(&param->desc);
 	gs_texrender_destroy(param->texrender);
+	param->texrender = NULL;
 	obs_source_release(param->media_source);
 
 	obs_enter_graphics();
 	gs_image_file_free(param->image);
 	obs_leave_graphics();
+
+	bfree(param->image);
+	param->image = NULL;
 }
 
 struct shader_filter_data
@@ -522,6 +525,8 @@ struct shader_filter_data
 	int expand_right;
 	int expand_top;
 	int expand_bottom;
+
+	bool show_expansions;
 
 	int total_width;
 	int total_height;
@@ -546,15 +551,7 @@ static void shader_filter_reload_effect(struct shader_filter_data *filter)
 	{
 		struct effect_param_data *param =
 			(filter->stored_param_list.array + param_index);
-		if (param->image != NULL)
-		{
-			obs_enter_graphics();
-			gs_image_file_free(param->image);
-			obs_leave_graphics();
-
-			bfree(param->image);
-			param->image = NULL;
-		}
+		effect_param_data_release(param);
 	}
 
 	da_free(filter->stored_param_list);
@@ -579,7 +576,7 @@ static void shader_filter_reload_effect(struct shader_filter_data *filter)
 		"shader_file_name");
 
 
-	if (file_name)
+	if (file_name && file_name[0] != '\0')
 		shader_text = os_quick_read_utf8_file(file_name);
 	else
 		shader_text = effect_template_default_image_shader;
@@ -634,8 +631,11 @@ static void shader_filter_reload_effect(struct shader_filter_data *filter)
 		else if (strcmp(info.name, "elapsed_time") == 0)
 			filter->param_elapsed_time = param;
 
-		else if (strcmp(info.name, "ViewProj") == 0 ||
-			strcmp(info.name, "image") == 0)
+		else if (strcmp(info.name, "ViewProj") == 0)
+			filter->show_expansions = get_eparam_bool(param,
+				"show_expansions", false);
+
+		else if	(strcmp(info.name, "image") == 0)
 		{
 			// Nothing.
 		} else
@@ -724,6 +724,96 @@ static bool shader_filter_reload_effect_clicked(obs_properties_t *props,
 	return true;
 }
 
+void set_expansion_bindings(gs_eparam_t *param, bool* bound_left, bool* bound_right,
+	bool* bound_top, bool* bound_bottom)
+{
+	if (bound_left && !*bound_left &&
+		get_eparam_bool(param, "bind_left", false))
+	{
+		*bound_left = true;
+	}
+	if (bound_right && !*bound_right && 
+		get_eparam_bool(param, "bind_right", false))
+	{
+		*bound_right = true;
+	}
+	if (bound_top && !*bound_top &&
+		get_eparam_bool(param, "bind_top", false))
+	{
+		*bound_top = true;
+	}
+	if (bound_bottom && !bound_bottom &&
+		get_eparam_bool(param, "bind_bottom", false))
+	{
+		*bound_bottom = true;
+	}
+}
+
+void set_expansion_bindings_vec(gs_eparam_t *param, bool* bound_left, bool* bound_right,
+	bool* bound_top, bool* bound_bottom) {
+
+	if (bound_left && !*bound_left && (
+		get_eparam_bool(param, "bind_left_x", false) ||
+		get_eparam_bool(param, "bind_left_y", false) ||
+		get_eparam_bool(param, "bind_left_z", false) ||
+		get_eparam_bool(param, "bind_left_w", false)))
+	{
+		*bound_left = true;
+	}
+	if (bound_right && !*bound_right && (
+		get_eparam_bool(param, "bind_right_x", false) ||
+		get_eparam_bool(param, "bind_right_y", false) ||
+		get_eparam_bool(param, "bind_right_z", false) ||
+		get_eparam_bool(param, "bind_right_w", false)))
+	{
+		*bound_right = true;
+	}
+	if (bound_top && !*bound_top && (
+		get_eparam_bool(param, "bind_top_x", false) ||
+		get_eparam_bool(param, "bind_top_y", false) ||
+		get_eparam_bool(param, "bind_top_z", false) ||
+		get_eparam_bool(param, "bind_top_w", false)))
+	{
+		*bound_top = true;
+	}
+	if (bound_bottom && !bound_bottom && (
+		get_eparam_bool(param, "bind_bottom_x", false) ||
+		get_eparam_bool(param, "bind_bottom_y", false) ||
+		get_eparam_bool(param, "bind_bottom_z", false) ||
+		get_eparam_bool(param, "bind_bottom_w", false)))
+	{
+		*bound_bottom = true;
+	}
+}
+
+void set_bind_value(bool *bound, int* binding, struct effect_param_data *param,
+	const char* name, bool is_float)
+{
+	if (bound && binding && !*bound)
+	{
+		if (get_eparam_bool(param->param, name, false)) {
+			if (is_float)
+				*binding = (int)param->value.f;
+			else
+				*binding = param->value.i;
+			*bound = true;
+		}
+	}
+}
+/*
+void set_bind_values(bool *bound_left, bool *bound_right, bool *bound_bottom,
+	bool *bound_top, *) {
+	set_bind_value(bound_left, &filter->expand_left,
+		param, "bind_left", true);
+	set_bind_value(bound_right, &filter->expand_right,
+		param, "bind_right", true);
+	set_bind_value(bound_bottom, &filter->expand_bottom,
+		param, "bind_bottom", true);
+	set_bind_value(bound_top, &filter->expand_top,
+		param, "bind_top", true);
+}
+*/
+
 static const char *shader_filter_texture_file_filter =
 "Textures (*.bmp *.tga *.png *.jpeg *.jpg *.gif);;";
 
@@ -748,14 +838,14 @@ static obs_properties_t *shader_filter_properties(void *data)
 		shader_filter_reload_effect_clicked);
 
 	//todo: use annotations to make these settings visible or not
-	obs_properties_add_int_slider(props, "expand_left",
-		obs_module_text("ShaderFilter.ExpandLeft"), 0, 9999, 1);
-	obs_properties_add_int_slider(props, "expand_right",
-		obs_module_text("ShaderFilter.ExpandRight"), 0, 9999, 1);
-	obs_properties_add_int_slider(props, "expand_top",
-		obs_module_text("ShaderFilter.ExpandTop"), 0, 9999, 1);
-	obs_properties_add_int_slider(props, "expand_bottom",
-		obs_module_text("ShaderFilter.ExpandBottom"), 0, 9999, 1);
+	obs_property_t *expand_left = obs_properties_add_int_slider(props, "expand_left",
+		obs_module_text("ShaderFilter.ExpandLeft"), -9999, 9999, 1);
+	obs_property_t *expand_right = obs_properties_add_int_slider(props, "expand_right",
+		obs_module_text("ShaderFilter.ExpandRight"), -9999, 9999, 1);
+	obs_property_t *expand_top = obs_properties_add_int_slider(props, "expand_top",
+		obs_module_text("ShaderFilter.ExpandTop"), -9999, 9999, 1);
+	obs_property_t *expand_bottom = obs_properties_add_int_slider(props, "expand_bottom",
+		obs_module_text("ShaderFilter.ExpandBottom"), -9999, 9999, 1);
 
 	obs_property_t *file_name = obs_properties_add_path(props,
 		"shader_file_name",
@@ -767,6 +857,12 @@ static obs_properties_t *shader_filter_properties(void *data)
 
 	obs_property_t *p = NULL;
 	size_t param_count = filter->stored_param_list.num;
+
+	bool bound_right = false;
+	bool bound_left = false;
+	bool bound_top = false;
+	bool bound_bottom = false;
+
 	for (size_t param_index = 0; param_index < param_count; param_index++)
 	{
 		struct effect_param_data *param =
@@ -847,6 +943,9 @@ static obs_properties_t *shader_filter_properties(void *data)
 		switch (param->type)
 		{
 		case GS_SHADER_PARAM_BOOL:
+			set_expansion_bindings(param->param, &bound_left,
+				&bound_right, &bound_top, &bound_bottom);
+
 			if (is_list) {
 				p = obs_properties_add_list(props, param_name,
 					param_desc, OBS_COMBO_TYPE_LIST,
@@ -874,6 +973,9 @@ static obs_properties_t *shader_filter_properties(void *data)
 			break;
 		case GS_SHADER_PARAM_FLOAT:
 		case GS_SHADER_PARAM_INT:
+			set_expansion_bindings(param->param, &bound_left,
+				&bound_right, &bound_top, &bound_bottom);
+
 			note = gs_param_get_annotation_by_name(param->param,
 				"is_slider");
 
@@ -914,6 +1016,9 @@ static obs_properties_t *shader_filter_properties(void *data)
 		case GS_SHADER_PARAM_INT2:
 		case GS_SHADER_PARAM_INT3:
 		case GS_SHADER_PARAM_INT4:
+			set_expansion_bindings_vec(param->param, &bound_left,
+				&bound_right, &bound_top, &bound_bottom);
+
 			is_slider = get_eparam_bool(param->param, "is_slider",
 				false);
 
@@ -927,6 +1032,9 @@ static obs_properties_t *shader_filter_properties(void *data)
 		case GS_SHADER_PARAM_VEC2:
 		case GS_SHADER_PARAM_VEC3:
 		case GS_SHADER_PARAM_VEC4:
+			set_expansion_bindings_vec(param->param, &bound_left,
+				&bound_right, &bound_top, &bound_bottom);
+
 			is_vec4 = param->type == GS_SHADER_PARAM_VEC4 &&
 				get_eparam_bool(param->param, "is_vec4", false);
 
@@ -965,13 +1073,27 @@ static obs_properties_t *shader_filter_properties(void *data)
 				OBS_PATH_FILE, shader_filter_texture_file_filter, NULL);
 			break;
 		}
+
 		param->is_vec4 = is_vec4;
 		param->is_list = is_list;
 		param->is_source = is_source;
 		param->is_media = is_media;
+
 		dstr_free(&n_param_name);
 		dstr_free(&n_param_desc);
 	}
+
+	obs_property_set_visible(expand_left,
+		!bound_left && filter->show_expansions);
+
+	obs_property_set_visible(expand_right,
+		!bound_right && filter->show_expansions);
+
+	obs_property_set_visible(expand_top,
+		!bound_top && filter->show_expansions);
+
+	obs_property_set_visible(expand_bottom,
+		!bound_bottom && filter->show_expansions);
 
 	dstr_free(&shaders_path);
 
@@ -986,21 +1108,36 @@ static void shader_filter_update(void *data, obs_data_t *settings)
 {
 	struct shader_filter_data *filter = data;
 
-	// Get expansions. Will be used in the video_tick() callback.
-	/*
-	filter->expand_left = (int)obs_data_get_int(settings, "expand_left");
-	filter->expand_right = (int)obs_data_get_int(settings, "expand_right");
-	filter->expand_top = (int)obs_data_get_int(settings, "expand_top");
-	filter->expand_bottom = (int)obs_data_get_int(settings,
-		"expand_bottom");
-	*/
-
+	obs_properties_t *props = obs_source_properties(filter->context);
+	obs_property_t *expand_left_prop = obs_properties_get(props, "expand_left");
+	obs_property_t *expand_right_prop = obs_properties_get(props, "expand_right");
+	obs_property_t *expand_top_prop = obs_properties_get(props, "expand_top");
+	obs_property_t *expand_bottom_prop = obs_properties_get(props, "expand_bottom");
+	
 	if (filter->reload_effect)
 	{
 		filter->reload_effect = false;
 		shader_filter_reload_effect(filter);
 		obs_source_update_properties(filter->context);
 	}
+
+	struct dstr bind_left;
+	bool bound_left = false;
+
+	struct dstr bind_right;
+	bool bound_right = false;
+
+	struct dstr bind_top;
+	bool bound_top = false;
+
+	struct dstr bind_bottom;
+	bool bound_bottom = false;
+
+	dstr_init_copy(&bind_left, "expand_left");
+	dstr_init_copy(&bind_right, "expand_right");
+	dstr_init_copy(&bind_top, "expand_top");
+	dstr_init_copy(&bind_bottom, "expand_bottom");
+
 
 	size_t param_count = filter->stored_param_list.num;
 	for (size_t param_index = 0; param_index < param_count; param_index++)
@@ -1015,10 +1152,12 @@ static void shader_filter_update(void *data, obs_data_t *settings)
 		struct dstr n_param_name_y;
 		struct dstr n_param_name_z;
 		struct dstr n_param_name_w;
+
 		dstr_init_copy(&n_param_name_x, param_name);
 		dstr_init_copy(&n_param_name_y, param_name);
 		dstr_init_copy(&n_param_name_z, param_name);
 		dstr_init_copy(&n_param_name_w, param_name);
+
 		dstr_cat(&n_param_name_x, ".x");
 		dstr_cat(&n_param_name_y, ".y");
 		dstr_cat(&n_param_name_z, ".z");
@@ -1037,10 +1176,28 @@ static void shader_filter_update(void *data, obs_data_t *settings)
 		case GS_SHADER_PARAM_FLOAT:
 			param->value.f = obs_data_get_double(settings,
 				param_name);
+			set_bind_value(&bound_left, &filter->expand_left,
+				param, "bind_left", true);
+			set_bind_value(&bound_right, &filter->expand_right,
+				param, "bind_right", true);
+			set_bind_value(&bound_bottom, &filter->expand_bottom,
+				param, "bind_bottom", true);
+			set_bind_value(&bound_top, &filter->expand_top,
+				param, "bind_top", true);
+
 			break;
 		case GS_SHADER_PARAM_INT:
 			param->value.i = obs_data_get_int(settings,
 				param_name);
+			set_bind_value(&bound_left, &filter->expand_left,
+				param, "bind_left", false);
+			set_bind_value(&bound_right, &filter->expand_right,
+				param, "bind_right", false);
+			set_bind_value(&bound_bottom, &filter->expand_bottom,
+				param, "bind_bottom", false);
+			set_bind_value(&bound_top, &filter->expand_top,
+				param, "bind_top", false);
+
 			break;
 		case GS_SHADER_PARAM_INT2:
 		case GS_SHADER_PARAM_INT3:
@@ -1049,16 +1206,65 @@ static void shader_filter_update(void *data, obs_data_t *settings)
 				n_param_name_x.array);
 			param->value.l4.y = obs_data_get_int(settings,
 				n_param_name_y.array);
+
+			set_bind_value(&bound_left, &filter->expand_left,
+				param, "bind_left_x", false);
+			set_bind_value(&bound_left, &filter->expand_left,
+				param, "bind_left_y", false);
+
+			set_bind_value(&bound_right, &filter->expand_right,
+				param, "bind_right_x", false);
+			set_bind_value(&bound_right, &filter->expand_right,
+				param, "bind_right_y", false);
+
+			set_bind_value(&bound_top, &filter->expand_top,
+				param, "bind_top_x", false);
+			set_bind_value(&bound_top, &filter->expand_top,
+				param, "bind_top_y", false);
+
+			set_bind_value(&bound_bottom, &filter->expand_bottom,
+				param, "bind_bottom_x", false);
+			set_bind_value(&bound_bottom, &filter->expand_bottom,
+				param, "bind_bottom_y", false);
+
+
 			if (param->type == GS_SHADER_PARAM_INT2) {
 				break;
 			}
 			param->value.l4.z = obs_data_get_int(settings,
 				n_param_name_z.array);
+
+			set_bind_value(&bound_left, &filter->expand_left,
+				param, "bind_left_z", false);
+
+			set_bind_value(&bound_right, &filter->expand_right,
+				param, "bind_right_z", false);
+
+			set_bind_value(&bound_top, &filter->expand_top,
+				param, "bind_top_z", false);
+
+			set_bind_value(&bound_bottom, &filter->expand_bottom,
+				param, "bind_bottom_z", false);
+
+
 			if (param->type == GS_SHADER_PARAM_INT3) {
 				break;
 			}
 			param->value.l4.w = obs_data_get_int(settings,
 				n_param_name_w.array);
+
+			set_bind_value(&bound_left, &filter->expand_left,
+				param, "bind_left_w", false);
+
+			set_bind_value(&bound_right, &filter->expand_right,
+				param, "bind_right_w", false);
+
+			set_bind_value(&bound_top, &filter->expand_top,
+				param, "bind_top_w", false);
+
+			set_bind_value(&bound_bottom, &filter->expand_bottom,
+				param, "bind_bottom_w", false);
+
 			break;
 		case GS_SHADER_PARAM_VEC2:
 		case GS_SHADER_PARAM_VEC3:
@@ -1066,15 +1272,48 @@ static void shader_filter_update(void *data, obs_data_t *settings)
 				settings, n_param_name_x.array);
 			param->value.v4.y = (float)obs_data_get_double(
 				settings, n_param_name_y.array);
-			if (param->type == GS_SHADER_PARAM_INT2) {
+
+			set_bind_value(&bound_left, &filter->expand_left,
+				param, "bind_left_x", true);
+			set_bind_value(&bound_left, &filter->expand_left,
+				param, "bind_left_y", true);
+
+			set_bind_value(&bound_right, &filter->expand_right,
+				param, "bind_right_x", true);
+			set_bind_value(&bound_right, &filter->expand_right,
+				param, "bind_right_y", true);
+
+			set_bind_value(&bound_top, &filter->expand_top,
+				param, "bind_top_x", true);
+			set_bind_value(&bound_top, &filter->expand_top,
+				param, "bind_top_y", true);
+
+			set_bind_value(&bound_bottom, &filter->expand_bottom,
+				param, "bind_bottom_x", true);
+			set_bind_value(&bound_bottom, &filter->expand_bottom,
+				param, "bind_bottom_y", true);
+
+			if (param->type == GS_SHADER_PARAM_VEC2) {
 				break;
 			}
+
 			param->value.v4.z = (float)obs_data_get_double(
 				settings, n_param_name_z.array);
+
+			set_bind_value(&bound_left, &filter->expand_left,
+				param, "bind_left_z", true);
+
+			set_bind_value(&bound_right, &filter->expand_right,
+				param, "bind_right_z", true);
+
+			set_bind_value(&bound_top, &filter->expand_top,
+				param, "bind_top_z", true);
+
+			set_bind_value(&bound_bottom, &filter->expand_bottom,
+				param, "bind_bottom_z", true);
+
 			break;
-		case GS_SHADER_PARAM_VEC4: // Assumed to be a color.
-			/*todo: assume nothing, when annotations are around*/
-			// Hack to ensure we have a default...
+		case GS_SHADER_PARAM_VEC4:
 			if (param->is_vec4) {
 				param->value.v4.x = (float)obs_data_get_double(
 					settings, n_param_name_x.array);
@@ -1084,6 +1323,43 @@ static void shader_filter_update(void *data, obs_data_t *settings)
 					settings, n_param_name_z.array);
 				param->value.v4.w = (float)obs_data_get_double(
 					settings, n_param_name_w.array);
+
+				set_bind_value(&bound_left, &filter->expand_left,
+					param, "bind_left_x", true);
+				set_bind_value(&bound_left, &filter->expand_left,
+					param, "bind_left_y", true);
+				set_bind_value(&bound_left, &filter->expand_left,
+					param, "bind_left_z", true);
+				set_bind_value(&bound_left, &filter->expand_left,
+					param, "bind_left_w", true);
+
+				set_bind_value(&bound_right, &filter->expand_right,
+					param, "bind_right_x", true);
+				set_bind_value(&bound_right, &filter->expand_right,
+					param, "bind_right_y", true);
+				set_bind_value(&bound_right, &filter->expand_right,
+					param, "bind_right_z", true);
+				set_bind_value(&bound_right, &filter->expand_right,
+					param, "bind_right_w", true);
+
+				set_bind_value(&bound_top, &filter->expand_top,
+					param, "bind_top_x", true);
+				set_bind_value(&bound_top, &filter->expand_top,
+					param, "bind_top_y", true);
+				set_bind_value(&bound_top, &filter->expand_top,
+					param, "bind_top_z", true);
+				set_bind_value(&bound_top, &filter->expand_top,
+					param, "bind_top_w", true);
+
+				set_bind_value(&bound_bottom, &filter->expand_bottom,
+					param, "bind_bottom_x", true);
+				set_bind_value(&bound_bottom, &filter->expand_bottom,
+					param, "bind_bottom_y", true);
+				set_bind_value(&bound_bottom, &filter->expand_bottom,
+					param, "bind_bottom_z", true);
+				set_bind_value(&bound_bottom, &filter->expand_bottom,
+					param, "bind_bottom_w", true);
+
 			} else {
 				obs_data_set_default_int(settings, param_name,
 					0xff000000);
@@ -1093,9 +1369,11 @@ static void shader_filter_update(void *data, obs_data_t *settings)
 			}
 			break;
 		case GS_SHADER_PARAM_TEXTURE:
-			/*an assumption is made here that the param being
-			used here is a plain old image...could easily be a
-			source (something to do w/ annotations)*/
+			param->is_source = get_eparam_bool(param->param,
+				"is_source", false);
+			param->is_media = get_eparam_bool(param->param,
+				"is_media", false);
+
 			if (param->is_source) {
 				if (!param->texrender)
 					param->texrender = gs_texrender_create(GS_RGBA, GS_ZS_NONE);
@@ -1145,11 +1423,23 @@ static void shader_filter_update(void *data, obs_data_t *settings)
 		dstr_free(&n_param_name_w);
 	}
 
-	filter->expand_left = (int)obs_data_get_int(settings, "expand_left");
-	filter->expand_right = (int)obs_data_get_int(settings, "expand_right");
-	filter->expand_top = (int)obs_data_get_int(settings, "expand_top");
-	filter->expand_bottom = (int)obs_data_get_int(settings,
-		"expand_bottom");
+	/* Get expansions if not already set. */
+	/* Will be used in the video_tick() callback. */
+	if (!bound_left)
+		filter->expand_left = (int)obs_data_get_int(settings,
+			"expand_left");
+		
+	if (!bound_right)
+		filter->expand_right = (int)obs_data_get_int(settings,
+			"expand_right");
+
+	if (!bound_top)
+		filter->expand_top = (int)obs_data_get_int(settings,
+			"expand_top");
+
+	if (!bound_bottom)
+		filter->expand_bottom = (int)obs_data_get_int(settings,
+			"expand_bottom");
 }
 
 static void shader_filter_tick(void *data, float seconds)
