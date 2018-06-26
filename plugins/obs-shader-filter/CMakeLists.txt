@@ -17,11 +17,12 @@ project(obs-shader-filter)
 #)
 
 set(obs-shader-filter_HEADERS
-
+	tinyexpr.h
 )
 
 set(obs-shader-filter_SOURCES
 	obs-shader-filter.c
+	tinyexpr.c
 )
 
 add_library(obs-shader-filter MODULE

@@ -9,8 +9,11 @@
 #include <limits.h>
 #include <stdio.h>
 
+#include "tinyexpr.h"
+
 OBS_DECLARE_MODULE()
 OBS_MODULE_USE_DEFAULT_LOCALE("obs_shader_filter", "en-US")
+#define blog(level, msg, ...) blog(level, "shader-filter: " msg, ##__VA_ARGS__)
 
 #define _MT obs_module_text
 
@@ -58,6 +61,21 @@ technique Draw\
 		pixel_shader = mainImage(v_in);\
 	}\
 }";
+double hlsl_clamp(double in, double min, double max) {
+	if (in < min)
+		return min;
+	if (in > max)
+		return max;
+	return in;
+}
+
+double float_max() {
+	return FLT_MAX;
+}
+
+double float_min() {
+	return FLT_MIN;
+}
 
 bool get_annotation_bool(gs_eparam_t *annotation, bool default_value)
 {
@@ -545,7 +563,7 @@ static void shader_filter_reload_effect(struct shader_filter_data *filter)
 {
 	obs_data_t *settings = obs_source_get_settings(filter->context);
 
-	// First, clean up the old effect and all references to it. 
+	/* First, clean up the old effect and all references to it. */
 	size_t param_count = filter->stored_param_list.num;
 	for (size_t param_index = 0; param_index < param_count; param_index++)
 	{
@@ -569,19 +587,19 @@ static void shader_filter_reload_effect(struct shader_filter_data *filter)
 		obs_leave_graphics();
 	}
 
-	//load text
+	/* load text */
 	const char *shader_text = NULL;
 
 	const char *file_name = obs_data_get_string(settings,
 		"shader_file_name");
 
-
+	/* load default effect text if no file is selected */
 	if (file_name && file_name[0] != '\0')
 		shader_text = os_quick_read_utf8_file(file_name);
 	else
 		shader_text = effect_template_default_image_shader;
 
-
+	/* load empty effect if file is empty / doesn't exist */
 	if (shader_text == NULL)
 		shader_text = "";
 
@@ -589,7 +607,7 @@ static void shader_filter_reload_effect(struct shader_filter_data *filter)
 
 	dstr_cat(&effect_text, shader_text);
 
-	// Create the effect. 
+	/* Create the effect. */ 
 	char *errors = NULL;
 
 	obs_enter_graphics();
@@ -607,7 +625,7 @@ static void shader_filter_reload_effect(struct shader_filter_data *filter)
 				"(None)" : errors));
 	}
 
-	// Store references to the new effect's parameters. 
+	/* Store references to the new effect's parameters. */
 	da_init(filter->stored_param_list);
 	size_t effect_count = gs_effect_get_num_params(filter->effect);
 	for (size_t effect_index = 0; effect_index < effect_count;
@@ -635,11 +653,9 @@ static void shader_filter_reload_effect(struct shader_filter_data *filter)
 			filter->show_expansions = get_eparam_bool(param,
 				"show_expansions", false);
 
-		else if	(strcmp(info.name, "image") == 0)
-		{
-			// Nothing.
-		} else
-		{
+		else if	(strcmp(info.name, "image") == 0) {
+			/* Nothing. */
+		} else {
 			struct effect_param_data *cached_data =
 				da_push_back_new(filter->stored_param_list);
 			dstr_copy(&cached_data->name, info.name);
@@ -792,27 +808,120 @@ void set_bind_value(bool *bound, int* binding, struct effect_param_data *param,
 	if (bound && binding && !*bound)
 	{
 		if (get_eparam_bool(param->param, name, false)) {
+#ifdef __TINYEXPR_H__
+			struct dstr formula_name;
+			dstr_init_copy(&formula_name, name);
+			dstr_cat(&formula_name, "_expr");
+			char *expression = get_eparam_string(param->param,
+				formula_name.array, "x");
+
+			if (expression && strcmp(expression, "x") != 0) {
+				double x;
+				if (is_float)
+					x = param->value.f;
+				else
+					x = param->value.i;
+				te_variable vars[] = {{"x", &x},
+					{"clamp", hlsl_clamp, TE_FUNCTION3},
+					{"float_max", float_max, TE_FUNCTION0},
+					{"float_min", float_min, TE_FUNCTION0}
+				};
+
+				int err;
+				te_expr *n = te_compile(expression, vars, 4,
+					&err);
+
+				if (n) {
+					*binding = (int)te_eval(n);
+					te_free(n);
+				} else {
+					*binding = x;
+					blog(LOG_WARNING, "Error in expression: %s", expression);
+				}
+			} else {
+				if (is_float)
+					*binding = (int)param->value.f;
+				else
+					*binding = param->value.i;
+			}
+
+			bfree(expression);
+			dstr_free(&formula_name);
+#else
 			if (is_float)
 				*binding = (int)param->value.f;
 			else
 				*binding = param->value.i;
+#endif
 			*bound = true;
 		}
 	}
 }
-/*
-void set_bind_values(bool *bound_left, bool *bound_right, bool *bound_bottom,
-	bool *bound_top, *) {
+
+
+void set_bind_values(bool *bound_left, bool *bound_right, bool *bound_top, bool *bound_bottom, struct effect_param_data *param, struct shader_filter_data *filter) {
+	int vec_num = obs_get_vec_num(param->type);
+	bool is_float = (param->type == GS_SHADER_PARAM_FLOAT ||
+		param->type == GS_SHADER_PARAM_VEC2 ||
+		param->type == GS_SHADER_PARAM_VEC3 ||
+		param->type == GS_SHADER_PARAM_VEC4);
+
+	if (vec_num == 1) {
+		set_bind_value(bound_left, &filter->expand_left,
+			param, "bind_left", is_float);
+		set_bind_value(bound_right, &filter->expand_right,
+			param, "bind_right", is_float);
+		set_bind_value(bound_top, &filter->expand_top,
+			param, "bind_top", is_float);
+		set_bind_value(bound_bottom, &filter->expand_bottom,
+			param, "bind_bottom", is_float);
+		return;
+	}
+
 	set_bind_value(bound_left, &filter->expand_left,
-		param, "bind_left", true);
+		param, "bind_left_x", is_float);
 	set_bind_value(bound_right, &filter->expand_right,
-		param, "bind_right", true);
-	set_bind_value(bound_bottom, &filter->expand_bottom,
-		param, "bind_bottom", true);
+		param, "bind_right_x", is_float);
 	set_bind_value(bound_top, &filter->expand_top,
-		param, "bind_top", true);
+		param, "bind_top_x", is_float);
+	set_bind_value(bound_bottom, &filter->expand_bottom,
+		param, "bind_bottom_x", is_float);
+
+	set_bind_value(bound_left, &filter->expand_left,
+		param, "bind_left_y", is_float);
+	set_bind_value(bound_right, &filter->expand_right,
+		param, "bind_right_y", is_float);
+	set_bind_value(bound_top, &filter->expand_top,
+		param, "bind_top_y", is_float);
+	set_bind_value(bound_bottom, &filter->expand_bottom,
+		param, "bind_bottom_y", is_float);
+
+
+	if (vec_num == 2)
+		return;
+
+	set_bind_value(bound_left, &filter->expand_left,
+		param, "bind_left_z", is_float);
+	set_bind_value(bound_right, &filter->expand_right,
+		param, "bind_right_z", is_float);
+	set_bind_value(bound_top, &filter->expand_top,
+		param, "bind_top_z", is_float);
+	set_bind_value(bound_bottom, &filter->expand_bottom,
+		param, "bind_bottom_z", is_float);
+
+
+	if (vec_num == 3)
+		return;
+
+	set_bind_value(bound_left, &filter->expand_left,
+		param, "bind_left_w", is_float);
+	set_bind_value(bound_right, &filter->expand_right,
+		param, "bind_right_w", is_float);
+	set_bind_value(bound_top, &filter->expand_top,
+		param, "bind_top_w", is_float);
+	set_bind_value(bound_bottom, &filter->expand_bottom,
+		param, "bind_bottom_w", is_float);
 }
-*/
 
 static const char *shader_filter_texture_file_filter =
 "Textures (*.bmp *.tga *.png *.jpeg *.jpg *.gif);;";
@@ -837,7 +946,6 @@ static obs_properties_t *shader_filter_properties(void *data)
 		obs_module_text("ShaderFilter.ReloadEffect"),
 		shader_filter_reload_effect_clicked);
 
-	//todo: use annotations to make these settings visible or not
 	obs_property_t *expand_left = obs_properties_add_int_slider(props, "expand_left",
 		obs_module_text("ShaderFilter.ExpandLeft"), -9999, 9999, 1);
 	obs_property_t *expand_right = obs_properties_add_int_slider(props, "expand_right",
@@ -1176,27 +1284,17 @@ static void shader_filter_update(void *data, obs_data_t *settings)
 		case GS_SHADER_PARAM_FLOAT:
 			param->value.f = obs_data_get_double(settings,
 				param_name);
-			set_bind_value(&bound_left, &filter->expand_left,
-				param, "bind_left", true);
-			set_bind_value(&bound_right, &filter->expand_right,
-				param, "bind_right", true);
-			set_bind_value(&bound_bottom, &filter->expand_bottom,
-				param, "bind_bottom", true);
-			set_bind_value(&bound_top, &filter->expand_top,
-				param, "bind_top", true);
+
+			set_bind_values(&bound_left, &bound_right, &bound_top,
+				&bound_bottom, param, filter);
 
 			break;
 		case GS_SHADER_PARAM_INT:
 			param->value.i = obs_data_get_int(settings,
 				param_name);
-			set_bind_value(&bound_left, &filter->expand_left,
-				param, "bind_left", false);
-			set_bind_value(&bound_right, &filter->expand_right,
-				param, "bind_right", false);
-			set_bind_value(&bound_bottom, &filter->expand_bottom,
-				param, "bind_bottom", false);
-			set_bind_value(&bound_top, &filter->expand_top,
-				param, "bind_top", false);
+
+			set_bind_values(&bound_left, &bound_right, &bound_top,
+				&bound_bottom, param, filter);
 
 			break;
 		case GS_SHADER_PARAM_INT2:
@@ -1207,63 +1305,28 @@ static void shader_filter_update(void *data, obs_data_t *settings)
 			param->value.l4.y = obs_data_get_int(settings,
 				n_param_name_y.array);
 
-			set_bind_value(&bound_left, &filter->expand_left,
-				param, "bind_left_x", false);
-			set_bind_value(&bound_left, &filter->expand_left,
-				param, "bind_left_y", false);
-
-			set_bind_value(&bound_right, &filter->expand_right,
-				param, "bind_right_x", false);
-			set_bind_value(&bound_right, &filter->expand_right,
-				param, "bind_right_y", false);
-
-			set_bind_value(&bound_top, &filter->expand_top,
-				param, "bind_top_x", false);
-			set_bind_value(&bound_top, &filter->expand_top,
-				param, "bind_top_y", false);
-
-			set_bind_value(&bound_bottom, &filter->expand_bottom,
-				param, "bind_bottom_x", false);
-			set_bind_value(&bound_bottom, &filter->expand_bottom,
-				param, "bind_bottom_y", false);
-
-
 			if (param->type == GS_SHADER_PARAM_INT2) {
+				set_bind_values(&bound_left, &bound_right,
+					&bound_top, &bound_bottom, param,
+					filter);
 				break;
 			}
+
 			param->value.l4.z = obs_data_get_int(settings,
 				n_param_name_z.array);
 
-			set_bind_value(&bound_left, &filter->expand_left,
-				param, "bind_left_z", false);
-
-			set_bind_value(&bound_right, &filter->expand_right,
-				param, "bind_right_z", false);
-
-			set_bind_value(&bound_top, &filter->expand_top,
-				param, "bind_top_z", false);
-
-			set_bind_value(&bound_bottom, &filter->expand_bottom,
-				param, "bind_bottom_z", false);
-
-
 			if (param->type == GS_SHADER_PARAM_INT3) {
+				set_bind_values(&bound_left, &bound_right,
+					&bound_top, &bound_bottom, param,
+					filter);
 				break;
 			}
+
 			param->value.l4.w = obs_data_get_int(settings,
 				n_param_name_w.array);
 
-			set_bind_value(&bound_left, &filter->expand_left,
-				param, "bind_left_w", false);
-
-			set_bind_value(&bound_right, &filter->expand_right,
-				param, "bind_right_w", false);
-
-			set_bind_value(&bound_top, &filter->expand_top,
-				param, "bind_top_w", false);
-
-			set_bind_value(&bound_bottom, &filter->expand_bottom,
-				param, "bind_bottom_w", false);
+			set_bind_values(&bound_left, &bound_right, &bound_top,
+				&bound_bottom, param, filter);
 
 			break;
 		case GS_SHADER_PARAM_VEC2:
@@ -1273,47 +1336,24 @@ static void shader_filter_update(void *data, obs_data_t *settings)
 			param->value.v4.y = (float)obs_data_get_double(
 				settings, n_param_name_y.array);
 
-			set_bind_value(&bound_left, &filter->expand_left,
-				param, "bind_left_x", true);
-			set_bind_value(&bound_left, &filter->expand_left,
-				param, "bind_left_y", true);
-
-			set_bind_value(&bound_right, &filter->expand_right,
-				param, "bind_right_x", true);
-			set_bind_value(&bound_right, &filter->expand_right,
-				param, "bind_right_y", true);
-
-			set_bind_value(&bound_top, &filter->expand_top,
-				param, "bind_top_x", true);
-			set_bind_value(&bound_top, &filter->expand_top,
-				param, "bind_top_y", true);
-
-			set_bind_value(&bound_bottom, &filter->expand_bottom,
-				param, "bind_bottom_x", true);
-			set_bind_value(&bound_bottom, &filter->expand_bottom,
-				param, "bind_bottom_y", true);
-
 			if (param->type == GS_SHADER_PARAM_VEC2) {
+				set_bind_values(&bound_left, &bound_right,
+					&bound_top, &bound_bottom, param,
+					filter);
 				break;
 			}
 
 			param->value.v4.z = (float)obs_data_get_double(
 				settings, n_param_name_z.array);
 
-			set_bind_value(&bound_left, &filter->expand_left,
-				param, "bind_left_z", true);
-
-			set_bind_value(&bound_right, &filter->expand_right,
-				param, "bind_right_z", true);
-
-			set_bind_value(&bound_top, &filter->expand_top,
-				param, "bind_top_z", true);
-
-			set_bind_value(&bound_bottom, &filter->expand_bottom,
-				param, "bind_bottom_z", true);
+			set_bind_values(&bound_left, &bound_right, &bound_top,
+				&bound_bottom, param, filter);
 
 			break;
 		case GS_SHADER_PARAM_VEC4:
+			param->is_vec4 = get_eparam_bool(param->param, "is_vec4",
+				false);
+
 			if (param->is_vec4) {
 				param->value.v4.x = (float)obs_data_get_double(
 					settings, n_param_name_x.array);
@@ -1324,41 +1364,9 @@ static void shader_filter_update(void *data, obs_data_t *settings)
 				param->value.v4.w = (float)obs_data_get_double(
 					settings, n_param_name_w.array);
 
-				set_bind_value(&bound_left, &filter->expand_left,
-					param, "bind_left_x", true);
-				set_bind_value(&bound_left, &filter->expand_left,
-					param, "bind_left_y", true);
-				set_bind_value(&bound_left, &filter->expand_left,
-					param, "bind_left_z", true);
-				set_bind_value(&bound_left, &filter->expand_left,
-					param, "bind_left_w", true);
-
-				set_bind_value(&bound_right, &filter->expand_right,
-					param, "bind_right_x", true);
-				set_bind_value(&bound_right, &filter->expand_right,
-					param, "bind_right_y", true);
-				set_bind_value(&bound_right, &filter->expand_right,
-					param, "bind_right_z", true);
-				set_bind_value(&bound_right, &filter->expand_right,
-					param, "bind_right_w", true);
-
-				set_bind_value(&bound_top, &filter->expand_top,
-					param, "bind_top_x", true);
-				set_bind_value(&bound_top, &filter->expand_top,
-					param, "bind_top_y", true);
-				set_bind_value(&bound_top, &filter->expand_top,
-					param, "bind_top_z", true);
-				set_bind_value(&bound_top, &filter->expand_top,
-					param, "bind_top_w", true);
-
-				set_bind_value(&bound_bottom, &filter->expand_bottom,
-					param, "bind_bottom_x", true);
-				set_bind_value(&bound_bottom, &filter->expand_bottom,
-					param, "bind_bottom_y", true);
-				set_bind_value(&bound_bottom, &filter->expand_bottom,
-					param, "bind_bottom_z", true);
-				set_bind_value(&bound_bottom, &filter->expand_bottom,
-					param, "bind_bottom_w", true);
+				set_bind_values(&bound_left, &bound_right,
+					&bound_top, &bound_bottom, param,
+					filter);
 
 			} else {
 				obs_data_set_default_int(settings, param_name,
@@ -1376,7 +1384,8 @@ static void shader_filter_update(void *data, obs_data_t *settings)
 
 			if (param->is_source) {
 				if (!param->texrender)
-					param->texrender = gs_texrender_create(GS_RGBA, GS_ZS_NONE);
+					param->texrender = gs_texrender_create(
+						GS_RGBA, GS_ZS_NONE);
 
 				obs_source_release(param->media_source);
 				param->media_source = obs_get_source_by_name(
@@ -1386,30 +1395,35 @@ static void shader_filter_update(void *data, obs_data_t *settings)
 				break;
 			} else if (param->is_media) {
 				if(!param->texrender)
-					param->texrender = gs_texrender_create(GS_RGBA, GS_ZS_NONE);
-				//obs_source_release
-				const char *path = obs_data_get_string(settings, param_name);
+					param->texrender = gs_texrender_create(
+						GS_RGBA, GS_ZS_NONE);
+				const char *path = obs_data_get_string(
+					settings, param_name);
 
 				obs_data_t *media_settings = obs_data_create();
-				obs_data_set_string(media_settings, "local_file", path);
+				obs_data_set_string(media_settings,
+					"local_file", path);
 
 				obs_source_release(param->media_source);
-				param->media_source = obs_source_create_private("ffmpeg_source", NULL,
-					media_settings);
+				param->media_source =
+					obs_source_create_private(
+						"ffmpeg_source", NULL,
+						media_settings);
+
 				obs_data_release(media_settings);
 				break;
 			} else {
 				if (param->image == NULL)
 				{
 					param->image = bzalloc(sizeof(gs_image_file_t));
-				} else
-				{
+				} else {
 					obs_enter_graphics();
 					gs_image_file_free(param->image);
 					obs_leave_graphics();
 				}
 				gs_image_file_init(param->image,
-					obs_data_get_string(settings, param_name));
+					obs_data_get_string(settings,
+						param_name));
 
 				obs_enter_graphics();
 				gs_image_file_init_texture(param->image);
@@ -1447,7 +1461,7 @@ static void shader_filter_tick(void *data, float seconds)
 	struct shader_filter_data *filter = data;
 	obs_source_t *target = obs_filter_get_target(filter->context);
 
-	// Determine offsets from expansion values.
+	/* Determine offsets from expansion values. */
 	int base_width = obs_source_get_base_width(target);
 	int base_height = obs_source_get_base_height(target);
 
@@ -1548,8 +1562,7 @@ static void shader_filter_render(void *data, gs_effect_t *effect)
 					&param->value.v4);
 				break;
 			case GS_SHADER_PARAM_VEC4:
-				/*assumption from earlier*, also something to
-				change w/ annotations*/
+				/* treat as color or vec4 */
 				if (param->is_vec4) {
 					gs_effect_set_vec4(param->param,
 						&param->value.v4);
@@ -1561,6 +1574,7 @@ static void shader_filter_render(void *data, gs_effect_t *effect)
 				}
 				break;
 			case GS_SHADER_PARAM_TEXTURE:
+				/* render texture from a source */
 				if (param->is_source || param->is_media) {
 					uint32_t media_cx = obs_source_get_width(param->media_source);
 					uint32_t media_cy = obs_source_get_height(param->media_source);
@@ -1590,7 +1604,7 @@ static void shader_filter_render(void *data, gs_effect_t *effect)
 
 					break;
 				}
-				//else, basic image texture
+				/* else use image file texture */
 				gs_effect_set_texture(param->param,
 					(param->image ? param->image->texture
 						: NULL));
