@@ -10,6 +10,7 @@
 #include <stdio.h>
 
 #include "tinyexpr.h"
+#include "random-number-generator.h"
 
 OBS_DECLARE_MODULE()
 OBS_MODULE_USE_DEFAULT_LOCALE("obs_shader_filter", "en-US")
@@ -61,6 +62,11 @@ technique Draw\
 		pixel_shader = mainImage(v_in);\
 	}\
 }";
+double hlsl_lerp(double a, double b, double f)
+{
+	return a + f * (b - a);
+}
+
 double hlsl_clamp(double in, double min, double max) {
 	if (in < min)
 		return min;
@@ -188,6 +194,7 @@ float get_annotation_float(gs_eparam_t *annotation, float default_value)
 float get_eparam_float(gs_eparam_t *param, const char* name, float default_value)
 {
 	gs_eparam_t *note = gs_param_get_annotation_by_name(param, name);
+	return get_annotation_float(note, default_value);
 }
 
 /* free w/ bfree */
@@ -306,6 +313,18 @@ void obs_properties_add_int_array(obs_properties_t *props,
 {
 	obs_properties_add_vec_prop(props, name, desc, min, max,
 		step, is_slider, false, vec_num);
+}
+
+static float jitter(const struct vec4 *v4) {
+	return random_number_jitter(v4->ptr[0],
+		v4->ptr[1],
+		v4->ptr[2],
+		v4->ptr[3]);
+}
+
+static float jitter_rand(const struct vec4 *v4, float min, float max) {
+	float r_num = (jitter(v4) + 1.0) / 2.0;
+	return hlsl_lerp(min, max, r_num);
 }
 
 void fill_int_list(obs_property_t *p, gs_eparam_t *param)
@@ -454,7 +473,7 @@ bool fill_properties_source_list(void *param, obs_source_t *source)
 	obs_property_t *p = (obs_property_t*)param;
 	uint32_t flags = obs_source_get_output_flags(source);
 	const char* source_name = obs_source_get_name(source);
-	if ((flags & OBS_SOURCE_VIDEO) != 0 && obs_source_active(source)) {
+	if ((flags & OBS_SOURCE_VIDEO) != 0) { //obs_source_active(source)
 		obs_property_list_add_string(p, source_name, source_name);
 	}
 	return true;
@@ -498,6 +517,8 @@ struct effect_param_data
 	bool is_source;
 	bool is_media;
 
+	bool randomize;
+
 	obs_source_t *media_source;
 	gs_texrender_t *texrender;
 
@@ -508,6 +529,14 @@ struct effect_param_data
 		struct vec4 v4;
 		struct long4 l4;
 	} value;
+
+	union
+	{
+		long long i;
+		double f;
+		struct vec4 v4;
+		struct long4 l4;
+	} opts;
 };
 
 void effect_param_data_release(struct effect_param_data *param) {
@@ -946,6 +975,7 @@ static obs_properties_t *shader_filter_properties(void *data)
 		obs_module_text("ShaderFilter.ReloadEffect"),
 		shader_filter_reload_effect_clicked);
 
+	/* these sliders are hidden unless otherwise asked for specifically */
 	obs_property_t *expand_left = obs_properties_add_int_slider(props, "expand_left",
 		obs_module_text("ShaderFilter.ExpandLeft"), -9999, 9999, 1);
 	obs_property_t *expand_right = obs_properties_add_int_slider(props, "expand_right",
@@ -999,6 +1029,7 @@ static obs_properties_t *shader_filter_properties(void *data)
 		bool is_media = false;
 		bool hide_descs = false;
 		bool hide_all_descs = false;
+		bool randomize = false;
 
 		/* extract annotations that we should expect */
 
@@ -1044,8 +1075,11 @@ static obs_properties_t *shader_filter_properties(void *data)
 			NULL;
 
 		int vec_num = 1;
+
 		bool is_list = get_eparam_bool(param->param, "is_list",
 			false);
+
+		randomize = get_eparam_bool(param->param, "randomize", false);
 
 		/*todo: control gui elements added via annotations*/
 		switch (param->type)
@@ -1053,6 +1087,9 @@ static obs_properties_t *shader_filter_properties(void *data)
 		case GS_SHADER_PARAM_BOOL:
 			set_expansion_bindings(param->param, &bound_left,
 				&bound_right, &bound_top, &bound_bottom);
+
+			if (randomize)
+				break;
 
 			if (is_list) {
 				p = obs_properties_add_list(props, param_name,
@@ -1074,6 +1111,7 @@ static obs_properties_t *shader_filter_properties(void *data)
 				obs_property_list_add_int(p, i_tmp ?
 					_MT(c_tmp) : c_tmp, 0);
 				bfree(c_tmp);
+				
 			} else {
 				obs_properties_add_bool(props, param_name,
 					param_desc);
@@ -1083,6 +1121,9 @@ static obs_properties_t *shader_filter_properties(void *data)
 		case GS_SHADER_PARAM_INT:
 			set_expansion_bindings(param->param, &bound_left,
 				&bound_right, &bound_top, &bound_bottom);
+
+			if (randomize)
+				break;
 
 			note = gs_param_get_annotation_by_name(param->param,
 				"is_slider");
@@ -1127,6 +1168,9 @@ static obs_properties_t *shader_filter_properties(void *data)
 			set_expansion_bindings_vec(param->param, &bound_left,
 				&bound_right, &bound_top, &bound_bottom);
 
+			if (randomize)
+				break;
+
 			is_slider = get_eparam_bool(param->param, "is_slider",
 				false);
 
@@ -1142,6 +1186,9 @@ static obs_properties_t *shader_filter_properties(void *data)
 		case GS_SHADER_PARAM_VEC4:
 			set_expansion_bindings_vec(param->param, &bound_left,
 				&bound_right, &bound_top, &bound_bottom);
+
+			if (randomize)
+				break;
 
 			is_vec4 = param->type == GS_SHADER_PARAM_VEC4 &&
 				get_eparam_bool(param->param, "is_vec4", false);
@@ -1271,9 +1318,22 @@ static void shader_filter_update(void *data, obs_data_t *settings)
 		dstr_cat(&n_param_name_z, ".z");
 		dstr_cat(&n_param_name_w, ".w");
 
+		param->randomize = get_eparam_bool(param->param, "randomize",
+			false);
+
 		switch (param->type)
 		{
 		case GS_SHADER_PARAM_BOOL:
+			if (param->randomize) {
+				param->opts.v4.ptr[0] = 0;
+				param->opts.v4.ptr[1] = 1;
+				param->opts.v4.ptr[2] = get_eparam_float(
+					param->param, "jitter", 0.5);
+				param->opts.v4.ptr[3] = get_eparam_float(
+					param->param, "strength", 0.05);
+				break;
+			}
+
 			if (param->is_list)
 				param->value.i = obs_data_get_int(settings,
 					param_name);
@@ -1282,6 +1342,19 @@ static void shader_filter_update(void *data, obs_data_t *settings)
 					param_name);
 			break;
 		case GS_SHADER_PARAM_FLOAT:
+			if (param->randomize) {
+				param->opts.v4.ptr[0] = get_eparam_float(
+					param->param, "min", 0);
+				param->opts.v4.ptr[1] = get_eparam_float(
+					param->param, "max", 0);
+				param->opts.v4.ptr[2] = get_eparam_float(
+					param->param, "jitter", 0.5
+				);
+				param->opts.v4.ptr[3] = get_eparam_float(
+					param->param, "strength", 0.05
+				);
+				break;
+			}
 			param->value.f = obs_data_get_double(settings,
 				param_name);
 
@@ -1290,6 +1363,20 @@ static void shader_filter_update(void *data, obs_data_t *settings)
 
 			break;
 		case GS_SHADER_PARAM_INT:
+			if (param->randomize) {
+				param->opts.v4.ptr[0] = get_eparam_float(
+					param->param, "min", 0);
+				param->opts.v4.ptr[1] = get_eparam_float(
+					param->param, "max", 0);
+				param->opts.v4.ptr[2] = get_eparam_float(
+					param->param, "jitter", 0.5
+				);
+				param->opts.v4.ptr[3] = get_eparam_float(
+					param->param, "strength", 0.05
+				);
+				break;
+			}
+
 			param->value.i = obs_data_get_int(settings,
 				param_name);
 
@@ -1300,6 +1387,20 @@ static void shader_filter_update(void *data, obs_data_t *settings)
 		case GS_SHADER_PARAM_INT2:
 		case GS_SHADER_PARAM_INT3:
 		case GS_SHADER_PARAM_INT4:
+			if (param->randomize) {
+				param->opts.v4.ptr[0] = get_eparam_float(
+					param->param, "min", 0);
+				param->opts.v4.ptr[1] = get_eparam_float(
+					param->param, "max", 0);
+				param->opts.v4.ptr[2] = get_eparam_float(
+					param->param, "jitter", 0.5
+				);
+				param->opts.v4.ptr[3] = get_eparam_float(
+					param->param, "strength", 0.05
+				);
+				break;
+			}
+
 			param->value.l4.x = obs_data_get_int(settings,
 				n_param_name_x.array);
 			param->value.l4.y = obs_data_get_int(settings,
@@ -1331,6 +1432,20 @@ static void shader_filter_update(void *data, obs_data_t *settings)
 			break;
 		case GS_SHADER_PARAM_VEC2:
 		case GS_SHADER_PARAM_VEC3:
+			if (param->randomize) {
+				param->opts.v4.ptr[0] = get_eparam_float(
+					param->param, "min", 0);
+				param->opts.v4.ptr[1] = get_eparam_float(
+					param->param, "max", 0);
+				param->opts.v4.ptr[2] = get_eparam_float(
+					param->param, "jitter", 0.5
+				);
+				param->opts.v4.ptr[3] = get_eparam_float(
+					param->param, "strength", 0.05
+				);
+				break;
+			}
+
 			param->value.v4.x = (float)obs_data_get_double(
 				settings, n_param_name_x.array);
 			param->value.v4.y = (float)obs_data_get_double(
@@ -1351,6 +1466,20 @@ static void shader_filter_update(void *data, obs_data_t *settings)
 
 			break;
 		case GS_SHADER_PARAM_VEC4:
+			if (param->randomize) {
+				param->opts.v4.ptr[0] = get_eparam_float(
+					param->param, "min", 0);
+				param->opts.v4.ptr[1] = get_eparam_float(
+					param->param, "max", 0);
+				param->opts.v4.ptr[2] = get_eparam_float(
+					param->param, "jitter", 0.5
+				);
+				param->opts.v4.ptr[3] = get_eparam_float(
+					param->param, "strength", 0.05
+				);
+				break;
+			}
+
 			param->is_vec4 = get_eparam_bool(param->param, "is_vec4",
 				false);
 
@@ -1526,43 +1655,197 @@ static void shader_filter_render(void *data, gs_effect_t *effect)
 			struct effect_param_data *param = (param_index +
 				filter->stored_param_list.array);
 			struct vec4 color;
+			float r_num;
+			float min;
+			float max;
 
 			switch (param->type)
 			{
 			case GS_SHADER_PARAM_BOOL:
+				if (param->randomize) {
+					param->value.i =
+						jitter(&param->opts.v4) >= 0;
+				}
+
 				gs_effect_set_bool(param->param,
 					param->value.i);
 				break;
 			case GS_SHADER_PARAM_FLOAT:
+				if (param->randomize) {
+					min = param->opts.v4.ptr[0];
+					max = param->opts.v4.ptr[1];
+					param->value.f =
+						jitter_rand(&param->opts.v4,
+							min, max);
+				}
+
 				gs_effect_set_float(param->param,
 					(float)param->value.f);
+
 				break;
 			case GS_SHADER_PARAM_INT:
+				if (param->randomize) {
+					min = param->opts.v4.ptr[0];
+					max = param->opts.v4.ptr[1];
+					param->value.i = (int)jitter_rand(
+						&param->opts.v4, min, max);
+				}
+
 				gs_effect_set_int(param->param,
 					(int)param->value.i);
+
 				break;
 			case GS_SHADER_PARAM_INT2:
+				if (param->randomize) {
+					min = param->opts.v4.ptr[0];
+					max = param->opts.v4.ptr[1];
+
+					param->value.l4.x = (int)jitter_rand(
+						&param->opts.v4, min, max);
+
+					param->opts.v4.x += 0.5;
+
+					param->value.l4.y = (int)jitter_rand(
+						&param->opts.v4, min, max);
+				}
+
 				gs_effect_set_vec2(param->param,
 					&param->value.l4);
 				break;
 			case GS_SHADER_PARAM_INT3:
+				if (param->randomize) {
+					min = param->opts.v4.ptr[0];
+					max = param->opts.v4.ptr[1];
+
+					param->value.l4.x = (int)jitter_rand(
+						&param->opts.v4, min, max);
+
+					param->opts.v4.x += 0.5;
+
+					param->value.l4.y = (int)jitter_rand(
+						&param->opts.v4, min, max);
+
+					param->opts.v4.y += 0.5;
+
+					param->value.l4.z = (int)jitter_rand(
+						&param->opts.v4, min, max);
+
+				}
+
 				gs_effect_set_vec3(param->param,
 					&param->value.l4);
 				break;
 			case GS_SHADER_PARAM_INT4:
+				if (param->randomize) {
+					min = param->opts.v4.ptr[0];
+					max = param->opts.v4.ptr[1];
+
+					param->value.l4.x = (int)jitter_rand(
+						&param->opts.v4, min, max);
+
+					param->opts.v4.x += 0.5;
+
+					param->value.l4.y = (int)jitter_rand(
+						&param->opts.v4, min, max);
+
+					param->opts.v4.y += 0.5;
+
+					param->value.l4.z = (int)jitter_rand(
+						&param->opts.v4, min, max);
+
+					param->opts.v4.x -= 0.5;
+
+					param->value.l4.w = (int)jitter_rand(
+						&param->opts.v4, min, max);
+				}
+
 				gs_effect_set_vec4(param->param,
 					&param->value.l4);
 				break;
 			case GS_SHADER_PARAM_VEC2:
+				if (param->randomize) {
+					min = param->opts.v4.ptr[0];
+					max = param->opts.v4.ptr[1];
+
+					param->value.v4.x = jitter_rand(
+						&param->opts.v4, min, max);
+
+					param->opts.v4.x += 0.5;
+
+					param->value.v4.y = jitter_rand(
+						&param->opts.v4, min, max);
+				}
+
 				gs_effect_set_vec2(param->param,
 					&param->value.v4);
 				break;
 			case GS_SHADER_PARAM_VEC3:
+				if (param->randomize) {
+					min = param->opts.v4.ptr[0];
+					max = param->opts.v4.ptr[1];
+
+					param->value.v4.x = jitter_rand(
+						&param->opts.v4, min, max);
+
+					param->opts.v4.x += 0.5;
+
+					param->value.v4.y = jitter_rand(
+						&param->opts.v4, min, max);
+
+					param->opts.v4.y += 0.5;
+
+					param->value.v4.z = jitter_rand(
+						&param->opts.v4, min, max);
+
+				}
+
 				gs_effect_set_vec3(param->param,
 					&param->value.v4);
 				break;
 			case GS_SHADER_PARAM_VEC4:
 				/* treat as color or vec4 */
+				if (param->randomize) {
+					min = param->opts.v4.ptr[0];
+					max = param->opts.v4.ptr[1];
+					if (param->is_vec4) {
+						param->value.v4.x = jitter_rand(
+							&param->opts.v4, min, max);
+
+						param->opts.v4.x += 0.5;
+
+						param->value.v4.y = jitter_rand(
+							&param->opts.v4, min, max);
+
+						param->opts.v4.y += 0.5;
+
+						param->value.v4.z = jitter_rand(
+							&param->opts.v4, min, max);
+
+						param->opts.v4.x -= 0.5;
+
+						param->value.v4.w = jitter_rand(
+							&param->opts.v4, min, max);
+					} else {
+						param->value.v4.x = (jitter(
+							&param->opts.v4) + 1.0) / 2.0;
+
+						param->opts.v4.x += 0.5;
+
+						param->value.v4.y = (jitter(
+							&param->opts.v4) + 1.0) / 2.0;
+
+						param->opts.v4.y += 0.5;
+
+						param->value.v4.z = (jitter(
+							&param->opts.v4) + 1.0) / 2.0;
+
+						param->opts.v4.x -= 0.5;
+
+						param->value.v4.w = (jitter(
+							&param->opts.v4) + 1.0) / 2.0;
+					}
+				}
+
 				if (param->is_vec4) {
 					gs_effect_set_vec4(param->param,
 						&param->value.v4);
