@@ -188,6 +188,7 @@ float get_annotation_float(gs_eparam_t *annotation, float default_value)
 float get_eparam_float(gs_eparam_t *param, const char* name, float default_value)
 {
 	gs_eparam_t *note = gs_param_get_annotation_by_name(param, name);
+	return get_annotation_float(note, default_value);
 }
 
 /* free w/ bfree */
