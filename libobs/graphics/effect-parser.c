@@ -294,6 +294,7 @@ static inline int ep_parse_param_annotation_var(struct effect_parser *ep,
 	if (code != PARSE_SUCCESS)
 		return code;
 
+	bfree(var->type);
 	cf_copy_token(&ep->cfp, &var->type);
 
 	/* -------------------------------------- */
@@ -315,6 +316,7 @@ static inline int ep_parse_param_annotation_var(struct effect_parser *ep,
 	if (code != PARSE_SUCCESS)
 		return code;
 
+	bfree(var->name);
 	cf_copy_token(&ep->cfp, &var->name);
 
 	/* -------------------------------------- */
@@ -1609,7 +1611,7 @@ static void ep_compile_annotations(struct darray *ep_annotations,
 		struct ep_param *param_in = ((struct ep_param *)ep_annotations->array)+i;
 
 		param->name = bstrdup(param_in->name);
-		param->section = EFFECT_PARAM;
+		param->section = EFFECT_ANNOTATION;
 		param->effect = ep->effect;
 		da_move(param->default_val, param_in->default_val);
 

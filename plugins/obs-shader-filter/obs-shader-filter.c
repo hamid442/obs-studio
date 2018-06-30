@@ -552,9 +552,12 @@ struct effect_param_data
 void effect_param_data_release(struct effect_param_data *param) {
 	dstr_free(&param->name);
 	dstr_free(&param->desc);
+
 	gs_texrender_destroy(param->texrender);
 	param->texrender = NULL;
+
 	obs_source_release(param->media_source);
+	param->media_source = NULL;
 
 	obs_enter_graphics();
 	gs_image_file_free(param->image);
@@ -639,11 +642,19 @@ static void shader_filter_reload_effect(struct shader_filter_data *filter)
 	}
 
 	da_free(filter->stored_param_list);
+	/* clear expression variables, they need to be refreshed */
+	da_free(filter->vars);
 
 	filter->param_elapsed_time = NULL;
 	filter->param_uv_offset = NULL;
 	filter->param_uv_pixel_interval = NULL;
 	filter->param_uv_scale = NULL;
+
+	/* make sure the expressions aren't considered bound yet */
+	filter->bind_left = false;
+	filter->bind_right = false;
+	filter->bind_top = false;
+	filter->bind_bottom = false;
 
 	if (filter->effect != NULL)
 	{
@@ -669,9 +680,8 @@ static void shader_filter_reload_effect(struct shader_filter_data *filter)
 	if (shader_text == NULL)
 		shader_text = "";
 
-	struct dstr effect_text = { 0 };
-
-	dstr_cat(&effect_text, shader_text);
+	struct dstr effect_text;
+	dstr_init_copy(&effect_text, shader_text);
 
 	/* Create the effect. */ 
 	char *errors = NULL;
@@ -692,6 +702,7 @@ static void shader_filter_reload_effect(struct shader_filter_data *filter)
 	}
 
 	/* Prepare propoerties for mathmatical expressions to use */
+	da_init(filter->vars);
 	te_variable px_bind[] = {
 		{ "elapsed_time", &filter->elapsed_time_bind.f },
 		{ "uv_scale_x", &filter->uv_scale_bind.x },
@@ -760,6 +771,8 @@ static void *shader_filter_create(obs_data_t *settings, obs_source_t *source)
 	filter->reload_effect = true;
 
 	dstr_init(&filter->last_path);
+	for (size_t i = 0; i < 4; i++)
+		dstr_init(&filter->expr[i]);
 
 	dstr_copy(&filter->last_path, obs_data_get_string(settings,
 		"shader_file_name"));
@@ -768,6 +781,7 @@ static void *shader_filter_create(obs_data_t *settings, obs_source_t *source)
 		"from_file");
 
 	da_init(filter->stored_param_list);
+	da_init(filter->vars);
 
 	obs_source_update(source, settings);
 
@@ -783,6 +797,9 @@ static void shader_filter_destroy(void *data)
 	size_t i;
 	for (i = 0; i < filter->stored_param_list.num; i++)
 		effect_param_data_release(&filter->stored_param_list.array[i]);
+
+	for (i = 0; i < 4; i++)
+		dstr_free(&filter->expr[i]);
 
 	da_free(filter->stored_param_list);
 	da_free(filter->vars);
@@ -889,6 +906,9 @@ void prep_bind_value(bool *bound, int* binding, struct effect_param_data *param,
 
 			char *expression = get_eparam_string(param->param,
 				formula_name.array, param->name.array);
+			dstr_free(&formula_name);
+
+			dstr_free(expr);
 			dstr_init_copy(expr, expression);
 
 			*bound = true;
@@ -896,6 +916,7 @@ void prep_bind_value(bool *bound, int* binding, struct effect_param_data *param,
 		/* update values */
 		const char* mixin = "xyzw";
 		for (size_t i = 0; i < 4; i++) {
+			dstr_free(&param->array_names[i]);
 			dstr_init_copy_dstr(&param->array_names[i],
 				&param->name);
 			dstr_cat(&param->array_names[i], "_");
@@ -1013,6 +1034,7 @@ void prep_bind_values(bool *bound_left, bool *bound_right, bool *bound_top,
 	const char *mixin = "xyzw";
 
 	struct dstr bind_name;
+	dstr_init(&bind_name);
 
 	if (vec_num == 1) {
 		for (size_t i = 0; i < 4; i++) {
@@ -1025,6 +1047,7 @@ void prep_bind_values(bool *bound_left, bool *bound_right, bool *bound_top,
 
 	for (size_t j = 0; j < vec_num; j++) {
 		for (size_t i = 1; i < 4; i++) {
+			dstr_free(&bind_name);
 			dstr_init_copy(&bind_name, bind_names[i]);
 			dstr_cat(&bind_name, "_");
 			dstr_ncat(&bind_name, mixin + j, 1);
@@ -1367,14 +1390,6 @@ static void shader_filter_update(void *data, obs_data_t *settings)
 	if (filter->reload_effect)
 	{
 		filter->reload_effect = false;
-		/* clear expression variables, they need to be refreshed */
-		da_free(filter->vars);
-		da_init(filter->vars);
-		/* make sure the expressions aren't considered bound yet */
-		filter->bind_left = false;
-		filter->bind_right = false;
-		filter->bind_top = false;
-		filter->bind_bottom = false;
 
 		prep_te_funcs(&filter->vars);
 		shader_filter_reload_effect(filter);
@@ -1393,6 +1408,7 @@ static void shader_filter_update(void *data, obs_data_t *settings)
 
 		/* get the property names (if this was meant to be an array) */
 		for (size_t i = 0; i < 4; i++) {
+			dstr_free(&param->array_names[i]);
 			dstr_init_copy(&param->array_names[i], param_name);
 			dstr_cat(&param->array_names[i], ".");
 			dstr_ncat(&param->array_names[i], mixin + i, 1);
@@ -1644,14 +1660,11 @@ static void shader_filter_render(void *data, gs_effect_t *effect)
 
 			switch (param->type)
 			{
-			case GS_SHADER_PARAM_BOOL:
-				gs_effect_set_bool(param->param,
-					param->value.i);
-				break;
 			case GS_SHADER_PARAM_FLOAT:
 				gs_effect_set_float(param->param,
 					(float)param->value.f);
 				break;
+			case GS_SHADER_PARAM_BOOL:
 			case GS_SHADER_PARAM_INT:
 				gs_effect_set_int(param->param,
 					(int)param->value.i);

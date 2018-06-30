@@ -176,21 +176,16 @@ struct ep_pass {
 	DARRAY(struct cf_token) vertex_program;
 	DARRAY(struct cf_token) fragment_program;
 	struct gs_effect_pass *pass;
-	DARRAY(struct ep_param) annotations;
 };
 
 static inline void ep_pass_init(struct ep_pass *epp)
 {
 	memset(epp, 0, sizeof(struct ep_pass));
-	da_init(epp->annotations);
 }
 
 static inline void ep_pass_free(struct ep_pass *epp)
 {
 	size_t i;
-
-	for (i = 0; i < epp->annotations.num; i++)
-		ep_param_free(epp->annotations.array + i);
 
 	bfree(epp->name);
 	da_free(epp->vertex_program);
@@ -203,13 +198,11 @@ static inline void ep_pass_free(struct ep_pass *epp)
 struct ep_technique {
 	char *name;
 	DARRAY(struct ep_pass) passes; /* struct ep_pass */
-	DARRAY(struct ep_param) annotations;
 };
 
 static inline void ep_technique_init(struct ep_technique *ept)
 {
 	memset(ept, 0, sizeof(struct ep_technique));
-	da_init(ept->annotations);
 }
 
 static inline void ep_technique_free(struct ep_technique *ept)
@@ -218,12 +211,9 @@ static inline void ep_technique_free(struct ep_technique *ept)
 
 	for (i = 0; i < ept->passes.num; i++)
 		ep_pass_free(ept->passes.array+i);
-	for (i = 0; i < ept->annotations.num; i++)
-		ep_param_free(ept->annotations.array + i);
 
 	bfree(ept->name);
 	da_free(ept->passes);
-	da_free(ept->annotations);
 }
 
 /* ------------------------------------------------------------------------- */
