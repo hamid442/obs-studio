@@ -68,6 +68,7 @@ struct gs_effect_param {
 static inline void effect_param_init(struct gs_effect_param *param)
 {
 	memset(param, 0, sizeof(struct gs_effect_param));
+	da_init(param->annotations);
 }
 
 static inline void effect_param_free(struct gs_effect_param *param)
@@ -80,6 +81,8 @@ static inline void effect_param_free(struct gs_effect_param *param)
 	size_t i;
 	for (i = 0; i < param->annotations.num; i++)
 		effect_param_free(param->annotations.array + i);
+
+	da_free(param->annotations);
 }
 
 EXPORT void effect_param_parse_property(gs_eparam_t *param,
