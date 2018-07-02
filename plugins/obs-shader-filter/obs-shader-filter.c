@@ -587,6 +587,7 @@ struct effect_param_data {
 	} te_bind;
 
 	size_t max_sidechain_frames;
+	size_t max_sidechain_buf_frames;
 	pthread_mutex_t sidechain_mutex;
 	struct circlebuf sidechain_data[MAX_AUDIO_CHANNELS];
 	float *sidechain_buf[MAX_AUDIO_CHANNELS];
@@ -804,7 +805,6 @@ static void shader_filter_reload_effect(struct shader_filter_data *filter)
 			dstr_copy(&cached_data->name, info.name);
 			cached_data->type = info.type;
 			cached_data->param = param;
-
 			if (pthread_mutex_init(&cached_data->sidechain_mutex, NULL) != 0) {
 				blog(LOG_ERROR, "Failed to create mutex");
 				blog(LOG_ERROR, "Removing Param: %s", info.name);
@@ -1164,6 +1164,17 @@ void render_source(struct effect_param_data *param, float source_cx,
 	gs_effect_set_texture(param->param, tex);
 }
 
+void resize_audio_buffers(struct effect_param_data *param, size_t samples)
+{
+	if (param->max_sidechain_buf_frames < samples) {
+		for (size_t i = 0; i < param->num_channels; i++)
+			param->sidechain_buf[i] = brealloc(
+				param->sidechain_buf[i],
+				samples * sizeof(float));
+		param->max_sidechain_buf_frames = samples;
+	}
+}
+
 static void sidechain_capture(void *p, obs_source_t *source,
 	const struct audio_data *audio_data, bool muted)
 {
@@ -1173,9 +1184,11 @@ static void sidechain_capture(void *p, obs_source_t *source,
 	/* MAX_AV_PLANES */
 	pthread_mutex_lock(&param->sidechain_mutex);
 
-	if (param->max_sidechain_frames < audio_data->frames)
+	if (param->max_sidechain_frames < audio_data->frames) {
 		param->max_sidechain_frames = audio_data->frames;
-
+		resize_audio_buffers(param, param->max_sidechain_frames);
+	}
+	
 	size_t expected_size = param->max_sidechain_frames * sizeof(float);
 
 	if (!expected_size)
@@ -1253,13 +1266,6 @@ void update_sidechain_callback(struct effect_param_data *param,
 	}
 }
 
-void resize_audio_buffers(struct effect_param_data *param, size_t samples)
-{
-	for (size_t i = 0; i < param->num_channels; i++)
-		param->sidechain_buf[i] = brealloc(param->sidechain_buf[i],
-			samples * sizeof(float));
-}
-
 static inline void get_sidechain_data(struct effect_param_data *param,
 	const uint32_t num_samples)
 {
@@ -1268,10 +1274,8 @@ static inline void get_sidechain_data(struct effect_param_data *param,
 		return;
 
 	pthread_mutex_lock(&param->sidechain_mutex);
-	if (param->max_sidechain_frames < num_samples) {
-		//resize_audio_buffers(param, num_samples);
+	if (param->max_sidechain_frames < num_samples)
 		param->max_sidechain_frames = num_samples;
-	}
 
 	if (param->sidechain_data[0].size < data_size) {
 		pthread_mutex_unlock(&param->sidechain_mutex);
@@ -1742,7 +1746,6 @@ static void shader_filter_update(void *data, obs_data_t *settings)
 				const char* source_name = obs_data_get_string(
 					settings, param_name);
 				update_sidechain_callback(param, source_name);
-				resize_audio_buffers(param, 1024);
 
 				break;
 			}
@@ -1936,11 +1939,7 @@ static void shader_filter_render(void *data, gs_effect_t *effect)
 
 					break;
 				}
-				/*
-				gs_texture_create(
-					image->cx, image->cy, image->format, 1,
-				(const uint8_t**)&image->texture_data, 0);
-				*/
+
 				if (param->is_audio_source) {
 					resize_audio_buffers(param, 1024);
 					get_sidechain_data(param, 1024);
