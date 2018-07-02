@@ -4,6 +4,8 @@
 #include <util/base.h>
 #include <util/dstr.h>
 #include <util/platform.h>
+#include <util/circlebuf.h>
+#include <util/threading.h>
 
 #include <float.h>
 #include <limits.h>
@@ -61,6 +63,9 @@ technique Draw\
 		pixel_shader = mainImage(v_in);\
 	}\
 }";
+
+static void sidechain_capture(void *p, obs_source_t *source,
+	const struct audio_data *audio_data, bool muted);
 
 double hlsl_clamp(double in, double min, double max)
 {
@@ -503,6 +508,23 @@ void fill_source_list(obs_property_t *p)
 	obs_enum_sources(&fill_properties_source_list, (void*)p);
 }
 
+bool fill_properties_audio_source_list(void *param, obs_source_t *source)
+{
+	obs_property_t *p = (obs_property_t*)param;
+	uint32_t flags = obs_source_get_output_flags(source);
+	const char* source_name = obs_source_get_name(source);
+
+	if ((flags & OBS_SOURCE_AUDIO) != 0 && obs_source_active(source)) {
+		obs_property_list_add_string(p, source_name, source_name);
+	}
+	return true;
+}
+
+void fill_audio_source_list(obs_property_t *p)
+{
+	obs_enum_sources(&fill_properties_audio_source_list, (void*)p);
+}
+
 int obs_get_vec_num(enum gs_shader_param_type type)
 {
 	switch (type) {
@@ -532,11 +554,13 @@ struct effect_param_data {
 	gs_eparam_t *param;
 
 	gs_image_file_t *image;
+	gs_texture_t *texture;
 
 	bool is_vec4;
 	bool is_list;
 	bool is_source;
 	bool is_media;
+	bool is_audio_source;
 
 	bool bound;
 
@@ -544,6 +568,9 @@ struct effect_param_data {
 	struct dstr array_names[4];
 
 	obs_source_t *media_source;
+	obs_weak_source_t *media_weak_source;
+	pthread_mutex_t sidechain_update_mutex;
+
 	gs_texrender_t *texrender;
 
 	/* These store the varieties of values passed to the shader */
@@ -558,6 +585,12 @@ struct effect_param_data {
 	union {
 		double f[4];
 	} te_bind;
+
+	size_t max_sidechain_frames;
+	pthread_mutex_t sidechain_mutex;
+	struct circlebuf sidechain_data[MAX_AUDIO_CHANNELS];
+	float *sidechain_buf[MAX_AUDIO_CHANNELS];
+	size_t num_channels;
 };
 
 void effect_param_data_release(struct effect_param_data *param)
@@ -568,8 +601,13 @@ void effect_param_data_release(struct effect_param_data *param)
 	gs_texrender_destroy(param->texrender);
 	param->texrender = NULL;
 
+	obs_source_remove_audio_capture_callback(param->media_source,
+		sidechain_capture, param);
+
 	obs_source_release(param->media_source);
 	param->media_source = NULL;
+
+	gs_texture_destroy(param->texture);
 
 	obs_enter_graphics();
 	gs_image_file_free(param->image);
@@ -581,6 +619,9 @@ void effect_param_data_release(struct effect_param_data *param)
 	size_t i;
 	for (i = 0; i < 4; i++)
 		dstr_free(&param->array_names[i]);
+
+	pthread_mutex_destroy(&param->sidechain_mutex);
+	pthread_mutex_destroy(&param->sidechain_update_mutex);
 }
 
 struct shader_filter_data {
@@ -763,6 +804,19 @@ static void shader_filter_reload_effect(struct shader_filter_data *filter)
 			dstr_copy(&cached_data->name, info.name);
 			cached_data->type = info.type;
 			cached_data->param = param;
+
+			if (pthread_mutex_init(&cached_data->sidechain_mutex, NULL) != 0) {
+				blog(LOG_ERROR, "Failed to create mutex");
+				blog(LOG_ERROR, "Removing Param: %s", info.name);
+				da_pop_back(filter->stored_param_list);
+			}
+
+			if (pthread_mutex_init(&cached_data->sidechain_update_mutex, NULL) != 0) {
+				pthread_mutex_destroy(&cached_data->sidechain_mutex);
+				blog(LOG_ERROR, "Failed to create mutex");
+				blog(LOG_ERROR, "Removing Param: %s", info.name);
+				da_pop_back(filter->stored_param_list);
+			}
 		}
 	}
 }
@@ -1110,6 +1164,140 @@ void render_source(struct effect_param_data *param, float source_cx,
 	gs_effect_set_texture(param->param, tex);
 }
 
+static void sidechain_capture(void *p, obs_source_t *source,
+	const struct audio_data *audio_data, bool muted)
+{
+	struct effect_param_data *param = p;
+
+	UNUSED_PARAMETER(source);
+	/* MAX_AV_PLANES */
+	pthread_mutex_lock(&param->sidechain_mutex);
+
+	if (param->max_sidechain_frames < audio_data->frames)
+		param->max_sidechain_frames = audio_data->frames;
+
+	size_t expected_size = param->max_sidechain_frames * sizeof(float);
+
+	if (!expected_size)
+		goto unlock;
+
+	if (param->sidechain_data[0].size > expected_size * 2) {
+		for (size_t i = 0; i < param->num_channels; i++) {
+			circlebuf_pop_front(&param->sidechain_data[i], NULL,
+				expected_size);
+		}
+	}
+
+	if (muted) {
+		for (size_t i = 0; i < param->num_channels; i++) {
+			circlebuf_push_back_zero(&param->sidechain_data[i],
+				audio_data->frames * sizeof(float));
+		}
+	} else {
+		for (size_t i = 0; i < param->num_channels; i++) {
+			circlebuf_push_back(&param->sidechain_data[i],
+				audio_data->data[i],
+				audio_data->frames * sizeof(float));
+		}
+	}
+
+unlock:
+	pthread_mutex_unlock(&param->sidechain_mutex);
+}
+
+void update_sidechain_callback(struct effect_param_data *param,
+	const char* new_source_name)
+{
+	if (new_source_name) {
+		obs_source_t *sidechain = new_source_name && *new_source_name ?
+			obs_get_source_by_name(new_source_name) : NULL;
+		/*
+		obs_weak_source_t *weak_sidechain = sidechain ?
+			obs_source_get_weak_source(sidechain) : NULL;
+			*/
+		obs_source_t *old_sidechain = param->media_source;
+		/*
+		obs_weak_source_t *old_weak_sidechain =
+			param->media_weak_source;
+			*/
+		const char *old_sidechain_name = obs_source_get_name(
+			old_sidechain);
+
+		/*
+		pthread_mutex_lock(&param->sidechain_update_mutex);
+
+		if (old_sidechain_name &&
+			strcmp(old_sidechain_name, new_source_name) == 0) {
+			obs_weak_source_release(param->media_weak_source);
+			param->media_weak_source = weak_sidechain;
+			weak_sidechain = NULL;
+		}
+
+		pthread_mutex_unlock(&param->sidechain_update_mutex);
+		*/
+		if (sidechain) {
+			if (old_sidechain) {
+				obs_source_remove_audio_capture_callback(
+					old_sidechain, sidechain_capture,
+					param);
+				obs_source_release(old_sidechain);
+			}
+
+			obs_source_add_audio_capture_callback(sidechain,
+				sidechain_capture, param);
+
+			param->media_source = sidechain;
+			//obs_weak_source_release(weak_sidechain);
+			//obs_source_release(sidechain);
+		}
+	}
+}
+
+void resize_audio_buffers(struct effect_param_data *param, size_t samples)
+{
+	for (size_t i = 0; i < param->num_channels; i++)
+		param->sidechain_buf[i] = brealloc(param->sidechain_buf[i],
+			samples * sizeof(float));
+}
+
+static inline void get_sidechain_data(struct effect_param_data *param,
+	const uint32_t num_samples)
+{
+	size_t data_size = num_samples * sizeof(float);
+	if (!data_size)
+		return;
+
+	pthread_mutex_lock(&param->sidechain_mutex);
+	if (param->max_sidechain_frames < num_samples) {
+		//resize_audio_buffers(param, num_samples);
+		param->max_sidechain_frames = num_samples;
+	}
+
+	if (param->sidechain_data[0].size < data_size) {
+		pthread_mutex_unlock(&param->sidechain_mutex);
+		goto clear;
+	}
+
+	for (size_t i = 0; i < param->num_channels; i++)
+		circlebuf_pop_front(&param->sidechain_data[i],
+			param->sidechain_buf[i], data_size);
+
+	pthread_mutex_unlock(&param->sidechain_mutex);
+	return;
+
+clear:
+	for (size_t i = 0; i < param->num_channels; i++)
+		memset(param->sidechain_buf[i], 0, data_size);
+}
+
+void render_audio_texture(struct effect_param_data *param, size_t samples)
+{
+	gs_texture_destroy(param->texture);
+	param->texture = gs_texture_create(samples,
+		param->num_channels, GS_R32F, 1, param->sidechain_buf, 0);
+	gs_effect_set_texture(param->param, param->texture);
+}
+
 static const char *shader_filter_texture_file_filter =
 "Textures (*.bmp *.tga *.png *.jpeg *.jpg *.gif);;";
 
@@ -1187,6 +1375,7 @@ static obs_properties_t *shader_filter_properties(void *data)
 		bool is_slider = false;
 		bool is_vec4 = false;
 		bool is_source = false;
+		bool is_audio_source = false;
 		bool is_media = false;
 		bool hide_descs = false;
 		bool hide_all_descs = false;
@@ -1356,6 +1545,17 @@ static obs_properties_t *shader_filter_properties(void *data)
 				fill_source_list(p);
 				break;
 			}
+			is_audio_source = get_eparam_bool(param->param,
+				"is_audio_source", false);
+			if (is_audio_source) {
+				p = obs_properties_add_list(props,
+					param_name, param_desc,
+					OBS_COMBO_TYPE_LIST,
+					OBS_COMBO_FORMAT_STRING);
+				fill_audio_source_list(p);
+				break;
+			}
+
 			is_media = get_eparam_bool(param->param, "is_media",
 				false);
 			if (is_media) {
@@ -1374,6 +1574,7 @@ static obs_properties_t *shader_filter_properties(void *data)
 		param->is_vec4 = is_vec4;
 		param->is_list = is_list;
 		param->is_source = is_source;
+		param->is_audio_source = is_audio_source;
 		param->is_media = is_media;
 
 		dstr_free(&n_param_name);
@@ -1412,6 +1613,9 @@ static void shader_filter_update(void *data, obs_data_t *settings)
 		obs_source_update_properties(filter->context);
 	}
 
+	const size_t num_channels =
+		audio_output_get_channels(obs_get_audio());
+
 	const char* mixin = "xyzw";
 	size_t param_count = filter->stored_param_list.num;
 	for (size_t param_index = 0; param_index < param_count; param_index++) {
@@ -1420,7 +1624,8 @@ static void shader_filter_update(void *data, obs_data_t *settings)
 		const char *param_name = param->name.array;
 		obs_property_t *prop = obs_properties_get(filter->props,
 			param_name);
-
+		param->num_channels = num_channels;
+		//param->num_channels = num_channels;
 		/* get the property names (if this was meant to be an array) */
 		for (size_t i = 0; i < 4; i++) {
 			dstr_free(&param->array_names[i]);
@@ -1516,8 +1721,6 @@ static void shader_filter_update(void *data, obs_data_t *settings)
 		case GS_SHADER_PARAM_TEXTURE:
 			param->is_source = get_eparam_bool(param->param,
 				"is_source", false);
-			param->is_media = get_eparam_bool(param->param,
-				"is_media", false);
 
 			if (param->is_source) {
 				if (!param->texrender)
@@ -1530,7 +1733,24 @@ static void shader_filter_update(void *data, obs_data_t *settings)
 						param_name)
 				);
 				break;
-			} else if (param->is_media) {
+			}
+
+			param->is_audio_source = get_eparam_bool(param->param,
+				"is_audio_source", false);
+
+			if (param->is_audio_source) {
+				const char* source_name = obs_data_get_string(
+					settings, param_name);
+				update_sidechain_callback(param, source_name);
+				resize_audio_buffers(param, 1024);
+
+				break;
+			}
+
+			param->is_media = get_eparam_bool(param->param,
+				"is_media", false);
+
+			if (param->is_media) {
 				if (!param->texrender)
 					param->texrender = gs_texrender_create(
 						GS_RGBA, GS_ZS_NONE);
@@ -1549,23 +1769,21 @@ static void shader_filter_update(void *data, obs_data_t *settings)
 
 				obs_data_release(media_settings);
 				break;
-			} else {
-				if (param->image == NULL) {
-					param->image = bzalloc(
-						sizeof(gs_image_file_t));
-				} else {
-					obs_enter_graphics();
-					gs_image_file_free(param->image);
-					obs_leave_graphics();
-				}
-				gs_image_file_init(param->image,
-					obs_data_get_string(settings,
-						param_name));
+			}
 
+			if (param->image == NULL) {
+				param->image = bzalloc(sizeof(gs_image_file_t));
+			} else {
 				obs_enter_graphics();
-				gs_image_file_init_texture(param->image);
+				gs_image_file_free(param->image);
 				obs_leave_graphics();
 			}
+			gs_image_file_init(param->image,
+				obs_data_get_string(settings, param_name));
+
+			obs_enter_graphics();
+			gs_image_file_init_texture(param->image);
+			obs_leave_graphics();
 			break;
 		}
 	}
@@ -1716,6 +1934,17 @@ static void shader_filter_render(void *data, gs_effect_t *effect)
 					render_source(param, source_cx,
 						source_cy);
 
+					break;
+				}
+				/*
+				gs_texture_create(
+					image->cx, image->cy, image->format, 1,
+				(const uint8_t**)&image->texture_data, 0);
+				*/
+				if (param->is_audio_source) {
+					resize_audio_buffers(param, 1024);
+					get_sidechain_data(param, 1024);
+					render_audio_texture(param, 1024);
 					break;
 				}
 				/* Otherwise use image file as texture */

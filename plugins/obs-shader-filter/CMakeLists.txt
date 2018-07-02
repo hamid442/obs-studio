@@ -16,6 +16,11 @@ project(obs-shader-filter)
 #	${Qt5Widgets_INCLUDES}
 #)
 
+if(MSVC)
+	set(obs-shader-filter_PLATFORM_DEPS
+		w32-pthreads)
+endif()
+
 set(obs-shader-filter_HEADERS
 	tinyexpr.h
 )
@@ -32,6 +37,7 @@ add_library(obs-shader-filter MODULE
 	
 target_link_libraries(obs-shader-filter
 	libobs
+	${obs-shader-filter_PLATFORM_DEPS}
 #	obs-frontend-api
 #	Qt5::Core
 #	Qt5::Widgets
