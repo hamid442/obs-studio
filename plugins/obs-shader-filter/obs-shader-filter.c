@@ -86,7 +86,11 @@ double hlsl_rad(double degrees)
 {
 	return degrees * (M_PI_D / 180.0);
 }
-
+const static double flt_max = FLT_MAX;
+const static double flt_min = FLT_MIN;
+const static double int_min = INT_MIN;
+const static double int_max = INT_MAX;
+/*
 double float_max()
 {
 	return FLT_MAX;
@@ -96,18 +100,24 @@ double float_min()
 {
 	return FLT_MIN;
 }
-
+*/
 /* Additional likely to be used functions for mathmatical expressions */
 void prep_te_funcs(struct darray *te_vars)
 {
 	te_variable funcs[] = {
 		{ "clamp", hlsl_clamp, TE_FUNCTION3 },
+		/*
 		{ "float_max", float_max, TE_FUNCTION0 },
 		{ "float_min", float_min, TE_FUNCTION0 },
+		*/
+		{ "float_max", &flt_max },
+		{ "float_min", &flt_min },
+		{ "int_max", &int_max },
+		{ "int_min", &int_min },
 		{ "degrees", hlsl_degrees, TE_FUNCTION1 },
 		{ "radians", hlsl_rad, TE_FUNCTION1 }
 	};
-	darray_push_back_array(sizeof(te_variable), te_vars, &funcs[0], 5);
+	darray_push_back_array(sizeof(te_variable), te_vars, &funcs[0], 7);
 }
 
 void append_te_variable(struct darray *te_vars, te_variable *v)
@@ -296,6 +306,15 @@ void obs_properties_add_numerical_prop(obs_properties_t *props,
 			step, is_slider);
 }
 
+void dstr_copy_cat(struct dstr *str, const char* start, const char* mid,
+	const char* end, size_t end_len)
+{
+	dstr_free(str);
+	dstr_copy(str, start);
+	dstr_cat(str, mid);
+	dstr_ncat(str, end, end_len);
+}
+
 void obs_properties_add_vec_prop(obs_properties_t *props,
 	const char *name, const char *desc, double min, double max,
 	double step, bool is_slider, bool is_float, int vec_num)
@@ -307,15 +326,8 @@ void obs_properties_add_vec_prop(obs_properties_t *props,
 	dstr_init(&n_param_desc);
 	int vec_count = vec_num <= 4 ? (vec_num >= 0 ? vec_num : 0) : 4;
 	for (int i = 0; i < vec_count; i++) {
-		dstr_free(&n_param_name);
-		dstr_copy(&n_param_name, name);
-		dstr_cat(&n_param_name, ".");
-		dstr_ncat(&n_param_name, mixin + i, 1);
-
-		dstr_free(&n_param_desc);
-		dstr_copy(&n_param_desc, desc);
-		dstr_cat(&n_param_desc, ".");
-		dstr_ncat(&n_param_desc, mixin + i, 1);
+		dstr_copy_cat(&n_param_name, name, ".", mixin + i, 1);
+		dstr_copy_cat(&n_param_desc, desc, ".", mixin + i, 1);
 
 		obs_properties_add_numerical_prop(props,
 			n_param_name.array, n_param_desc.array,
@@ -992,13 +1004,9 @@ void prep_bind_value(bool *bound, int* binding, struct effect_param_data *param,
 		}
 		/* update values */
 		const char* mixin = "xyzw";
-		for (size_t i = 0; i < 4; i++) {
-			dstr_free(&param->array_names[i]);
-			dstr_init_copy_dstr(&param->array_names[i],
-				&param->name);
-			dstr_cat(&param->array_names[i], "_");
-			dstr_ncat(&param->array_names[i], mixin + i, 1);
-		}
+		for (size_t i = 0; i < 4; i++)
+			dstr_copy_cat(&param->array_names[i],
+				param->name.array, "_", mixin + i, 1);
 
 		switch (param->type) {
 		case GS_SHADER_PARAM_BOOL:
@@ -1126,10 +1134,9 @@ void prep_bind_values(bool *bound_left, bool *bound_right, bool *bound_top,
 
 	for (size_t j = 0; j < vec_num; j++) {
 		for (size_t i = 1; i < 4; i++) {
-			dstr_free(&bind_name);
-			dstr_init_copy(&bind_name, bind_names[i]);
-			dstr_cat(&bind_name, "_");
-			dstr_ncat(&bind_name, mixin + j, 1);
+			dstr_copy_cat(&bind_name, bind_names[i], "_",
+				mixin + j, 1);
+
 			prep_bind_value(bounds[i], &filter->expand.ptr[i],
 				param, bind_name.array, is_float,
 				&filter->expr[i], &filter->vars.da);
@@ -1652,12 +1659,9 @@ static void shader_filter_update(void *data, obs_data_t *settings)
 		param->num_channels = num_channels;
 
 		/* get the property names (if this was meant to be an array) */
-		for (size_t i = 0; i < 4; i++) {
-			dstr_free(&param->array_names[i]);
-			dstr_init_copy(&param->array_names[i], param_name);
-			dstr_cat(&param->array_names[i], ".");
-			dstr_ncat(&param->array_names[i], mixin + i, 1);
-		}
+		for (size_t i = 0; i < 4; i++)
+			dstr_copy_cat(&param->array_names[i], param_name, ".",
+				mixin + i, 1);
 
 		int vec_num;
 
@@ -1997,7 +2001,6 @@ static uint32_t shader_filter_getheight(void *data)
 
 static void shader_filter_defaults(obs_data_t *settings)
 {
-
 }
 
 struct obs_source_info shader_filter = {
@@ -2025,4 +2028,5 @@ bool obs_module_load(void)
 
 void obs_module_unload(void)
 {
+	blog(LOG_INFO, "Unloading Shader-Filter");
 }
