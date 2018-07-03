@@ -590,7 +590,8 @@ struct effect_param_data {
 	size_t max_sidechain_buf_frames;
 	pthread_mutex_t sidechain_mutex;
 	struct circlebuf sidechain_data[MAX_AUDIO_CHANNELS];
-	float *sidechain_buf[MAX_AUDIO_CHANNELS];
+	//float *sidechain_buf[MAX_AUDIO_CHANNELS];
+	float *sidechain_buf;
 	size_t num_channels;
 };
 
@@ -599,20 +600,19 @@ void effect_param_data_release(struct effect_param_data *param)
 	dstr_free(&param->name);
 	dstr_free(&param->desc);
 
-	gs_texrender_destroy(param->texrender);
-	param->texrender = NULL;
-
 	obs_source_remove_audio_capture_callback(param->media_source,
 		sidechain_capture, param);
 
 	obs_source_release(param->media_source);
 	param->media_source = NULL;
 
-	gs_texture_destroy(param->texture);
-
 	obs_enter_graphics();
+	gs_texrender_destroy(param->texrender);
+	gs_texture_destroy(param->texture);
 	gs_image_file_free(param->image);
 	obs_leave_graphics();
+	param->texrender = NULL;
+	param->texture = NULL;
 
 	bfree(param->image);
 	param->image = NULL;
@@ -620,6 +620,12 @@ void effect_param_data_release(struct effect_param_data *param)
 	size_t i;
 	for (i = 0; i < 4; i++)
 		dstr_free(&param->array_names[i]);
+
+	for (size_t i = 0; i < MAX_AUDIO_CHANNELS; i++) {
+		circlebuf_free(&param->sidechain_data[i]);
+		//bfree(param->sidechain_buf[i]);
+	}
+	bfree(param->sidechain_buf);
 
 	pthread_mutex_destroy(&param->sidechain_mutex);
 	pthread_mutex_destroy(&param->sidechain_update_mutex);
@@ -1167,10 +1173,15 @@ void render_source(struct effect_param_data *param, float source_cx,
 void resize_audio_buffers(struct effect_param_data *param, size_t samples)
 {
 	if (param->max_sidechain_buf_frames < samples) {
+		param->sidechain_buf = brealloc(
+			param->sidechain_buf,
+			samples * sizeof(float) * param->num_channels);
+		/*
 		for (size_t i = 0; i < param->num_channels; i++)
 			param->sidechain_buf[i] = brealloc(
 				param->sidechain_buf[i],
 				samples * sizeof(float));
+				*/
 		param->max_sidechain_buf_frames = samples;
 	}
 }
@@ -1284,21 +1295,31 @@ static inline void get_sidechain_data(struct effect_param_data *param,
 
 	for (size_t i = 0; i < param->num_channels; i++)
 		circlebuf_pop_front(&param->sidechain_data[i],
+			&param->sidechain_buf[num_samples*i], data_size);
+		/*
+		circlebuf_pop_front(&param->sidechain_data[i],
 			param->sidechain_buf[i], data_size);
+			*/
 
 	pthread_mutex_unlock(&param->sidechain_mutex);
 	return;
 
 clear:
 	for (size_t i = 0; i < param->num_channels; i++)
+		memset(&param->sidechain_buf[num_samples*i], 0, data_size);
+		/*
 		memset(param->sidechain_buf[i], 0, data_size);
+		*/
 }
 
 void render_audio_texture(struct effect_param_data *param, size_t samples)
 {
+	obs_enter_graphics();
 	gs_texture_destroy(param->texture);
 	param->texture = gs_texture_create(samples,
-		param->num_channels, GS_R32F, 1, param->sidechain_buf, 0);
+		param->num_channels, GS_R32F, 1,
+		(const uint8_t**)&param->sidechain_buf, 0);
+	obs_leave_graphics();
 	gs_effect_set_texture(param->param, param->texture);
 }
 
@@ -1362,6 +1383,7 @@ static obs_properties_t *shader_filter_properties(void *data)
 		const char *param_name = param->name.array;
 		gs_eparam_t *note;
 		struct gs_effect_param_info note_info;
+		/* defaults for most parameters */
 		float f_min = -FLT_MAX;
 		float f_max = FLT_MAX;
 		float f_step = 1.0;
@@ -1429,7 +1451,6 @@ static obs_properties_t *shader_filter_properties(void *data)
 		bool is_list = get_eparam_bool(param->param, "is_list",
 			false);
 
-		/*todo: control gui elements added via annotations*/
 		switch (param->type) {
 		case GS_SHADER_PARAM_BOOL:
 			set_expansion_bindings(param->param, &bound_left,
@@ -1629,7 +1650,7 @@ static void shader_filter_update(void *data, obs_data_t *settings)
 		obs_property_t *prop = obs_properties_get(filter->props,
 			param_name);
 		param->num_channels = num_channels;
-		//param->num_channels = num_channels;
+
 		/* get the property names (if this was meant to be an array) */
 		for (size_t i = 0; i < 4; i++) {
 			dstr_free(&param->array_names[i]);
