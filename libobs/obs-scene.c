@@ -2003,6 +2003,19 @@ bool obs_sceneitem_locked(const obs_sceneitem_t *item)
 	return item ? item->locked : false;
 }
 
+bool obs_sceneitem_has_filters(const obs_sceneitem_t *item)
+{
+	obs_source_t *src = obs_sceneitem_get_source(item);
+	obs_data_t *settings = obs_source_get_settings(src);
+
+	obs_data_array_t *filters = obs_data_get_array(settings, "filters");
+	bool has_filters = (bool)obs_data_array_count(filters);
+
+	obs_data_array_release(filters);
+	obs_data_release(settings);
+	return has_filters;
+}
+
 bool obs_sceneitem_set_locked(obs_sceneitem_t *item, bool lock)
 {
 	if (!item)

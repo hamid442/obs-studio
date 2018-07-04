@@ -14,6 +14,7 @@ class SourceTree;
 class QSpacerItem;
 class QHBoxLayout;
 class LockedCheckBox;
+class FiltersCheckBox;
 class VisibilityCheckBox;
 class VisibilityItemWidget;
 
@@ -53,6 +54,7 @@ private:
 	QCheckBox *expand = nullptr;
 	VisibilityCheckBox *vis = nullptr;
 	LockedCheckBox *lock = nullptr;
+	FiltersCheckBox *filter = nullptr;
 	QHBoxLayout *boxLayout = nullptr;
 	QLabel *label = nullptr;
 

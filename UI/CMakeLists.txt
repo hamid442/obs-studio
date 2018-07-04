@@ -160,6 +160,7 @@ set(obs_SOURCES
 	volume-control.cpp
 	adv-audio-control.cpp
 	item-widget-helpers.cpp
+	filters-checkbox.cpp
 	visibility-checkbox.cpp
 	locked-checkbox.cpp
 	horizontal-scroll-area.cpp
@@ -210,6 +211,7 @@ set(obs_HEADERS
 	volume-control.hpp
 	adv-audio-control.hpp
 	item-widget-helpers.hpp
+	filters-checkbox.hpp
 	visibility-checkbox.hpp
 	locked-checkbox.hpp
 	horizontal-scroll-area.hpp

@@ -3,6 +3,7 @@
 #include "source-tree.hpp"
 #include "qt-wrappers.hpp"
 #include "visibility-checkbox.hpp"
+#include "filters-checkbox.hpp"
 #include "locked-checkbox.hpp"
 #include "expand-checkbox.hpp"
 
@@ -49,6 +50,12 @@ SourceTreeItem::SourceTreeItem(SourceTree *tree_, OBSSceneItem sceneitem_)
 	lock->setMaximumSize(16, 16);
 	lock->setChecked(obs_sceneitem_locked(sceneitem));
 
+	filter = new FiltersCheckBox();
+	filter->setSizePolicy(QSizePolicy::Maximum, QSizePolicy::Maximum);
+	filter->setMaximumSize(16, 16);
+	filter->setChecked(obs_sceneitem_has_filters(sceneitem));
+	//lock->setChecked();
+
 	label = new QLabel(QT_UTF8(name));
 	label->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Preferred);
 	label->setAlignment(Qt::AlignLeft | Qt::AlignVCenter);
@@ -65,6 +72,7 @@ SourceTreeItem::SourceTreeItem(SourceTree *tree_, OBSSceneItem sceneitem_)
 	boxLayout->addWidget(label);
 	boxLayout->addWidget(vis);
 	boxLayout->addWidget(lock);
+	boxLayout->addWidget(filter);
 
 	Update(false);
 
