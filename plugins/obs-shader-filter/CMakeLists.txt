@@ -22,10 +22,12 @@ if(MSVC)
 endif()
 
 set(obs-shader-filter_HEADERS
+	random-num.h
 	tinyexpr.h
 )
 
 set(obs-shader-filter_SOURCES
+	random-num.cpp
 	obs-shader-filter.c
 	tinyexpr.c
 )

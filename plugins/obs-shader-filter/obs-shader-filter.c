@@ -12,6 +12,7 @@
 #include <stdio.h>
 
 #include "tinyexpr.h"
+#include "random-num.h"
 
 OBS_DECLARE_MODULE()
 OBS_MODULE_USE_DEFAULT_LOCALE("obs_shader_filter", "en-US")
@@ -272,37 +273,39 @@ struct double2 {
 };
 
 /* Space saving functions (adding properties happens a lot) */
-void obs_properties_add_float_prop(obs_properties_t *props,
+obs_property_t *obs_properties_add_float_prop(obs_properties_t *props,
 	const char *name, const char *desc, double min, double max,
 	double step, bool is_slider)
 {
 	if (is_slider)
-		obs_properties_add_float_slider(props, name, desc, min, max,
-			step);
+		return obs_properties_add_float_slider(props, name, desc, min,
+			max, step);
 	else
-		obs_properties_add_float(props, name, desc, min, max, step);
+		return obs_properties_add_float(props, name, desc, min, max,
+			step);
 }
 
-void obs_properties_add_int_prop(obs_properties_t *props,
+obs_property_t *obs_properties_add_int_prop(obs_properties_t *props,
 	const char *name, const char *desc, int min, int max, int step,
 	bool is_slider)
 {
 	if (is_slider)
-		obs_properties_add_int_slider(props, name, desc, min, max,
-			step);
+		return obs_properties_add_int_slider(props, name, desc, min,
+			max, step);
 	else
-		obs_properties_add_int(props, name, desc, min, max, step);
+		return obs_properties_add_int(props, name, desc, min, max,
+			step);
 }
 
-void obs_properties_add_numerical_prop(obs_properties_t *props,
+obs_property_t *obs_properties_add_numerical_prop(obs_properties_t *props,
 	const char *name, const char *desc, double min, double max, double step,
 	bool is_slider, bool is_float)
 {
 	if (is_float)
-		obs_properties_add_float_prop(props, name, desc, min, max,
-			step, is_slider);
+		return obs_properties_add_float_prop(props, name, desc, min,
+			max, step, is_slider);
 	else
-		obs_properties_add_int_prop(props, name, desc, min, max,
+		return obs_properties_add_int_prop(props, name, desc, min, max,
 			step, is_slider);
 }
 
@@ -568,11 +571,16 @@ struct effect_param_data {
 	gs_image_file_t *image;
 	gs_texture_t *texture;
 
+	double min;
+	double max;
+	double step;
+
 	bool is_vec4;
 	bool is_list;
 	bool is_source;
 	bool is_media;
 	bool is_audio_source;
+	bool is_random;
 
 	bool bound;
 
@@ -1341,9 +1349,11 @@ static obs_properties_t *shader_filter_properties(void *data)
 	struct shader_filter_data *filter = data;
 
 	struct dstr shaders_path = { 0 };
+	/*
 	dstr_init(&shaders_path);
 	dstr_cat(&shaders_path, obs_get_module_data_path(obs_current_module()));
 	dstr_cat(&shaders_path, "/shaders");
+	*/
 
 	obs_properties_t *props = obs_properties_create();
 
@@ -1370,7 +1380,8 @@ static obs_properties_t *shader_filter_properties(void *data)
 	obs_property_t *file_name = obs_properties_add_path(props,
 		"shader_file_name",
 		obs_module_text("ShaderFilter.ShaderFileName"), OBS_PATH_FILE,
-		NULL, shaders_path.array);
+		NULL, NULL);
+	/* shaders_path.array */
 
 	obs_property_set_modified_callback(file_name,
 		shader_filter_file_name_changed);
@@ -1457,6 +1468,8 @@ static obs_properties_t *shader_filter_properties(void *data)
 		int vec_num = 1;
 		bool is_list = get_eparam_bool(param->param, "is_list",
 			false);
+		bool is_random = get_eparam_bool(param->param, "is_random",
+			false);
 
 		switch (param->type) {
 		case GS_SHADER_PARAM_BOOL:
@@ -1484,9 +1497,12 @@ static obs_properties_t *shader_filter_properties(void *data)
 					_MT(c_tmp) : c_tmp, 0);
 				bfree(c_tmp);
 			} else {
-				obs_properties_add_bool(props, param_name,
+				p = obs_properties_add_bool(props, param_name,
 					param_desc);
 			}
+
+			param->min = 0;
+			param->max = 1;
 			break;
 		case GS_SHADER_PARAM_FLOAT:
 		case GS_SHADER_PARAM_INT:
@@ -1515,13 +1531,21 @@ static obs_properties_t *shader_filter_properties(void *data)
 					fill_int_list(p, param->param);
 			} else {
 				if (is_float)
-					obs_properties_add_float_prop(props,
+					p = obs_properties_add_float_prop(props,
 						param_name, param_desc, f_min,
 						f_max, f_step, is_slider);
 				else
-					obs_properties_add_int_prop(props,
+					p = obs_properties_add_int_prop(props,
 						param_name, param_desc, i_min,
 						i_max, i_step, is_slider);
+			}
+
+			if (is_float) {
+				param->min = f_min;
+				param->max = f_max;
+			} else {
+				param->min = i_min;
+				param->max = i_max;
 			}
 
 			break;
@@ -1540,6 +1564,8 @@ static obs_properties_t *shader_filter_properties(void *data)
 				param_name, param_desc, i_min, i_max, i_step,
 				is_slider, vec_num);
 
+			param->min = i_min;
+			param->max = i_max;
 			break;
 		case GS_SHADER_PARAM_VEC2:
 		case GS_SHADER_PARAM_VEC3:
@@ -1554,6 +1580,8 @@ static obs_properties_t *shader_filter_properties(void *data)
 			if (!is_vec4 && param->type == GS_SHADER_PARAM_VEC4) {
 				obs_properties_add_color(props, param_name,
 					param_desc);
+				param->min = 0;
+				param->max = 1;
 				break;
 			}
 			is_slider = get_eparam_bool(param->param, "is_slider",
@@ -1565,6 +1593,8 @@ static obs_properties_t *shader_filter_properties(void *data)
 				param_name, param_desc, f_min, f_max, f_step,
 				is_slider, vec_num);
 
+			param->min = f_min;
+			param->max = f_max;
 			break;
 		case GS_SHADER_PARAM_TEXTURE:
 			is_source = get_eparam_bool(param->param, "is_source",
@@ -1665,6 +1695,8 @@ static void shader_filter_update(void *data, obs_data_t *settings)
 
 		int vec_num;
 
+		param->is_random = get_eparam_bool(param->param,
+			"is_random", false);
 		/* assign the value of the parameter from the properties */
 		/* we take advantage of doing this step to "cache" values */
 		switch (param->type) {
@@ -1916,35 +1948,102 @@ static void shader_filter_render(void *data, gs_effect_t *effect)
 			//gs_effect_set_val(param-param, param->value.l4,)
 			switch (param->type) {
 			case GS_SHADER_PARAM_FLOAT:
-				gs_effect_set_float(param->param,
-					(float)param->value.f);
+				if(param->is_random)
+					gs_effect_set_float(param->param,
+						(float)rand_double(param->min,
+							param->max));
+				else
+					gs_effect_set_float(param->param,
+						(float)param->value.f);
 				break;
 			case GS_SHADER_PARAM_BOOL:
 			case GS_SHADER_PARAM_INT:
-				gs_effect_set_int(param->param,
-					(int)param->value.i);
+				if (param->is_random)
+					gs_effect_set_int(param->param,
+						rand_int((int)param->min,
+						(int)param->max));
+				else
+					gs_effect_set_int(param->param,
+						(int)param->value.i);
 				break;
 			case GS_SHADER_PARAM_INT2:
+				if (param->is_random) {
+					param->value.l4.ptr[0] = rand_int(
+						(int)param->min,
+						(int)param->max);
+					param->value.l4.ptr[1] = rand_int(
+						(int)param->min,
+						(int)param->max);
+				}
 				gs_effect_set_vec2(param->param,
 					&param->value.l4);
 				break;
 			case GS_SHADER_PARAM_INT3:
+				if (param->is_random) {
+					param->value.l4.ptr[0] = rand_int(
+						(int)param->min,
+						(int)param->max);
+					param->value.l4.ptr[1] = rand_int(
+						(int)param->min,
+						(int)param->max);
+					param->value.l4.ptr[2] = rand_int(
+						(int)param->min,
+						(int)param->max);
+				}
 				gs_effect_set_vec3(param->param,
 					&param->value.l4);
 				break;
 			case GS_SHADER_PARAM_INT4:
+				if (param->is_random) {
+					param->value.l4.ptr[0] = rand_int(
+						(int)param->min,
+						(int)param->max);
+					param->value.l4.ptr[1] = rand_int(
+						(int)param->min,
+						(int)param->max);
+					param->value.l4.ptr[2] = rand_int(
+						(int)param->min,
+						(int)param->max);
+					param->value.l4.ptr[3] = rand_int(
+						(int)param->min,
+						(int)param->max);
+				}
 				gs_effect_set_vec4(param->param,
 					&param->value.l4);
 				break;
 			case GS_SHADER_PARAM_VEC2:
+				if (param->is_random) {
+					param->value.v4.ptr[0] = rand_double(
+						param->min, param->max);
+					param->value.v4.ptr[1] = rand_double(
+						param->min, param->max);
+				}
 				gs_effect_set_vec2(param->param,
 					&param->value.v4);
 				break;
 			case GS_SHADER_PARAM_VEC3:
+				if (param->is_random) {
+					param->value.v4.ptr[0] = rand_double(
+						param->min, param->max);
+					param->value.v4.ptr[1] = rand_double(
+						param->min, param->max);
+					param->value.v4.ptr[2] = rand_double(
+						param->min, param->max);
+				}
 				gs_effect_set_vec3(param->param,
 					&param->value.v4);
 				break;
 			case GS_SHADER_PARAM_VEC4:
+				if (param->is_random) {
+					param->value.v4.ptr[0] = rand_double(
+						param->min, param->max);
+					param->value.v4.ptr[1] = rand_double(
+						param->min, param->max);
+					param->value.v4.ptr[2] = rand_double(
+						param->min, param->max);
+					param->value.v4.ptr[3] = rand_double(
+						param->min, param->max);
+				}
 				/* Treat as color or vec4 */
 				if (param->is_vec4) {
 					gs_effect_set_vec4(param->param,
