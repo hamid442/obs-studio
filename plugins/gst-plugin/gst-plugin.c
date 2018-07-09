@@ -64,23 +64,17 @@ static void *video_thread(void *data)
 	GstBuffer *gstBuf;
 	GstMapInfo map;
 	GstCaps *caps;
-    GstStructure *s;
+    	GstStructure *s;
 	gint width, height;
 	char argc, argv;
 	gboolean res;
 
 
 	struct gst_tex   *rt = data;
-	uint8_t  pixels[720000];
-	uint64_t cur_time = os_gettime_ns();
+	uint64_t cur_time;// = os_gettime_ns();	
 
-	struct obs_source_frame frame = {
-		.data     = {[0] = (uint8_t *)pixels},
-		.linesize[0] = 800*3,
-		.width    = 800,
-		.height   = 600,
-		.format   = VIDEO_FORMAT_BGRX
-	};
+	struct obs_source_frame frame = { 0 };
+	frame.format = VIDEO_FORMAT_BGRX;
 
 	gst_init (&argc, &argv);
 	pipeline = gst_parse_launch ("videotestsrc pattern=18 ! videoconvert ! video/x-raw,fornat=BGRx,width=800,height=600 ! queue ! appsink name=sink ", NULL);
@@ -98,23 +92,31 @@ static void *video_thread(void *data)
 
 	while (os_event_try(rt->stop_signal) == EAGAIN) {
 		//fill_texture(pixels);
-		blog(LOG_INFO, "GST Sample: waiting");
+		//blog(LOG_INFO, "GST Sample: waiting");
 		gstSample = gst_app_sink_pull_sample(appsink);
-		blog(LOG_INFO, "GST Sample: have");
+		//blog(LOG_INFO, "GST Sample: have");
 		caps = gst_sample_get_caps (gstSample);
 		s = gst_caps_get_structure (caps, 0);
 		res = gst_structure_get_int (s, "width", &width);
 		res |= gst_structure_get_int (s, "height", &height);
-		blog(LOG_INFO, "GST Sample: width: %d",width);
-		blog(LOG_INFO, "GST Sample: height: %d", height);
+		//blog(LOG_INFO, "GST Sample: width: %d",width);
+		//blog(LOG_INFO, "GST Sample: height: %d", height);
 		
 		gstBuf = gst_sample_get_buffer(gstSample);
-		if (gst_buffer_extract(gstBuf, 0, &pixels, 720000) > 0) {
+		size_t buf_size = width*height*4;
+		if(frame.width != width || frame.height != height){
+			if(frame.data[0])
+				bfree(frame.data[0]);
+			frame.data[0] = (uint8_t*)bmalloc(buf_size);
+			frame.linesize = width*4;
+		}
+		cur_time = os_gettime_ns();
+		if (gst_buffer_extract(gstBuf, 0, frame.data[0], buf_size) > 0) {
 		//if (gst_buffer_map (gstBuf, &map, GST_MAP_READ)) {
-			blog(LOG_INFO, "GST Sample: address %u", map.data);
-			blog(LOG_INFO, "GST Sample: datasize: %u", map.size);
+			//blog(LOG_INFO, "GST Sample: address %u", map.data);
+			//blog(LOG_INFO, "GST Sample: datasize: %u", map.size);
 			//pixels = *map.data;
-			blog(LOG_INFO, "copying %d bytes from %u to %u",map.size, map.data,*pixels);
+			//blog(LOG_INFO, "copying %d bytes from %u to %x",map.size, map.data, pixels);
 			//memcpy(pixels,&map.data,map.size);
 			frame.timestamp = cur_time;
 			
@@ -124,7 +126,9 @@ static void *video_thread(void *data)
 		gst_sample_unref (gstSample);
 		os_sleepto_ns(cur_time += 250000000);
 	}
-
+	if(frame.data[0])
+		bfree(frame.data[0]);
+	
 	gst_element_set_state (pipeline, GST_STATE_NULL);
 	gst_object_unref (pipeline);
 
