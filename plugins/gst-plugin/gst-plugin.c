@@ -108,7 +108,7 @@ static void *video_thread(void *data)
 			if(frame.data[0])
 				bfree(frame.data[0]);
 			frame.data[0] = (uint8_t*)bmalloc(buf_size);
-			frame.linesize = width*4;
+			frame.linesize[0] = width * 4;
 		}
 		cur_time = os_gettime_ns();
 		if (gst_buffer_extract(gstBuf, 0, frame.data[0], buf_size) > 0) {
