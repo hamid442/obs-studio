@@ -573,6 +573,10 @@ struct effect_param_data {
 
 	gs_texrender_t *texrender;
 
+	bool update_expr_per_frame[4];
+	bool has_expr[4];
+	struct dstr expr[4];
+
 	/* These store the varieties of values passed to the shader */
 	union {
 		long long i;
@@ -669,6 +673,8 @@ struct shader_filter_data {
 		bool bind[4];
 	};
 
+	bool bind_update_per_frame[4];
+
 	bool show_expansions;
 
 	int total_width;
@@ -688,6 +694,7 @@ struct shader_filter_data {
 	} elapsed_time_bind;
 
 	DARRAY(struct effect_param_data) stored_param_list;
+	DARRAY(struct effect_param_data*) eval_param_list;
 };
 
 void update_filter_cache(struct shader_filter_data *filter, gs_eparam_t *param)
@@ -1090,7 +1097,7 @@ void prep_bind_value(bool *bound, int *binding, struct effect_param_data *param,
 void bind_compile(int *binding, te_variable *vars, const char *expression,
 		int count)
 {
-	if (expression && strcmp(expression, "x") != 0) {
+	if (expression && strcmp(expression, "") != 0) {
 		int err;
 		te_expr *n = te_compile(expression, vars, count, &err);
 
@@ -1109,6 +1116,104 @@ void bind_compile(int *binding, te_variable *vars, const char *expression,
 	}
 }
 
+void bind_compile_float(float *binding, te_variable *vars,
+		const char *expression, int count)
+{
+	if (expression && strcmp(expression, "") != 0) {
+		int err;
+		te_expr *n = te_compile(expression, vars, count, &err);
+
+		if (n) {
+			*binding = (float)te_eval(n);
+			te_free(n);
+		} else {
+			*binding = 0;
+			blog(LOG_WARNING,
+				"Error in expression: %.*s<< error "
+				"here >>%s",
+				err, expression, expression + err);
+		}
+	} else {
+		*binding = 0;
+	}
+}
+
+void bind_compile_double(double *binding, te_variable *vars,
+	const char *expression, int count)
+{
+	if (expression && strcmp(expression, "") != 0) {
+		int err;
+		te_expr *n = te_compile(expression, vars, count, &err);
+
+		if (n) {
+			*binding = te_eval(n);
+			te_free(n);
+		} else {
+			*binding = 0;
+			blog(LOG_WARNING,
+				"Error in expression: %.*s<< error "
+				"here >>%s",
+				err, expression, expression + err);
+		}
+	} else {
+		*binding = 0;
+	}
+}
+
+void eval_param(struct effect_param_data *param,
+		struct shader_filter_data *filter)
+{
+	size_t i;
+	switch (param->type) {
+	case GS_SHADER_PARAM_BOOL:
+	case GS_SHADER_PARAM_INT:
+		if (param->has_expr[0]) {
+			param->value.l4.ptr[0] = 0;
+			bind_compile(&param->value.l4.ptr[1], &filter->vars.array[0],
+				param->expr[0].array,
+				(int)filter->vars.num);
+		}
+		param->te_bind.f[0] = (double)param->value.i;
+		break;
+	case GS_SHADER_PARAM_FLOAT:
+		if (param->has_expr[0]) {
+			bind_compile_double(&param->value.f, &filter->vars.array[0],
+				param->expr[0].array,
+				(int)filter->vars.num);
+		}
+		param->te_bind.f[0] = param->value.f;
+		break;
+	case GS_SHADER_PARAM_INT2:
+	case GS_SHADER_PARAM_INT3:
+	case GS_SHADER_PARAM_INT4:
+		for (i = 0; i < 4; i++) {
+			if (param->has_expr[i]) {
+				bind_compile(&param->value.l4.ptr[i],
+						&filter->vars.array[0],
+						param->expr[i].array,
+						(int)filter->vars.num);
+			}
+			param->te_bind.f[i] =
+				(double)param->value.l4.ptr[i];
+		}
+		break;
+	case GS_SHADER_PARAM_VEC2:
+	case GS_SHADER_PARAM_VEC3:
+	case GS_SHADER_PARAM_VEC4:
+		for (i = 0; i < 4; i++) {
+			if (param->has_expr[i]) {
+				bind_compile_float(&param->value.v4.ptr[i],
+					&filter->vars.array[0],
+					param->expr[i].array,
+					(int)filter->vars.num);
+			}
+			param->te_bind.f[i] =
+				(double)param->value.v4.ptr[i];
+		}
+		break;
+	}
+}
+
 void prep_bind_values(bool *bound_left, bool *bound_right, bool *bound_top,
 		bool *bound_bottom, struct effect_param_data *param,
 		struct shader_filter_data *filter)
@@ -1123,18 +1228,44 @@ void prep_bind_values(bool *bound_left, bool *bound_right, bool *bound_top,
 
 	const char *bind_names[4] = {
 			"bind_left", "bind_right", "bind_top", "bind_bottom"};
+	const char *expr_names = "expr";
 	const char *mixin = "xyzw";
 
 	struct dstr bind_name;
+	struct dstr expr_name;
 	dstr_init(&bind_name);
+	dstr_init(&expr_name);
 
 	size_t i;
 	size_t j;
 	if (vec_num == 1) {
+		dstr_free(&param->expr[0]);
+		char *expr = get_eparam_string(param->param, expr_names, NULL);
+		dstr_copy(&param->expr[0], expr);
+		bfree(expr);
+		if (!param->has_expr[0] && param->expr[0].array) {
+			param->has_expr[0] = true;
+			param->update_expr_per_frame[0] = get_eparam_bool(
+					param->param, "update_expr_per_frame",
+					false);
+			darray_push_back(sizeof(struct effect_param_data*),
+				&filter->eval_param_list, &param);
+		} else if (param->has_expr[0] && !param->expr[0].array) {
+			darray_erase_item(sizeof(struct effect_param_data*),
+				&filter->eval_param_list, &param);
+			param->has_expr[0] = false;
+		}
+
 		for (i = 0; i < 4; i++) {
 			prep_bind_value(bounds[i], &filter->expand.ptr[i],
 					param, bind_names[i], is_float,
 					&filter->expr[i], &filter->vars.da);
+			if (!filter->bind_update_per_frame[i] && *bounds[i] &&
+					param->update_expr_per_frame[0] &&
+					dstr_find(&filter->expr[i],
+					param->name.array)) {
+				filter->bind_update_per_frame[i] = true;
+			}
 		}
 
 		dstr_free(&bind_name);
@@ -1142,13 +1273,51 @@ void prep_bind_values(bool *bound_left, bool *bound_right, bool *bound_top,
 	}
 
 	for (j = 0; j < vec_num; j++) {
-		for (i = 1; i < 4; i++) {
+		dstr_copy_cat(&expr_name, expr_names, "_", mixin + j, 1);
+		dstr_free(&param->expr[j]);
+		char *expr = get_eparam_string(param->param, expr_name.array,
+				NULL);
+		dstr_copy(&param->expr[j], expr);
+		bfree(expr);
+
+		if (!param->has_expr[j] && param->expr[j].array) {
+			for (i = 0; i < 4; i++)
+				if (param->has_expr[i])
+					break;
+			/* we've never added this param */
+			if (i >= 4) {
+				darray_push_back(sizeof(struct effect_param_data*),
+					&filter->eval_param_list, &param);
+			}
+			param->update_expr_per_frame[j] =
+				get_eparam_bool(param->param,
+					"update_expr_per_frame", false);
+			param->has_expr[j] = true;
+		} else if (param->has_expr[j] && !param->expr[j].array) {
+			param->has_expr[0] = false;
+			for (i = 0; i < 4; i++)
+				if (param->has_expr[i])
+					break;
+			param->update_expr_per_frame[j] = false;
+			if (i >= 4) {
+				darray_erase_item(sizeof(struct effect_param_data*),
+					&filter->eval_param_list, &param);
+			}
+		}
+
+		for (i = 0; i < 4; i++) {
 			dstr_copy_cat(&bind_name, bind_names[i], "_", mixin + j,
 					1);
 
 			prep_bind_value(bounds[i], &filter->expand.ptr[i],
 					param, bind_name.array, is_float,
 					&filter->expr[i], &filter->vars.da);
+			if (!filter->bind_update_per_frame[i] && *bounds[i] &&
+				param->update_expr_per_frame[i] &&
+				dstr_find(&filter->expr[i],
+					param->name.array)) {
+				filter->bind_update_per_frame[i] = true;
+			}
 		}
 	}
 
@@ -1716,6 +1885,9 @@ void get_graphics_parameters(struct effect_param_data *param,
 		struct shader_filter_data *filter, obs_data_t *settings)
 {
 	const char *param_name = param->name.array;
+	bool empty[4] = { 0 };
+	if (memcmp(&param->has_expr[0], &empty[0], sizeof(bool) * 4) != 0)
+		return;
 	int vec_num;
 	/* assign the value of the parameter from the properties */
 	/* we take advantage of doing this step to "cache" values */
@@ -1727,6 +1899,8 @@ void get_graphics_parameters(struct effect_param_data *param,
 		else
 			param->value.i =
 					obs_data_get_bool(settings, param_name);
+
+		prep_param(filter, param);
 		break;
 	case GS_SHADER_PARAM_FLOAT:
 		param->value.f = (float)obs_data_get_double(
@@ -1885,10 +2059,25 @@ static void shader_filter_update(void *data, obs_data_t *settings)
 			update_graphics_paramters(param, src_cx, src_cy);
 	}
 
+	/* Eval parameters */
+	bool empty[4] = { 0 };
+	param_count = filter->eval_param_list.num;
+	for (i = 0; i < param_count; i++) {
+		struct effect_param_data *param =
+			*(filter->eval_param_list.array + i);
+		if (memcmp(&param->update_expr_per_frame[0], &empty[0],
+				sizeof(bool)*4) == 0) {
+			eval_param(param, filter);
+		}
+	}
+
 	/* Calculate the stretch of the size of the source via expression */
 	for (i = 0; i < 4; i++) {
-		bind_compile(&filter->expand.ptr[i], &filter->vars.array[0],
-				filter->expr[i].array, (int)filter->vars.num);
+		if (!filter->bind_update_per_frame[0])
+			bind_compile(&filter->expand.ptr[i],
+				&filter->vars.array[0],
+				filter->expr[i].array,
+				(int)filter->vars.num);
 	}
 
 	/* Calculate expansions if not already set. */
@@ -1914,6 +2103,27 @@ static void shader_filter_tick(void *data, float seconds)
 {
 	struct shader_filter_data *filter = (struct shader_filter_data *)data;
 	obs_source_t *target = obs_filter_get_target(filter->context);
+
+	bool empty[4] = { 0 };
+	size_t i;
+	size_t param_count = filter->eval_param_list.num;
+	for (i = 0; i < param_count; i++) {
+		struct effect_param_data *param =
+			*(filter->eval_param_list.array + i);
+		if (memcmp(&param->update_expr_per_frame[0], &empty[0],
+			sizeof(bool) * 4) != 0) {
+			eval_param(param, filter);
+		}
+	}
+
+	/* Calculate the stretch of the size of the source via expression */
+	for (i = 0; i < 4; i++) {
+		if(filter->bind_update_per_frame[0])
+			bind_compile(&filter->expand.ptr[i],
+					&filter->vars.array[0],
+					filter->expr[i].array,
+					(int)filter->vars.num);
+	}
 
 	/* Determine offsets from expansion values. */
 	int base_width  = obs_source_get_base_width(target);
