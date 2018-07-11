@@ -622,8 +622,10 @@ void effect_param_data_release(struct effect_param_data *param)
 	param->image = NULL;
 
 	size_t i;
-	for (i = 0; i < 4; i++)
+	for (i = 0; i < 4; i++) {
 		dstr_free(&param->array_names[i]);
+		dstr_free(&param->expr[i]);
+	}
 
 	for (i = 0; i < MAX_AUDIO_CHANNELS; i++)
 		circlebuf_free(&param->sidechain_data[i]);
@@ -718,7 +720,7 @@ void update_filter_cache(struct shader_filter_data *filter, gs_eparam_t *param)
 	} else {
 		struct effect_param_data *cached_data =
 				da_push_back_new(filter->stored_param_list);
-		dstr_copy(&cached_data->name, info.name);
+		dstr_init_copy(&cached_data->name, info.name);
 		cached_data->type  = info.type;
 		cached_data->param = param;
 		if (pthread_mutex_init(&cached_data->sidechain_mutex, NULL) !=
@@ -729,7 +731,7 @@ void update_filter_cache(struct shader_filter_data *filter, gs_eparam_t *param)
 		}
 
 		if (pthread_mutex_init(&cached_data->sidechain_update_mutex,
-				    NULL) != 0) {
+				NULL) != 0) {
 			pthread_mutex_destroy(&cached_data->sidechain_mutex);
 			blog(LOG_ERROR, "Failed to create mutex");
 			blog(LOG_ERROR, "Removing Param: %s", info.name);
@@ -750,6 +752,7 @@ static void shader_filter_reload_effect(struct shader_filter_data *filter)
 	}
 
 	da_free(filter->stored_param_list);
+	da_free(filter->eval_param_list);
 	/* clear expression variables, they need to be refreshed */
 	da_free(filter->vars);
 
@@ -798,7 +801,6 @@ static void shader_filter_reload_effect(struct shader_filter_data *filter)
 
 	obs_enter_graphics();
 	gs_effect_destroy(filter->effect);
-	filter->effect = NULL;
 	filter->effect = gs_effect_create(shader_text, NULL, &errors);
 	obs_leave_graphics();
 
@@ -866,6 +868,7 @@ static void *shader_filter_create(obs_data_t *settings, obs_source_t *source)
 			obs_data_get_string(settings, "shader_file_name"));
 
 	da_init(filter->stored_param_list);
+	da_init(filter->eval_param_list);
 	da_init(filter->vars);
 
 	obs_source_update(source, settings);
@@ -893,6 +896,7 @@ static void shader_filter_destroy(void *data)
 	obs_leave_graphics();
 
 	da_free(filter->stored_param_list);
+	da_free(filter->eval_param_list);
 	da_free(filter->vars);
 
 	bfree(filter);
@@ -1248,6 +1252,8 @@ void prep_bind_values(bool *bound_left, bool *bound_right, bool *bound_top,
 			param->update_expr_per_frame[0] = get_eparam_bool(
 					param->param, "update_expr_per_frame",
 					false);
+			if(param->update_expr_per_frame[0])
+				param->update_per_frame = true;
 			darray_push_back(sizeof(struct effect_param_data*),
 				&filter->eval_param_list, &param);
 		} else if (param->has_expr[0] && !param->expr[0].array) {
@@ -1261,9 +1267,11 @@ void prep_bind_values(bool *bound_left, bool *bound_right, bool *bound_top,
 					param, bind_names[i], is_float,
 					&filter->expr[i], &filter->vars.da);
 			if (!filter->bind_update_per_frame[i] && *bounds[i] &&
-					param->update_expr_per_frame[0] &&
+					((param->update_expr_per_frame[0] &&
 					dstr_find(&filter->expr[i],
-					param->name.array)) {
+						param->name.array)) ||
+					dstr_find(&filter->expr[i],
+						"elapsed_time"))) {
 				filter->bind_update_per_frame[i] = true;
 			}
 		}
@@ -1281,25 +1289,27 @@ void prep_bind_values(bool *bound_left, bool *bound_right, bool *bound_top,
 		bfree(expr);
 
 		if (!param->has_expr[j] && param->expr[j].array) {
-			for (i = 0; i < 4; i++)
+			for (i = 0; i < vec_num; i++)
 				if (param->has_expr[i])
 					break;
 			/* we've never added this param */
-			if (i >= 4) {
+			if (i >= vec_num) {
 				darray_push_back(sizeof(struct effect_param_data*),
 					&filter->eval_param_list, &param);
 			}
 			param->update_expr_per_frame[j] =
 				get_eparam_bool(param->param,
 					"update_expr_per_frame", false);
+			if (param->update_expr_per_frame[j])
+				param->update_per_frame = true;
 			param->has_expr[j] = true;
 		} else if (param->has_expr[j] && !param->expr[j].array) {
 			param->has_expr[0] = false;
-			for (i = 0; i < 4; i++)
+			for (i = 0; i < vec_num; i++)
 				if (param->has_expr[i])
 					break;
 			param->update_expr_per_frame[j] = false;
-			if (i >= 4) {
+			if (i >= vec_num) {
 				darray_erase_item(sizeof(struct effect_param_data*),
 					&filter->eval_param_list, &param);
 			}
@@ -1313,9 +1323,11 @@ void prep_bind_values(bool *bound_left, bool *bound_right, bool *bound_top,
 					param, bind_name.array, is_float,
 					&filter->expr[i], &filter->vars.da);
 			if (!filter->bind_update_per_frame[i] && *bounds[i] &&
-				param->update_expr_per_frame[i] &&
-				dstr_find(&filter->expr[i],
-					param->name.array)) {
+				((param->update_expr_per_frame[i] &&
+					dstr_find(&filter->expr[i],
+						param->name.array)) ||
+					dstr_find(&filter->expr[i],
+						"elapsed_time"))) {
 				filter->bind_update_per_frame[i] = true;
 			}
 		}
@@ -1536,6 +1548,7 @@ static obs_properties_t *shader_filter_properties(void *data)
 {
 	struct shader_filter_data *filter = data;
 
+	bool empty[4] = { 0 };
 	struct dstr shaders_path = {0};
 	dstr_init(&shaders_path);
 	dstr_cat(&shaders_path, obs_get_module_data_path(obs_current_module()));
@@ -1585,6 +1598,9 @@ static obs_properties_t *shader_filter_properties(void *data)
 	for (size_t param_index = 0; param_index < param_count; param_index++) {
 		struct effect_param_data *param =
 				(filter->stored_param_list.array + param_index);
+		if (memcmp(&param->has_expr[0], &empty[0], sizeof(bool) * 4)
+				!= 0)
+			continue;
 
 		const char *param_name = param->name.array;
 		int i_tmp              = 0;
