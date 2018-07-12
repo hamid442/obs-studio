@@ -214,19 +214,14 @@ char *get_annotation_string(gs_eparam_t *annotation, const char *default_value)
 	gs_effect_get_param_info(annotation, &note_info);
 
 	char *val = NULL;
-	struct dstr ret;
-	dstr_init_copy(&ret, default_value);
 
 	if (annotation && note_info.type == GS_SHADER_PARAM_STRING) {
 		val = (char *)gs_effect_get_default_val(annotation);
-		if (val) {
-			dstr_copy(&ret, val);
-			bfree(val);
-			val = NULL;
-		}
+		if (val)
+			return val;
 	}
 
-	return ret.array;
+	return bstrdup(default_value);
 }
 
 /* Free w/ bfree */
@@ -692,7 +687,7 @@ struct shader_filter_data {
 		double f;
 	} elapsed_time_bind;
 
-	obs_properties_t *props;
+	//obs_properties_t *props;
 
 	DARRAY(struct effect_param_data) stored_param_list;
 };
@@ -776,8 +771,8 @@ static void shader_filter_reload_effect(struct shader_filter_data *filter)
 	/* Load text */
 	char *shader_text = NULL;
 
-	const char *file_name =
-			obs_data_get_string(settings, "shader_file_name");
+	char *file_name = bstrdup(
+		obs_data_get_string(settings, "shader_file_name"));
 
 	/* Load default effect text if no file is selected */
 	if (file_name && file_name[0] != '\0')
@@ -785,6 +780,7 @@ static void shader_filter_reload_effect(struct shader_filter_data *filter)
 	else
 		shader_text = bstrdup(effect_template_default_image_shader);
 
+	bfree(file_name);
 	/* Load empty effect if file is empty / doesn't exist */
 	if (shader_text == NULL)
 		shader_text = bstrdup("");
@@ -853,10 +849,10 @@ static void *shader_filter_create(obs_data_t *settings, obs_source_t *source)
 	filter->reload_effect = true;
 	filter->effect        = NULL;
 
-	dstr_init(&filter->last_path);
 	for (size_t i = 0; i < 4; i++)
 		dstr_init(&filter->expr[i]);
 
+	dstr_init(&filter->last_path);
 	dstr_copy(&filter->last_path,
 			obs_data_get_string(settings, "shader_file_name"));
 
@@ -904,6 +900,7 @@ static bool shader_filter_file_name_changed(obs_properties_t *props,
 	if (dstr_is_empty(&filter->last_path) ||
 			dstr_cmp(&filter->last_path, new_file_name) != 0) {
 		filter->reload_effect = true;
+		dstr_free(&filter->last_path);
 		dstr_copy(&filter->last_path, new_file_name);
 	}
 
@@ -1383,23 +1380,23 @@ static obs_properties_t *shader_filter_properties(void *data)
 	/* Add in hidden properties to control crop / expansion */
 	obs_property_t *expand_left   = obs_properties_add_int_slider(props,
                         "expand_left",
-                        obs_module_text("ShaderFilter.ExpandLeft"), -9999, 9999,
+                        _MT("ShaderFilter.ExpandLeft"), -9999, 9999,
                         1);
 	obs_property_t *expand_right  = obs_properties_add_int_slider(props,
                         "expand_right",
-                        obs_module_text("ShaderFilter.ExpandRight"), -9999,
+                        _MT("ShaderFilter.ExpandRight"), -9999,
                         9999, 1);
 	obs_property_t *expand_top    = obs_properties_add_int_slider(props,
-                        "expand_top", obs_module_text("ShaderFilter.ExpandTop"),
+                        "expand_top", _MT("ShaderFilter.ExpandTop"),
                         -9999, 9999, 1);
 	obs_property_t *expand_bottom = obs_properties_add_int_slider(props,
 			"expand_bottom",
-			obs_module_text("ShaderFilter.ExpandBottom"), -9999,
+			_MT("ShaderFilter.ExpandBottom"), -9999,
 			9999, 1);
 
 	obs_property_t *file_name = obs_properties_add_path(props,
 			"shader_file_name",
-			obs_module_text("ShaderFilter.ShaderFileName"),
+			_MT("ShaderFilter.ShaderFileName"),
 			OBS_PATH_FILE, NULL, shaders_path.array);
 
 	obs_property_set_modified_callback(
@@ -1454,12 +1451,14 @@ static obs_properties_t *shader_filter_properties(void *data)
 		char *desc = get_eparam_string(
 				param->param, "name", param_name);
 		if (desc) {
+			dstr_free(&param->desc);
 			if (uses_module_text)
 				dstr_copy(&param->desc, desc);
 			else
 				dstr_copy(&param->desc, _MT(desc));
 			bfree(desc);
 		} else {
+			dstr_free(&param->desc);
 			if (uses_module_text)
 				dstr_copy_dstr(&param->desc, &param->name);
 			else
@@ -1645,9 +1644,7 @@ static obs_properties_t *shader_filter_properties(void *data)
 			!bound_bottom && filter->show_expansions);
 
 	dstr_free(&shaders_path);
-
-	filter->props = props;
-
+	//filter->props = props;
 	return props;
 }
 
@@ -1873,8 +1870,10 @@ static void shader_filter_update(void *data, obs_data_t *settings)
 		struct effect_param_data *param =
 				(filter->stored_param_list.array + param_i);
 		const char *param_name = param->name.array;
+		/*
 		obs_property_t *prop =
 				obs_properties_get(filter->props, param_name);
+		*/
 		param->num_channels = num_channels;
 
 		/* get the property names (if this was meant to be an array) */
@@ -1915,7 +1914,7 @@ static void shader_filter_update(void *data, obs_data_t *settings)
 
 static void shader_filter_tick(void *data, float seconds)
 {
-	struct shader_filter_data *filter = data;
+	struct shader_filter_data *filter = (struct shader_filter_data *)data;
 	obs_source_t *target = obs_filter_get_target(filter->context);
 
 	/* Determine offsets from expansion values. */
