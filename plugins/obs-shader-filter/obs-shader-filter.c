@@ -687,8 +687,6 @@ struct shader_filter_data {
 		double f;
 	} elapsed_time_bind;
 
-	//obs_properties_t *props;
-
 	DARRAY(struct effect_param_data) stored_param_list;
 };
 
@@ -1647,7 +1645,6 @@ static obs_properties_t *shader_filter_properties(void *data)
 			!bound_bottom && filter->show_expansions);
 
 	dstr_free(&shaders_path);
-	//filter->props = props;
 	return props;
 }
 
@@ -1873,10 +1870,6 @@ static void shader_filter_update(void *data, obs_data_t *settings)
 		struct effect_param_data *param =
 				(filter->stored_param_list.array + param_i);
 		const char *param_name = param->name.array;
-		/*
-		obs_property_t *prop =
-				obs_properties_get(filter->props, param_name);
-		*/
 		param->num_channels = num_channels;
 
 		/* get the property names (if this was meant to be an array) */
