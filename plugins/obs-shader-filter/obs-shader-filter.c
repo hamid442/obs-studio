@@ -633,6 +633,7 @@ void effect_param_data_release(struct effect_param_data *param)
 
 struct shader_filter_data {
 	obs_source_t *context;
+	obs_data_t *settings;
 	gs_effect_t *effect;
 
 	bool reload_effect;
@@ -846,6 +847,7 @@ static void *shader_filter_create(obs_data_t *settings, obs_source_t *source)
 			bzalloc(sizeof(struct shader_filter_data));
 
 	filter->context       = source;
+	filter->settings      = settings;
 	filter->reload_effect = true;
 	filter->effect        = NULL;
 
@@ -871,6 +873,7 @@ static void shader_filter_destroy(void *data)
 	struct shader_filter_data *filter = data;
 
 	dstr_free(&filter->last_path);
+	obs_data_release(filter->settings);
 
 	size_t i;
 	for (i = 0; i < filter->stored_param_list.num; i++)
