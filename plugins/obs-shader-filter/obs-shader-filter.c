@@ -777,13 +777,12 @@ static void shader_filter_reload_effect(struct shader_filter_data *filter)
 	/* Load text */
 	char *shader_text = NULL;
 
-	/* Get the shader to load next */
-	char *file_name = bstrdup(
-		obs_data_get_string(filter->settings, "shader_file_name"));
-	/* Clear all previous settings */
+	const char *file_name =
+			obs_data_get_string(filter->settings, "shader_file_name");
+	/*
 	obs_data_clear(filter->settings);
-	/* Make sure to keep the file_name */
 	obs_data_set_string(filter->settings, "shader_file_name", file_name);
+	*/
 
 	/* Load default effect text if no file is selected */
 	if (file_name && file_name[0] != '\0')
@@ -791,7 +790,6 @@ static void shader_filter_reload_effect(struct shader_filter_data *filter)
 	else
 		shader_text = bstrdup(effect_template_default_image_shader);
 
-	bfree(file_name);
 	/* Load empty effect if file is empty / doesn't exist */
 	if (shader_text == NULL)
 		shader_text = bstrdup("");
@@ -880,6 +878,7 @@ static void shader_filter_destroy(void *data)
 {
 	struct shader_filter_data *filter = data;
 
+	obs_data_release(filter->settings);
 	dstr_free(&filter->last_path);
 	obs_data_release(filter->settings);
 
@@ -1276,6 +1275,7 @@ void prep_bind_values(bool *bound_left, bool *bound_right, bool *bound_top,
 			}
 		}
 
+		dstr_free(&expr_name);
 		dstr_free(&bind_name);
 		return;
 	}
@@ -1333,6 +1333,7 @@ void prep_bind_values(bool *bound_left, bool *bound_right, bool *bound_top,
 		}
 	}
 
+	dstr_free(&expr_name);
 	dstr_free(&bind_name);
 }
 
