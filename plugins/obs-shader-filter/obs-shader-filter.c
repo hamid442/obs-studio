@@ -638,7 +638,6 @@ struct shader_filter_data {
 
 	bool reload_effect;
 	struct dstr last_path;
-	bool last_from_file;
 
 	union {
 		struct {
@@ -736,8 +735,6 @@ void update_filter_cache(struct shader_filter_data *filter, gs_eparam_t *param)
 
 static void shader_filter_reload_effect(struct shader_filter_data *filter)
 {
-	obs_data_t *settings = obs_source_get_settings(filter->context);
-
 	/* First, clean up the old effect and all references to it. */
 	size_t param_count = filter->stored_param_list.num;
 	size_t i;
@@ -772,8 +769,13 @@ static void shader_filter_reload_effect(struct shader_filter_data *filter)
 	/* Load text */
 	char *shader_text = NULL;
 
+	/* Get the shader to load next */
 	char *file_name = bstrdup(
-		obs_data_get_string(settings, "shader_file_name"));
+		obs_data_get_string(filter->settings, "shader_file_name"));
+	/* Clear all previous settings */
+	obs_data_clear(filter->settings);
+	/* Make sure to keep the file_name */
+	obs_data_set_string(filter->settings, "shader_file_name", file_name);
 
 	/* Load default effect text if no file is selected */
 	if (file_name && file_name[0] != '\0')
@@ -857,8 +859,6 @@ static void *shader_filter_create(obs_data_t *settings, obs_source_t *source)
 	dstr_init(&filter->last_path);
 	dstr_copy(&filter->last_path,
 			obs_data_get_string(settings, "shader_file_name"));
-
-	filter->last_from_file = obs_data_get_bool(settings, "from_file");
 
 	da_init(filter->stored_param_list);
 	da_init(filter->vars);
