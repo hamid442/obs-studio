@@ -1136,6 +1136,8 @@ void prep_bind_values(bool *bound_left, bool *bound_right, bool *bound_top,
 					param, bind_names[i], is_float,
 					&filter->expr[i], &filter->vars.da);
 		}
+
+		dstr_free(&bind_name);
 		return;
 	}
 
