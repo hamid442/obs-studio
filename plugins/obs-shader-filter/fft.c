@@ -46,6 +46,7 @@ enum fft_windowing_type get_window_type(char *window)
 	return ret;
 }
 
+/* from: https://en.wikipedia.org/wiki/Window_function */
 void window_function(float *data, int N, enum fft_windowing_type type)
 {
 	size_t n;

@@ -91,10 +91,22 @@ double hlsl_rad(double degrees)
 	return degrees * (M_PI_D / 180.0);
 }
 
+double audio_mel_from_hz(double hz)
+{
+	return 2595 * log10(1 + hz / 700.0);
+}
+
+double audio_hz_from_mel(double mel)
+{
+	return 700 * (pow(10, mel / 2595) - 1);
+}
+
 const static double flt_max = FLT_MAX;
 const static double flt_min = FLT_MIN;
 const static double int_min = INT_MIN;
 const static double int_max = INT_MAX;
+static double sample_rate;
+static double output_channels;
 
 /* Additional likely to be used functions for mathmatical expressions */
 void prep_te_funcs(struct darray *te_vars)
@@ -102,9 +114,13 @@ void prep_te_funcs(struct darray *te_vars)
 	te_variable funcs[] = {{"clamp", hlsl_clamp, TE_FUNCTION3},
 			{"float_max", &flt_max}, {"float_min", &flt_min},
 			{"int_max", &int_max}, {"int_min", &int_min},
+			{"sample_rate", &sample_rate},
+			{"channels", &output_channels},
+			{"mel_from_hz", audio_mel_from_hz, TE_FUNCTION1},
+			{"hz_from_mel", audio_hz_from_mel, TE_FUNCTION1},
 			{"degrees", hlsl_degrees, TE_FUNCTION1},
 			{"radians", hlsl_rad, TE_FUNCTION1}};
-	darray_push_back_array(sizeof(te_variable), te_vars, &funcs[0], 7);
+	darray_push_back_array(sizeof(te_variable), te_vars, &funcs[0], 11);
 }
 
 void append_te_variable(struct darray *te_vars, te_variable *v)
@@ -560,6 +576,7 @@ struct effect_param_data {
 	bool is_media;
 	bool is_audio_source;
 	bool is_fft;
+	bool is_psd;
 
 	bool bound;
 	bool update_per_frame;
@@ -1468,7 +1485,7 @@ clear:
 		memset(&param->sidechain_buf[num_samples * i], 0, data_size);
 }
 
-static uint32_t fft_audio(struct effect_param_data *param, size_t samples)
+static uint32_t process_audio(struct effect_param_data *param, size_t samples)
 {
 	size_t i;
 	size_t j;
@@ -1484,6 +1501,13 @@ static uint32_t fft_audio(struct effect_param_data *param, size_t samples)
 		memcpy(&param->sidechain_buf[i * h_samples],
 				&param->sidechain_buf[i * samples],
 				h_sample_size);
+	}
+	/* is this a periodogram */
+	if (param->is_psd) {
+		j = h_samples * param->num_channels;
+		for (i = 0; i < j; i++) {
+			param->sidechain_buf[i] = 10 * log10 ( (1 / (2.0 * M_PI_D * samples)) * pow(param->sidechain_buf[i], 2.0) );
+		}
 	}
 	if (param->fft_bins < h_samples) {
 		/* Take the average of the bins */
@@ -1517,7 +1541,7 @@ void render_audio_texture(struct effect_param_data *param, size_t samples)
 	size_t px_width = samples;
 	if (param->is_fft) {
 		window_function(param->sidechain_buf, samples, param->window);
-		px_width = fft_audio(param, samples);
+		px_width = process_audio(param, samples);
 	}
 	obs_enter_graphics();
 	gs_texture_destroy(param->texture);
@@ -1823,6 +1847,7 @@ static obs_properties_t *shader_filter_properties(void *data)
 			!bound_bottom && filter->show_expansions);
 
 	dstr_free(&shaders_path);
+
 	return props;
 }
 
@@ -1983,6 +2008,8 @@ void get_graphics_parameters(struct effect_param_data *param,
 			param->is_fft = get_eparam_bool(
 					param->param, "is_fft", false);
 			if (param->is_fft) {
+				param->is_psd = get_eparam_bool(param->param,
+					"is_psd", false);
 				param->fft_bins = get_eparam_int(
 					param->param, "fft_bins", 512);
 				get_window_function(param);
@@ -2064,14 +2091,12 @@ static void shader_filter_update(void *data, obs_data_t *settings)
 		}
 
 		get_graphics_parameters(param, filter, settings);
-		if (!param->update_per_frame)
-			update_graphics_paramters(param, src_cx, src_cy);
 	}
 
 	/* Eval parameters */
 	bool empty[4] = { 0 };
-	param_count = filter->eval_param_list.num;
-	for (i = 0; i < param_count; i++) {
+	size_t eval_count = filter->eval_param_list.num;
+	for (i = 0; i < eval_count; i++) {
 		struct effect_param_data *param =
 			*(filter->eval_param_list.array + i);
 		if (memcmp(&param->update_expr_per_frame[0], &empty[0],
@@ -2080,9 +2105,17 @@ static void shader_filter_update(void *data, obs_data_t *settings)
 		}
 	}
 
+	/* Single pass update values */
+	for (i = 0; i < param_count; i++) {
+		struct effect_param_data *param =
+			(filter->stored_param_list.array + i);
+		if (!param->update_per_frame)
+			update_graphics_paramters(param, src_cx, src_cy);
+	}
+
 	/* Calculate the stretch of the size of the source via expression */
 	for (i = 0; i < 4; i++) {
-		if (!filter->bind_update_per_frame[0])
+		if (!filter->bind_update_per_frame[i])
 			bind_compile(&filter->expand.ptr[i],
 				&filter->vars.array[0],
 				filter->expr[i].array,
@@ -2127,7 +2160,7 @@ static void shader_filter_tick(void *data, float seconds)
 
 	/* Calculate the stretch of the size of the source via expression */
 	for (i = 0; i < 4; i++) {
-		if(filter->bind_update_per_frame[0])
+		if(filter->bind_update_per_frame[i])
 			bind_compile(&filter->expand.ptr[i],
 					&filter->vars.array[0],
 					filter->expr[i].array,
@@ -2243,6 +2276,11 @@ struct obs_source_info shader_filter = {.id = "obs_shader_filter",
 bool obs_module_load(void)
 {
 	obs_register_source(&shader_filter);
+
+	struct obs_audio_info aoi;
+	obs_get_audio_info(&aoi);
+	sample_rate = (double)aoi.samples_per_sec;
+	output_channels = (double)get_audio_channels(aoi.speakers);
 
 	return true;
 }
