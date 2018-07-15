@@ -1473,9 +1473,9 @@ static inline void get_sidechain_data(
 	}
 
 	for (size_t i = 0; i < param->num_channels; i++)
-		circlebuf_pop_front(&param->sidechain_data[i],
-				&param->sidechain_buf[num_samples * i],
-				data_size);
+		circlebuf_peek_front(&param->sidechain_data[i],
+			&param->sidechain_buf[num_samples * i],
+			data_size);
 
 	pthread_mutex_unlock(&param->sidechain_mutex);
 	return;
@@ -1851,6 +1851,8 @@ static obs_properties_t *shader_filter_properties(void *data)
 	return props;
 }
 
+#define __DEBUG_GRAPHICS 0
+
 void update_graphics_paramters(
 		struct effect_param_data *param, float cx, float cy)
 {
@@ -1858,39 +1860,81 @@ void update_graphics_paramters(
 	switch (param->type) {
 	case GS_SHADER_PARAM_FLOAT:
 		gs_effect_set_float(param->param, (float)param->value.f);
+#if __DEBUG_GRAPHICS
+		blog(LOG_DEBUG, "%s: %f", param->name.array, param->value.f);
+#endif
 		break;
 	case GS_SHADER_PARAM_BOOL:
 	case GS_SHADER_PARAM_INT:
 		gs_effect_set_int(param->param, (int)param->value.i);
+#if __DEBUG_GRAPHICS
+		blog(LOG_DEBUG, "%s: %d", param->name.array, param->value.i);
+#endif
 		break;
 	case GS_SHADER_PARAM_INT2:
 		gs_effect_set_vec2(
 				param->param, (struct vec2 *)&param->value.l4);
+#if __DEBUG_GRAPHICS
+		blog(LOG_DEBUG, "%s.x: %d", param->name.array, param->value.l4.x);
+		blog(LOG_DEBUG, "%s.y: %d", param->name.array, param->value.l4.y);
+#endif
 		break;
 	case GS_SHADER_PARAM_INT3:
 		gs_effect_set_vec3(
 				param->param, (struct vec3 *)&param->value.l4);
+#if __DEBUG_GRAPHICS
+		blog(LOG_DEBUG, "%s.x: %d", param->name.array, param->value.l4.x);
+		blog(LOG_DEBUG, "%s.y: %d", param->name.array, param->value.l4.y);
+		blog(LOG_INFO, "%s.z: %d", param->name.array, param->value.l4.z);
+#endif
 		break;
 	case GS_SHADER_PARAM_INT4:
 		gs_effect_set_vec4(
 				param->param, (struct vec4 *)&param->value.l4);
+#if __DEBUG_GRAPHICS
+		blog(LOG_INFO, "%s.x: %d", param->name.array, param->value.l4.x);
+		blog(LOG_INFO, "%s.y: %d", param->name.array, param->value.l4.y);
+		blog(LOG_INFO, "%s.z: %d", param->name.array, param->value.l4.z);
+		blog(LOG_INFO, "%s.w: %d", param->name.array, param->value.l4.w);
+#endif
 		break;
 	case GS_SHADER_PARAM_VEC2:
 		gs_effect_set_vec2(
 				param->param, (struct vec2 *)&param->value.v4);
+#if __DEBUG_GRAPHICS
+		blog(LOG_INFO, "%s.x: %f", param->name.array, param->value.v4.x);
+		blog(LOG_INFO, "%s.y: %f", param->name.array, param->value.v4.y);
+#endif
 		break;
 	case GS_SHADER_PARAM_VEC3:
 		gs_effect_set_vec3(
 				param->param, (struct vec3 *)&param->value.v4);
+#if __DEBUG_GRAPHICS
+		blog(LOG_INFO, "%s.x: %f", param->name.array, param->value.v4.x);
+		blog(LOG_INFO, "%s.y: %f", param->name.array, param->value.v4.y);
+		blog(LOG_INFO, "%s.z: %f", param->name.array, param->value.v4.z);
+#endif
 		break;
 	case GS_SHADER_PARAM_VEC4:
 		/* Treat as color or vec4 */
 		if (param->is_vec4) {
 			gs_effect_set_vec4(param->param,
 					(struct vec4 *)&param->value.v4);
+#if __DEBUG_GRAPHICS
+			blog(LOG_INFO, "%s.x: %f", param->name.array, param->value.v4.x);
+			blog(LOG_INFO, "%s.y: %f", param->name.array, param->value.v4.y);
+			blog(LOG_INFO, "%s.z: %f", param->name.array, param->value.v4.z);
+			blog(LOG_INFO, "%s.w: %f", param->name.array, param->value.v4.w);
+#endif
 		} else {
 			vec4_from_rgba(&color, (unsigned int)param->value.i);
 			gs_effect_set_vec4(param->param, &color);
+#if __DEBUG_GRAPHICS
+			blog(LOG_INFO, "%s.x: %f", param->name.array, color.x);
+			blog(LOG_INFO, "%s.y: %f", param->name.array, color.y);
+			blog(LOG_INFO, "%s.z: %f", param->name.array, color.z);
+			blog(LOG_INFO, "%s.w: %f", param->name.array, color.w);
+#endif
 		}
 		break;
 	case GS_SHADER_PARAM_TEXTURE:
