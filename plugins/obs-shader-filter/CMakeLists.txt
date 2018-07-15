@@ -16,6 +16,10 @@ project(obs-shader-filter)
 #	${Qt5Widgets_INCLUDES}
 #)
 
+find_package(FFmpeg REQUIRED
+	COMPONENTS avcodec)
+include_directories(${FFMPEG_INCLUDE_DIRS})
+
 if(MSVC)
 	set(obs-shader-filter_PLATFORM_DEPS
 		w32-pthreads)
@@ -40,6 +44,7 @@ add_library(obs-shader-filter MODULE
 target_link_libraries(obs-shader-filter
 	libobs
 	${obs-shader-filter_PLATFORM_DEPS}
+	${FFMPEG_LIBRARIES}
 #	obs-frontend-api
 #	Qt5::Core
 #	Qt5::Widgets

@@ -597,6 +597,8 @@ struct effect_param_data {
 	float *sidechain_buf;
 	size_t num_channels;
 	size_t fft_bins;
+
+	enum fft_windowing_type window;
 };
 
 void effect_param_data_release(struct effect_param_data *param)
@@ -779,10 +781,6 @@ static void shader_filter_reload_effect(struct shader_filter_data *filter)
 
 	const char *file_name =
 			obs_data_get_string(filter->settings, "shader_file_name");
-	/*
-	obs_data_clear(filter->settings);
-	obs_data_set_string(filter->settings, "shader_file_name", file_name);
-	*/
 
 	/* Load default effect text if no file is selected */
 	if (file_name && file_name[0] != '\0')
@@ -952,49 +950,31 @@ void set_expansion_bindings(gs_eparam_t *param, bool *bound_left,
 }
 
 void set_expansion_bindings_vec(gs_eparam_t *param, bool *bound_left,
-		bool *bound_right, bool *bound_top, bool *bound_bottom)
+		bool *bound_right, bool *bound_top, bool *bound_bottom,
+		size_t vec_num)
 {
-
-	if (bound_left && !*bound_left &&
-			(get_eparam_bool(param, "bind_left_x", false) ||
-					get_eparam_bool(param, "bind_left_y",
-							false) ||
-					get_eparam_bool(param, "bind_left_z",
-							false) ||
-					get_eparam_bool(param, "bind_left_w",
-							false)))
-		*bound_left = true;
-
-	if (bound_right && !*bound_right &&
-			(get_eparam_bool(param, "bind_right_x", false) ||
-					get_eparam_bool(param, "bind_right_y",
-							false) ||
-					get_eparam_bool(param, "bind_right_z",
-							false) ||
-					get_eparam_bool(param, "bind_right_w",
-							false)))
-		*bound_right = true;
-
-	if (bound_top && !*bound_top &&
-			(get_eparam_bool(param, "bind_top_x", false) ||
-					get_eparam_bool(param, "bind_top_y",
-							false) ||
-					get_eparam_bool(param, "bind_top_z",
-							false) ||
-					get_eparam_bool(param, "bind_top_w",
-							false)))
-		*bound_top = true;
-
-	if (bound_bottom && !bound_bottom &&
-			(get_eparam_bool(param, "bind_bottom_x", false) ||
-					get_eparam_bool(param, "bind_bottom_y",
-							false) ||
-					get_eparam_bool(param, "bind_bottom_z",
-							false) ||
-					get_eparam_bool(param, "bind_bottom_w",
-							false)))
-
-		*bound_bottom = true;
+	bool *bound[4] = { bound_left, bound_right, bound_top, bound_bottom };
+	const char *mixin = "xyzw";
+	const char *bind_names[4] = { "bind_left", "bind_right", "bind_top",
+			"bind_bottom" };
+	struct dstr bind_name;
+	dstr_init(&bind_name);
+	size_t i;
+	size_t j;
+	for (i = 0; i < 4; i++) {
+		if (bound[i] && !*bound[i]) {
+			for (j = 0; j < vec_num; j++) {
+				dstr_copy_cat(&bind_name, bind_names[i], "_",
+						mixin + j, 1);
+				if (get_eparam_bool(param, bind_name.array,
+						false)) {
+					*bound[i] = true;
+					break;
+				}
+			}
+		}
+	}
+	dstr_free(&bind_name);
 }
 
 void prep_bind_value(bool *bound, int *binding, struct effect_param_data *param,
@@ -1495,6 +1475,7 @@ static uint32_t fft_audio(struct effect_param_data *param, size_t samples)
 	size_t k;
 	size_t h_samples     = samples / 2;
 	size_t h_sample_size = samples * 2;
+
 	for (i = 0; i < param->num_channels; i++) {
 		audio_fft_complex(&param->sidechain_buf[i * samples],
 				(uint32_t)samples);
@@ -1524,11 +1505,20 @@ static uint32_t fft_audio(struct effect_param_data *param, size_t samples)
 	return (uint32_t)h_samples;
 }
 
+void get_window_function(struct effect_param_data *param)
+{
+	char *window = get_eparam_string(param->param, "window", NULL);
+	param->window = get_window_type(window);
+	bfree(window);
+}
+
 void render_audio_texture(struct effect_param_data *param, size_t samples)
 {
 	size_t px_width = samples;
-	if (param->is_fft && is_power_of_two(samples))
+	if (param->is_fft) {
+		window_function(param->sidechain_buf, samples, param->window);
 		px_width = fft_audio(param, samples);
+	}
 	obs_enter_graphics();
 	gs_texture_destroy(param->texture);
 	param->texture = gs_texture_create((uint32_t)px_width,
@@ -1733,14 +1723,14 @@ static obs_properties_t *shader_filter_properties(void *data)
 		case GS_SHADER_PARAM_INT2:
 		case GS_SHADER_PARAM_INT3:
 		case GS_SHADER_PARAM_INT4:
+			vec_num = obs_get_vec_num(param->type);
+
 			set_expansion_bindings_vec(param->param, &bound_left,
 					&bound_right, &bound_top,
-					&bound_bottom);
+					&bound_bottom, vec_num);
 
 			is_slider = get_eparam_bool(
 					param->param, "is_slider", false);
-
-			vec_num = obs_get_vec_num(param->type);
 
 			obs_properties_add_int_array(props, param_name,
 					param_desc, i_min, i_max, i_step,
@@ -1750,9 +1740,11 @@ static obs_properties_t *shader_filter_properties(void *data)
 		case GS_SHADER_PARAM_VEC2:
 		case GS_SHADER_PARAM_VEC3:
 		case GS_SHADER_PARAM_VEC4:
+			vec_num = obs_get_vec_num(param->type);
+
 			set_expansion_bindings_vec(param->param, &bound_left,
 					&bound_right, &bound_top,
-					&bound_bottom);
+					&bound_bottom, vec_num);
 
 			is_vec4 = param->type == GS_SHADER_PARAM_VEC4 &&
 					get_eparam_bool(param->param,
@@ -1765,8 +1757,6 @@ static obs_properties_t *shader_filter_properties(void *data)
 			}
 			is_slider = get_eparam_bool(
 					param->param, "is_slider", false);
-
-			vec_num = obs_get_vec_num(param->type);
 
 			obs_properties_add_vec_array(props, param_name,
 					param_desc, f_min, f_max, f_step,
@@ -1992,9 +1982,11 @@ void get_graphics_parameters(struct effect_param_data *param,
 		if (param->is_audio_source) {
 			param->is_fft = get_eparam_bool(
 					param->param, "is_fft", false);
-			if (param->is_fft)
+			if (param->is_fft) {
 				param->fft_bins = get_eparam_int(
-						param->param, "fft_bins", 512);
+					param->param, "fft_bins", 512);
+				get_window_function(param);
+			}
 			const char *source_name = obs_data_get_string(
 					settings, param_name);
 			update_sidechain_callback(param, source_name);
