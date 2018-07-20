@@ -519,6 +519,7 @@ bool fill_properties_source_list(void *param, obs_source_t *source)
 
 void fill_source_list(obs_property_t *p)
 {
+	obs_property_list_add_string(p, _MT("None"), "");
 	obs_enum_sources(&fill_properties_source_list, (void *)p);
 }
 
@@ -536,6 +537,7 @@ bool fill_properties_audio_source_list(void *param, obs_source_t *source)
 
 void fill_audio_source_list(obs_property_t *p)
 {
+	obs_property_list_add_string(p, _MT("None"), "");
 	obs_enum_sources(&fill_properties_audio_source_list, (void *)p);
 }
 
@@ -683,10 +685,10 @@ struct shader_filter_data {
 
 	union {
 		struct {
-			int expand_left, expand_right, expand_top,
-					expand_bottom;
+			int resize_left, resize_right, resize_top,
+					resize_bottom;
 		};
-		struct long4 expand;
+		struct long4 resize;
 	};
 
 	union {
@@ -1259,7 +1261,7 @@ void prep_bind_values(bool *bound_left, bool *bound_right, bool *bound_top,
 		}
 
 		for (i = 0; i < 4; i++) {
-			prep_bind_value(bounds[i], &filter->expand.ptr[i],
+			prep_bind_value(bounds[i], &filter->resize.ptr[i],
 					param, bind_names[i], is_float,
 					&filter->expr[i], &filter->vars.da);
 			if (!filter->bind_update_per_frame[i] && *bounds[i] &&
@@ -1316,7 +1318,7 @@ void prep_bind_values(bool *bound_left, bool *bound_right, bool *bound_top,
 			dstr_copy_cat(&bind_name, bind_names[i], "_", mixin + j,
 					1);
 
-			prep_bind_value(bounds[i], &filter->expand.ptr[i],
+			prep_bind_value(bounds[i], &filter->resize.ptr[i],
 					param, bind_name.array, is_float,
 					&filter->expr[i], &filter->vars.da);
 			if (!filter->bind_update_per_frame[i] && *bounds[i] &&
@@ -1430,29 +1432,35 @@ void update_sidechain_callback(
 		struct effect_param_data *param, const char *new_source_name)
 {
 	if (new_source_name) {
-		obs_source_t *sidechain = new_source_name && *new_source_name
-				? obs_get_source_by_name(new_source_name)
-				: NULL;
+		obs_source_t *sidechain = NULL;
+		if (new_source_name && *new_source_name)
+			sidechain = obs_get_source_by_name(new_source_name);
 
 		obs_source_t *old_sidechain = param->media_source;
 		const char *old_sidechain_name =
 				obs_source_get_name(old_sidechain);
 
-		if (sidechain) {
-			pthread_mutex_lock(&param->sidechain_update_mutex);
-			if (old_sidechain) {
-				obs_source_remove_audio_capture_callback(
-						old_sidechain,
-						sidechain_capture, param);
-				obs_source_release(old_sidechain);
-			}
+		pthread_mutex_lock(&param->sidechain_update_mutex);
+		if (old_sidechain) {
+			/* Remove the current audio callback */
+			obs_source_remove_audio_capture_callback(old_sidechain,
+					sidechain_capture, param);
+			/* Free up the source */
+			obs_source_release(old_sidechain);
 
+			/* Clear audio data */
+			for (size_t i = 0; i < param->num_channels; i++) {
+				circlebuf_pop_front(&param->sidechain_data[i],
+						NULL,
+						param->sidechain_data[i].size);
+			}
+		}
+		/* Add the new audio callback */
+		if (sidechain)
 			obs_source_add_audio_capture_callback(
 					sidechain, sidechain_capture, param);
-
-			param->media_source = sidechain;
-			pthread_mutex_unlock(&param->sidechain_update_mutex);
-		}
+		param->media_source = sidechain;
+		pthread_mutex_unlock(&param->sidechain_update_mutex);
 	}
 }
 
@@ -1577,23 +1585,6 @@ static obs_properties_t *shader_filter_properties(void *data)
 			obs_module_text("ShaderFilter.ReloadEffect"),
 			shader_filter_reload_effect_clicked);
 
-	/* Add in hidden properties to control crop / expansion */
-	obs_property_t *expand_left   = obs_properties_add_int_slider(props,
-                        "expand_left",
-                        _MT("ShaderFilter.ExpandLeft"), -9999, 9999,
-                        1);
-	obs_property_t *expand_right  = obs_properties_add_int_slider(props,
-                        "expand_right",
-                        _MT("ShaderFilter.ExpandRight"), -9999,
-                        9999, 1);
-	obs_property_t *expand_top    = obs_properties_add_int_slider(props,
-                        "expand_top", _MT("ShaderFilter.ExpandTop"),
-                        -9999, 9999, 1);
-	obs_property_t *expand_bottom = obs_properties_add_int_slider(props,
-			"expand_bottom",
-			_MT("ShaderFilter.ExpandBottom"), -9999,
-			9999, 1);
-
 	obs_property_t *file_name = obs_properties_add_path(props,
 			"shader_file_name",
 			_MT("ShaderFilter.ShaderFileName"),
@@ -1604,11 +1595,6 @@ static obs_properties_t *shader_filter_properties(void *data)
 
 	obs_property_t *p  = NULL;
 	size_t param_count = filter->stored_param_list.num;
-
-	bool bound_right  = false;
-	bool bound_left   = false;
-	bool bound_top    = false;
-	bool bound_bottom = false;
 
 	for (size_t param_index = 0; param_index < param_count; param_index++) {
 		struct effect_param_data *param =
@@ -1678,13 +1664,10 @@ static obs_properties_t *shader_filter_properties(void *data)
 
 		int vec_num  = 1;
 		bool is_list = get_eparam_bool(param->param, "is_list", false);
+		bool is_float;
 
 		switch (param->type) {
 		case GS_SHADER_PARAM_BOOL:
-			set_expansion_bindings(param->param, &bound_left,
-					&bound_right, &bound_top,
-					&bound_bottom);
-
 			if (is_list) {
 				p = obs_properties_add_list(props, param_name,
 						param_desc, OBS_COMBO_TYPE_LIST,
@@ -1712,11 +1695,7 @@ static obs_properties_t *shader_filter_properties(void *data)
 			break;
 		case GS_SHADER_PARAM_FLOAT:
 		case GS_SHADER_PARAM_INT:
-			set_expansion_bindings(param->param, &bound_left,
-					&bound_right, &bound_top,
-					&bound_bottom);
-
-			bool is_float = param->type == GS_SHADER_PARAM_FLOAT;
+			is_float = param->type == GS_SHADER_PARAM_FLOAT;
 			is_slider     = get_eparam_bool(
                                         param->param, "is_slider", false);
 
@@ -1749,10 +1728,6 @@ static obs_properties_t *shader_filter_properties(void *data)
 		case GS_SHADER_PARAM_INT4:
 			vec_num = obs_get_vec_num(param->type);
 
-			set_expansion_bindings_vec(param->param, &bound_left,
-					&bound_right, &bound_top,
-					&bound_bottom, vec_num);
-
 			is_slider = get_eparam_bool(
 					param->param, "is_slider", false);
 
@@ -1765,10 +1740,6 @@ static obs_properties_t *shader_filter_properties(void *data)
 		case GS_SHADER_PARAM_VEC3:
 		case GS_SHADER_PARAM_VEC4:
 			vec_num = obs_get_vec_num(param->type);
-
-			set_expansion_bindings_vec(param->param, &bound_left,
-					&bound_right, &bound_top,
-					&bound_bottom, vec_num);
 
 			is_vec4 = param->type == GS_SHADER_PARAM_VEC4 &&
 					get_eparam_bool(param->param,
@@ -1833,18 +1804,6 @@ static obs_properties_t *shader_filter_properties(void *data)
 		dstr_free(&n_param_name);
 		dstr_free(&n_param_desc);
 	}
-
-	obs_property_set_visible(
-			expand_left, !bound_left && filter->show_expansions);
-
-	obs_property_set_visible(
-			expand_right, !bound_right && filter->show_expansions);
-
-	obs_property_set_visible(
-			expand_top, !bound_top && filter->show_expansions);
-
-	obs_property_set_visible(expand_bottom,
-			!bound_bottom && filter->show_expansions);
 
 	dstr_free(&shaders_path);
 
@@ -2160,7 +2119,7 @@ static void shader_filter_update(void *data, obs_data_t *settings)
 	/* Calculate the stretch of the size of the source via expression */
 	for (i = 0; i < 4; i++) {
 		if (!filter->bind_update_per_frame[i])
-			bind_compile(&filter->expand.ptr[i],
+			bind_compile(&filter->resize.ptr[i],
 				&filter->vars.array[0],
 				filter->expr[i].array,
 				(int)filter->vars.num);
@@ -2169,20 +2128,16 @@ static void shader_filter_update(void *data, obs_data_t *settings)
 	/* Calculate expansions if not already set. */
 	/* Will be used in the video_tick() callback. */
 	if (!filter->bind_left)
-		filter->expand_left =
-				(int)obs_data_get_int(settings, "expand_left");
+		filter->resize_left = 0;
 
 	if (!filter->bind_right)
-		filter->expand_right =
-				(int)obs_data_get_int(settings, "expand_right");
+		filter->resize_right = 0;
 
 	if (!filter->bind_top)
-		filter->expand_top =
-				(int)obs_data_get_int(settings, "expand_top");
+		filter->resize_top = 0;
 
 	if (!filter->bind_bottom)
-		filter->expand_bottom = (int)obs_data_get_int(
-				settings, "expand_bottom");
+		filter->resize_bottom = 0;
 }
 
 static void shader_filter_tick(void *data, float seconds)
@@ -2205,7 +2160,7 @@ static void shader_filter_tick(void *data, float seconds)
 	/* Calculate the stretch of the size of the source via expression */
 	for (i = 0; i < 4; i++) {
 		if(filter->bind_update_per_frame[i])
-			bind_compile(&filter->expand.ptr[i],
+			bind_compile(&filter->resize.ptr[i],
 					&filter->vars.array[0],
 					filter->expr[i].array,
 					(int)filter->vars.num);
@@ -2216,9 +2171,9 @@ static void shader_filter_tick(void *data, float seconds)
 	int base_height = obs_source_get_base_height(target);
 
 	filter->total_width =
-			filter->expand_left + base_width + filter->expand_right;
-	filter->total_height = filter->expand_top + base_height +
-			filter->expand_bottom;
+			filter->resize_left + base_width + filter->resize_right;
+	filter->total_height = filter->resize_top + base_height +
+			filter->resize_bottom;
 
 	filter->uv_scale.x = (float)filter->total_width / base_width;
 	filter->uv_scale.y = (float)filter->total_height / base_height;
@@ -2226,8 +2181,8 @@ static void shader_filter_tick(void *data, float seconds)
 	filter->uv_scale_bind.x = filter->uv_scale.x;
 	filter->uv_scale_bind.y = filter->uv_scale.y;
 
-	filter->uv_offset.x = (float)(-filter->expand_left) / base_width;
-	filter->uv_offset.y = (float)(-filter->expand_top) / base_height;
+	filter->uv_offset.x = (float)(-filter->resize_left) / base_width;
+	filter->uv_offset.y = (float)(-filter->resize_top) / base_height;
 
 	filter->uv_pixel_interval.x = 1.0f / base_width;
 	filter->uv_pixel_interval.y = 1.0f / base_height;
