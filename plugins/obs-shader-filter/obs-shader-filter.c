@@ -664,6 +664,7 @@ struct shader_filter_data {
 	bool reload_effect;
 	struct dstr last_path;
 
+	/* Holds mathmatical expressions to evaluate cropping / expansion */
 	union {
 		struct {
 			struct dstr expr_left, expr_right, expr_top,
@@ -672,6 +673,7 @@ struct shader_filter_data {
 		struct dstr expr[4];
 	};
 
+	/* These hold variables and functions used to evaluate expressions */
 	DARRAY(te_variable) vars;
 
 	gs_eparam_t *param_uv_offset;
@@ -772,7 +774,7 @@ static void shader_filter_reload_effect(struct shader_filter_data *filter)
 
 	da_free(filter->stored_param_list);
 	da_free(filter->eval_param_list);
-	/* clear expression variables, they need to be refreshed */
+	/* Clear expression variables, they need to be refreshed */
 	da_free(filter->vars);
 
 	filter->param_elapsed_time      = NULL;
@@ -780,7 +782,7 @@ static void shader_filter_reload_effect(struct shader_filter_data *filter)
 	filter->param_uv_pixel_interval = NULL;
 	filter->param_uv_scale          = NULL;
 
-	/* make sure the expressions aren't considered bound yet */
+	/* Make sure the expressions aren't considered bound yet */
 	filter->bind_left   = false;
 	filter->bind_right  = false;
 	filter->bind_top    = false;
@@ -829,7 +831,7 @@ static void shader_filter_reload_effect(struct shader_filter_data *filter)
 	}
 	bfree(errors);
 
-	/* Prepare propoerties for mathmatical expressions to use */
+	/* Prepare properties for mathmatical expressions to use */
 	da_init(filter->vars);
 
 	prep_te_funcs(&filter->vars.da);
@@ -1129,8 +1131,7 @@ void bind_compile_float(float *binding, te_variable *vars,
 		} else {
 			*binding = 0;
 			blog(LOG_WARNING,
-				"Error in expression: %.*s<< error "
-				"here >>%s",
+				"Error in expression: %.*s<< error here >>%s",
 				err, expression, expression + err);
 		}
 	} else {
@@ -1151,8 +1152,7 @@ void bind_compile_double(double *binding, te_variable *vars,
 		} else {
 			*binding = 0;
 			blog(LOG_WARNING,
-				"Error in expression: %.*s<< error "
-				"here >>%s",
+				"Error in expression: %.*s<< error here >>%s",
 				err, expression, expression + err);
 		}
 	} else {
@@ -1502,7 +1502,7 @@ static uint32_t process_audio(struct effect_param_data *param, size_t samples)
 				&param->sidechain_buf[i * samples],
 				h_sample_size);
 	}
-	/* is this a periodogram */
+	/* Calculate a periodogram */
 	if (param->is_psd) {
 		j = h_samples * param->num_channels;
 		for (i = 0; i < j; i++) {
