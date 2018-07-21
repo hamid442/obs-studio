@@ -20,49 +20,6 @@ OBS_MODULE_USE_DEFAULT_LOCALE("obs_shader_filter", "en-US")
 
 #define _MT obs_module_text
 
-static const char *effect_template_default_image_shader =
-		"uniform float4x4 ViewProj;\
-uniform texture2d image;\
-\
-uniform float elapsed_time;\
-uniform float2 uv_offset;\
-uniform float2 uv_scale;\
-uniform float2 uv_pixel_interval;\
-\
-sampler_state textureSampler{\
-	Filter = Linear;\
-	AddressU = Border;\
-	AddressV = Border;\
-	BorderColor = 00000000;\
-};\
-\
-struct VertData {\
-	float4 pos : POSITION;\
-	float2 uv : TEXCOORD0;\
-};\
-\
-VertData mainTransform(VertData v_in)\
-{\
-	VertData vert_out;\
-	vert_out.pos = mul(float4(v_in.pos.xyz, 1.0), ViewProj);\
-	vert_out.uv = v_in.uv * uv_scale + uv_offset;\
-	return vert_out;\
-}\
-\
-float4 mainImage(VertData v_in) : TARGET\
-{\
-	return image.Sample(textureSampler, v_in.uv);\
-}\
-\
-technique Draw\
-{\
-	pass\
-	{\
-		vertex_shader = mainTransform(v_in);\
-		pixel_shader = mainImage(v_in);\
-	}\
-}";
-
 static void sidechain_capture(void *p, obs_source_t *source,
 		const struct audio_data *audio_data, bool muted);
 
@@ -807,7 +764,8 @@ static void shader_filter_reload_effect(struct shader_filter_data *filter)
 	if (file_name && file_name[0] != '\0')
 		shader_text = os_quick_read_utf8_file(file_name);
 	else
-		shader_text = bstrdup(effect_template_default_image_shader);
+		return;
+	//shader_text = bstrdup(effect_template_default_image_shader);
 
 	/* Load empty effect if file is empty / doesn't exist */
 	if (shader_text == NULL)
@@ -825,8 +783,7 @@ static void shader_filter_reload_effect(struct shader_filter_data *filter)
 
 	if (filter->effect == NULL) {
 		blog(LOG_WARNING,
-				"[obs-shader-filter] Unable to create effect."
-				"Errors returned from parser:\n%s",
+				"[obs-shader-filter] Unable to create effect. Errors returned from parser:\n%s",
 				(errors == NULL || strlen(errors) == 0
 								? "(None)"
 								: errors));
@@ -1564,8 +1521,7 @@ static const char *shader_filter_texture_file_filter =
 		"Textures (*.bmp *.tga *.png *.jpeg *.jpg *.gif);;";
 
 static const char *shader_filter_media_file_filter =
-		"Video Files (*.mp4 *.ts *.mov *.wmv *.flv *.mkv *.avi *.gif "
-		"*.webm);;";
+		"Video Files (*.mp4 *.ts *.mov *.wmv *.flv *.mkv *.avi *.gif *.webm);;";
 
 static obs_properties_t *shader_filter_properties(void *data)
 {
@@ -1588,7 +1544,8 @@ static obs_properties_t *shader_filter_properties(void *data)
 	obs_property_t *file_name = obs_properties_add_path(props,
 			"shader_file_name",
 			_MT("ShaderFilter.ShaderFileName"),
-			OBS_PATH_FILE, NULL, shaders_path.array);
+			OBS_PATH_FILE, NULL,
+			shaders_path.array);
 
 	obs_property_set_modified_callback(
 			file_name, shader_filter_file_name_changed);
@@ -2237,6 +2194,8 @@ static void shader_filter_render(void *data, gs_effect_t *effect)
 
 		obs_source_process_filter_end(filter->context, filter->effect,
 				filter->total_width, filter->total_height);
+	} else {
+		obs_source_skip_video_filter(filter->context);
 	}
 }
 
