@@ -573,6 +573,7 @@ struct effect_param_data {
 	float *sidechain_buf;
 	size_t num_channels;
 	size_t fft_bins;
+	size_t fft_samples;
 
 	enum fft_windowing_type window;
 };
@@ -1861,9 +1862,9 @@ void update_graphics_paramters(
 		}
 
 		if (param->is_audio_source) {
-			resize_audio_buffers(param, 1024);
-			get_sidechain_data(param, 1024);
-			render_audio_texture(param, 1024);
+			resize_audio_buffers(param, AUDIO_OUTPUT_FRAMES);
+			get_sidechain_data(param, param->fft_samples);
+			render_audio_texture(param, param->fft_samples);
 			break;
 		}
 		/* Otherwise use image file as texture */
@@ -1968,10 +1969,13 @@ void get_graphics_parameters(struct effect_param_data *param,
 			param->is_fft = get_eparam_bool(
 					param->param, "is_fft", false);
 			if (param->is_fft) {
+				param->fft_samples = hlsl_clamp(get_eparam_int(
+						param->param, "fft_samples",
+						1024), 64, 1024);
 				param->is_psd = get_eparam_bool(param->param,
-					"is_psd", false);
+						"is_psd", false);
 				param->fft_bins = get_eparam_int(
-					param->param, "fft_bins", 512);
+						param->param, "fft_bins", 512);
 				get_window_function(param);
 			}
 			const char *source_name = obs_data_get_string(
