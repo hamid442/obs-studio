@@ -4,20 +4,22 @@
 #include <math.h>
 #include <libavcodec\avfft.h>
 
+/*Should be alphabetically ordered*/
 enum fft_windowing_type {
-	none = 0,
-	rectangular = 0,
-	triangular,
+	none = -1,
+	rectangular = -1,
 	bartlett,
-	welch,
-	sine,
-	hann,
 	blackmann,
 	blackmann_exact,
-	nuttall,
-	blackmann_nuttall,
 	blackmann_harris,
-	flat_top
+	blackmann_nuttall,
+	flat_top,
+	hann,
+	nuttall,
+	sine,
+	triangular,
+	welch,
+	end_fft_enum
 };
 
 void audio_fft_complex(float* X, int N);

@@ -9,37 +9,41 @@ void audio_fft_complex(float *data, int N)
 	av_rdft_end(context);
 }
 
+/* Must be alphabetically ordered for binary search */
+const char *fft_window_strings[] = {
+	"bartlett",
+	"blackmann",
+	"blackmann_exact",
+	"blackmann_harris",
+	"blackmann_nuttall",
+	"flat_top",
+	"hann",
+	"nuttall",
+	"sine",
+	"triangular",
+	"welch"
+};
+
 enum fft_windowing_type get_window_type(char *window)
 {
 	enum fft_windowing_type ret;
 	if (window) {
-		if (astrcmpi(window, "rectangular") == 0) {
-			ret = rectangular;
-		} else if (astrcmpi(window, "triangular") == 0) {
-			ret = triangular;
-		} else if (astrcmpi(window, "bartlett") == 0) {
-			ret = bartlett;
-		} else if (astrcmpi(window, "welch") == 0) {
-			ret = welch;
-		} else if (astrcmpi(window, "sine") == 0) {
-			ret = sine;
-		} else if (astrcmpi(window, "hann") == 0) {
-			ret = hann;
-		} else if (astrcmpi(window, "blackmann") == 0) {
-			ret = blackmann;
-		} else if (astrcmpi(window, "blackmann_exact") == 0) {
-			ret = blackmann_exact;
-		} else if (astrcmpi(window, "nuttall") == 0) {
-			ret = nuttall;
-		} else if (astrcmpi(window, "blackmann_nuttall") == 0) {
-			ret = blackmann_nuttall;
-		} else if (astrcmpi(window, "blackmann_harris") == 0) {
-			ret = blackmann_harris;
-		} else if (astrcmpi(window, "flat_top") == 0) {
-			ret = flat_top;
-		} else {
-			ret = none;
+		int low_bound = 0;
+		int high_bound = end_fft_enum-1;
+		int i;
+		int c;
+		for (;low_bound <= high_bound;) {
+			i = (low_bound + ((high_bound - low_bound) / 2));
+			c = strcmp(window, fft_window_strings[i]);
+			if (c == 0) {
+				return i;
+			} else if (c > 0) {
+				low_bound = i + 1;
+			} else {
+				high_bound = i - 1;
+			}
 		}
+		return none;
 	} else {
 		ret = none;
 	}
