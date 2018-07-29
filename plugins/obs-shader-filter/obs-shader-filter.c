@@ -7,6 +7,8 @@
 #include <util/platform.h>
 #include <util/threading.h>
 
+#include <graphics/matrix4.h>
+
 #include <float.h>
 #include <limits.h>
 #include <stdio.h>
@@ -216,6 +218,26 @@ struct long4 {
 	};
 };
 
+struct vmatrix4 {
+	union {
+		struct matrix4 mat;
+		struct vec4 v[4];
+		__m128 m[4];
+		float ptr[16];
+	};
+};
+
+struct lmatrix4 {
+	union {
+		struct {
+			struct long4 x, y, z, t;
+		};
+		struct long4 v[4];
+		__m128 m[4];
+		int32_t ptr[16];
+	};
+};
+
 /* Struct for dealing w/ converting vec2 floating points to doubles */
 struct double2 {
 	union {
@@ -273,15 +295,15 @@ void obs_properties_add_vec_prop(obs_properties_t *props, const char *name,
 		const char *desc, double min, double max, double step,
 		bool is_slider, bool is_float, int vec_num)
 {
-	const char *mixin = "xyzw";
+	const char *mixin = "x0y0z0w0x1y1z1w1x2y2z2w2x3y3z3w3";
 	struct dstr n_param_name;
 	struct dstr n_param_desc;
 	dstr_init(&n_param_name);
 	dstr_init(&n_param_desc);
-	int vec_count = vec_num <= 4 ? (vec_num >= 0 ? vec_num : 0) : 4;
+	int vec_count = vec_num <= 16 ? (vec_num >= 0 ? vec_num : 0) : 16;
 	for (int i = 0; i < vec_count; i++) {
-		dstr_copy_cat(&n_param_name, name, ".", mixin + i, 1);
-		dstr_copy_cat(&n_param_desc, desc, ".", mixin + i, 1);
+		dstr_copy_cat(&n_param_name, name, ".", mixin + i*2, 2);
+		dstr_copy_cat(&n_param_desc, desc, ".", mixin + i*2, 2);
 
 		obs_properties_add_numerical_prop(props, n_param_name.array,
 				n_param_desc.array, min, max, step, is_slider,
@@ -541,7 +563,7 @@ struct effect_param_data {
 	bool update_per_frame;
 
 	/* An array of strings for use w/ the array types */
-	struct dstr array_names[4];
+	struct dstr array_names[16];
 
 	obs_source_t *media_source;
 	obs_weak_source_t *media_weak_source;
@@ -549,9 +571,9 @@ struct effect_param_data {
 
 	gs_texrender_t *texrender;
 
-	bool update_expr_per_frame[4];
-	bool has_expr[4];
-	struct dstr expr[4];
+	bool update_expr_per_frame[16];
+	bool has_expr[16];
+	struct dstr expr[16];
 
 	/* These store the varieties of values passed to the shader */
 	union {
@@ -559,11 +581,12 @@ struct effect_param_data {
 		double f;
 		struct vec4 v4;
 		struct long4 l4;
+		struct vmatrix4 mat4;
 	} value;
 
 	/* These hold the above as doubles for use in expressions */
 	union {
-		double f[4];
+		double f[16];
 	} te_bind;
 
 	size_t max_sidechain_frames;
@@ -979,10 +1002,10 @@ void prep_bind_value(bool *bound, int *binding, struct effect_param_data *param,
 		}
 		/* update values */
 		size_t i;
-		const char *mixin = "xyzw";
-		for (i = 0; i < 4; i++)
+		const char *mixin = "x0y0z0w0x1y1z1w1x2y2z2w2x3y3z3w3";
+		for (i = 0; i < 16; i++)
 			dstr_copy_cat(&param->array_names[i], param->name.array,
-					"_", mixin + i, 1);
+					"_", mixin + i*2, 2);
 
 		switch (param->type) {
 		case GS_SHADER_PARAM_BOOL:
@@ -1008,10 +1031,15 @@ void prep_bind_value(bool *bound, int *binding, struct effect_param_data *param,
 						(double)param->value.v4.ptr[i];
 
 			break;
+		case GS_SHADER_PARAM_MATRIX4X4:
+			for (i = 0; i < 16; i++)
+				param->te_bind.f[i] =
+						(double)param->value.mat4.ptr[i];
+			break;
 		}
 		/* bind values */
 		if (!param->bound) {
-			te_variable var[4] = {0};
+			te_variable var[16] = {0};
 			bool bind_array    = false;
 
 			switch (param->type) {
@@ -1033,6 +1061,14 @@ void prep_bind_value(bool *bound, int *binding, struct effect_param_data *param,
 								      .array;
 				}
 
+				bind_array = true;
+				break;
+			case GS_SHADER_PARAM_MATRIX4X4:
+				for (i = 0; i < 16; i++) {
+					var[i].address = &param->te_bind.f[i];
+					var[i].name = param->array_names[i]
+						.array;
+				}
 				bind_array = true;
 				break;
 			default:
@@ -1183,13 +1219,14 @@ void prep_bind_values(bool *bound_left, bool *bound_right, bool *bound_top,
 	bool is_float   = (param->type == GS_SHADER_PARAM_FLOAT ||
                         param->type == GS_SHADER_PARAM_VEC2 ||
                         param->type == GS_SHADER_PARAM_VEC3 ||
-                        param->type == GS_SHADER_PARAM_VEC4);
+                        param->type == GS_SHADER_PARAM_VEC4 ||
+			param->type == GS_SHADER_PARAM_MATRIX4X4);
 	bool *bounds[4] = {bound_left, bound_right, bound_top, bound_bottom};
 
 	const char *bind_names[4] = {
 			"bind_left", "bind_right", "bind_top", "bind_bottom"};
 	const char *expr_names = "expr";
-	const char *mixin = "xyzw";
+	const char *mixin = "x0y0z0w0x1y1z1w1x2y2z2w2x3y3z3w3";
 
 	struct dstr bind_name;
 	struct dstr expr_name;
@@ -1238,7 +1275,7 @@ void prep_bind_values(bool *bound_left, bool *bound_right, bool *bound_top,
 	}
 
 	for (j = 0; j < vec_num; j++) {
-		dstr_copy_cat(&expr_name, expr_names, "_", mixin + j, 1);
+		dstr_copy_cat(&expr_name, expr_names, "_", mixin + j, 2);
 		dstr_free(&param->expr[j]);
 		char *expr = get_eparam_string(param->param, expr_name.array,
 				NULL);
@@ -1854,6 +1891,10 @@ void update_graphics_paramters(
 #endif
 		}
 		break;
+	case GS_SHADER_PARAM_MATRIX4X4:
+		gs_effect_set_matrix4(param->param,
+				(struct matrix4 *)&param->value.mat4);
+		break;
 	case GS_SHADER_PARAM_TEXTURE:
 		/* Render texture from a source */
 		if (param->is_source || param->is_media) {
@@ -1941,6 +1982,15 @@ void get_graphics_parameters(struct effect_param_data *param,
 		for (size_t i = 0; i < vec_num; i++) {
 			param->value.v4.ptr[i] = (float)obs_data_get_double(
 					settings, param->array_names[i].array);
+		}
+
+		prep_param(filter, param);
+		break;
+	case GS_SHADER_PARAM_MATRIX4X4:
+		vec_num = obs_get_vec_num(param->type);
+		for (size_t i = 0; i < vec_num; i++) {
+			param->value.mat4.ptr[i] = (float)obs_data_get_double(
+				settings, param->array_names[i].array);
 		}
 
 		prep_param(filter, param);
@@ -2039,7 +2089,7 @@ static void shader_filter_update(void *data, obs_data_t *settings)
 	float src_cx = (float)obs_source_get_width(filter->context);
 	float src_cy = (float)obs_source_get_height(filter->context);
 
-	const char *mixin  = "xyzw";
+	const char *mixin = "x0y0z0w0x1y1z1w1x2y2z2w2x3y3z3w3";
 	size_t param_count = filter->stored_param_list.num;
 	size_t i;
 	for (size_t param_i = 0; param_i < param_count; param_i++) {
@@ -2051,7 +2101,7 @@ static void shader_filter_update(void *data, obs_data_t *settings)
 		/* get the property names (if this was meant to be an array) */
 		for (i = 0; i < 4; i++) {
 			dstr_copy_cat(&param->array_names[i], param_name, ".",
-					mixin + i, 1);
+					mixin + i*2, 2);
 		}
 
 		get_graphics_parameters(param, filter, settings);
