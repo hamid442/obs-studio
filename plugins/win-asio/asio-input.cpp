@@ -507,7 +507,7 @@ void asio_update(void *vptr, obs_data_t *settings)
 	asio_listener *listener = (asio_listener *)vptr;
 	paasio_data *user_data = (paasio_data *)listener->get_user_data();
 	const char *device;
-	const PaDeviceInfo *deviceInfo = NULL;
+	//const PaDeviceInfo *deviceInfo = NULL;
 	int cur_index;
 	int route[MAX_AUDIO_CHANNELS];
 
@@ -521,11 +521,11 @@ void asio_update(void *vptr, obs_data_t *settings)
 	device = obs_data_get_string(settings, "device_id");
 	cur_index = get_device_index(device);
 
-	deviceInfo = Pa_GetDeviceInfo(selected_device);
+	//deviceInfo = Pa_GetDeviceInfo(selected_device);
 
 	//if we have a valid selected index for a device, connect a listener thread
 	if (cur_index != -1 && cur_index < getDeviceCount()) {
-		listener->device_index = selected_device;
+		listener->device_index = cur_index;
 
 		for (int i = 0; i < recorded_channels; i++) {
 			std::string route_str = "route " + std::to_string(i);
@@ -541,10 +541,13 @@ void asio_update(void *vptr, obs_data_t *settings)
 		/* Open an audio I/O stream. */
 		/* this circular buffer is the audio server */
 		device_buffer *devicebuf = device_list[cur_index];
-		// close old listener threads if any
+		/* close old listener threads if any */
 		listener->disconnect();
-		// connects the listener to the server
+		/* connects the listener to the server */
 		devicebuf->add_listener(listener);
+	} else {
+		listener->device_index = selected_device;
+		listener->disconnect();
 	}
 }
 
@@ -946,14 +949,13 @@ bool obs_module_load(void)
 		bfree(tmp);
 	}
 	if (!os_file_exists(module_settings_path)) {
-
 		module_settings = obs_data_create();
 		obs_data_save_json_safe(module_settings, module_settings_path, ".tmp", ".bak");
-	}
-	else {
+	} else {
 		module_settings = obs_data_create_from_json_file_safe(module_settings_path, ".bak");
 	}
-
+	device_list.clear();
+	device_selector->clear();
 	// Scan through devices for various capabilities
 	for (int i = 0; i < numOfDevices; i++) {
 		deviceInfo = Pa_GetDeviceInfo(i);
