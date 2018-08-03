@@ -28,12 +28,14 @@ endif()
 set(obs-shader-filter_HEADERS
 	fft.h
 	tinyexpr.h
+	mtrandom.h
 )
 
 set(obs-shader-filter_SOURCES
 	fft.c
 	obs-shader-filter.c
 	tinyexpr.c
+	mtrandom.cpp
 )
 
 add_library(obs-shader-filter MODULE

@@ -13,6 +13,7 @@
 
 #include "fft.h"
 #include "tinyexpr.h"
+#include "mtrandom.h"
 
 OBS_DECLARE_MODULE()
 OBS_MODULE_USE_DEFAULT_LOCALE("obs_shader_filter", "en-US")
@@ -76,8 +77,9 @@ void prep_te_funcs(struct darray *te_vars)
 			{"mel_from_hz", audio_mel_from_hz, TE_FUNCTION1},
 			{"hz_from_mel", audio_hz_from_mel, TE_FUNCTION1},
 			{"degrees", hlsl_degrees, TE_FUNCTION1},
-			{"radians", hlsl_rad, TE_FUNCTION1}};
-	darray_push_back_array(sizeof(te_variable), te_vars, &funcs[0], 11);
+			{"radians", hlsl_rad, TE_FUNCTION1},
+			{"random", random_double, TE_FUNCTION2} };
+	darray_push_back_array(sizeof(te_variable), te_vars, &funcs[0], 12);
 }
 
 void append_te_variable(struct darray *te_vars, te_variable *v)
