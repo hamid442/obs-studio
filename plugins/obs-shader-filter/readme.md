@@ -1,4 +1,4 @@
-# Shader Filter <[shader-filter-master](https://github.com/Andersama/obs-studio/tree/shader-filter-master)>
+# Shader Filter <[shader-filter-eval](https://github.com/Andersama/obs-studio/tree/shader-filter-eval)>
 >Rapidly prototype and create graphical effects using OBS's shader syntax.
 
 ## Usage
@@ -157,6 +157,158 @@ float4 mainImage(VertData v_in) : TARGET
     float4 color = source.Sample(textureSampler, float2(1-v_in.uv.x, v_in.uv.y));
 	
     return color;
+}
+
+technique Draw
+{
+	pass p0
+	{
+		vertex_shader = mainTransform(v_in);
+		pixel_shader = mainImage(v_in);
+	}
+}
+```
+
+## Advanced
+> The ability to extract annotations also gives very intresting prospects. Here to give full flexibility of 
+> the creative juices I've taken a handy library [tinyexpr](https://github.com/codeplea/tinyexpr) to give you the ability
+> to write mathmatical expressions in order to evaluate parameters.
+>
+> Yes...that's right, if you can express the value that you want in a mathmatical formula. You can.
+> Note: these values are not added to the gui, as they don't need to be shown.
+
+## tinyexpr (& crop / expansion)
+> `[bool, int, float]`
+> ### expr
+> ```c
+> <string expr;>
+> ```
+> This annotation describes a mathmatical function to evaluate
+
+> `[int2, int3, int4, float2, float3, float4]`
+> ### expr_x, expr_y, expr_z, expr_w
+> ```c
+> <string expr_x; string expr_y; string expr_z; string expr_z;>
+> ```
+> These annotations describe a mathmatical expression to evalulate for computing each vector component.
+
+> `[any of the above]`
+> ### update_expr_per_frame
+> ```c
+> <bool update_expr_per_frame;>
+> ```
+> This annotation controls whether the expression is evaluated per frame
+> ### Cropping / Expansion
+> Note: Each direction is handled by one expression, the first expressions found will be considered the ones to evaulate, and are always evaulated per frame.
+> These annotations specify mathmatical expressions to evaluate cropping / expansion of the frame in their respective directions by pixel amounts.
+> Positive values = expansion, Negative = cropping.
+> In addition they must be confirmed as bound `bool bind_left` `bool bind_right` `bool bind_top` `bool bind_bottom`
+
+> `[bool, int, float, texture2d]`
+> ### bind_left_expr, bind_right_expr, bind_top_expr, bind_bottom_expr
+> ```c
+> <string bind_left_expr; string bind_right_expr; string bind_top_expr; string bind_bottom_expr;>
+> ```
+> `[int2, int3, int4, float2, float3, float4]`
+
+> For brevity's sake, these are like the above, but w/ their respective vector component like so:
+> ```c
+> <string bind_[direction]_[vector component]_expr;>
+> ```
+
+## Advanced Shader
+```c
+uniform float4x4 ViewProj;
+uniform texture2d image;
+
+uniform float elapsed_time;
+uniform float2 uv_offset;
+uniform float2 uv_scale;
+uniform float2 uv_pixel_interval;
+
+sampler_state textureSampler {
+	Filter    = Linear;
+	AddressU  = Border;
+	AddressV  = Border;
+	BorderColor = 00000000;
+};
+
+sampler_state textureSampler_H {
+	Filter    = Linear;
+	AddressU  = Border;
+	AddressV  = Border;
+	BorderColor = 00000000;	
+};
+
+sampler_state textureSampler_V {
+	Filter    = Linear;
+	AddressU  = Wrap;
+	AddressV  = Border;
+	BorderColor = 00000000;	
+};
+
+struct VertData {
+	float4 pos : POSITION;
+	float2 uv  : TEXCOORD0;
+};
+
+VertData mainTransform(VertData v_in)
+{
+	VertData vert_out;
+	vert_out.pos = mul(float4(v_in.pos.xyz, 1.0), ViewProj);
+	vert_out.uv = v_in.uv * uv_scale + uv_offset;
+	return vert_out;
+}
+
+#define PI 3.141592653589793238462643383279502884197169399375105820974
+#define PIO3 1.047197551196597746154214461093167628065723133125035273658
+#define PI2O3 2.094395102393195492308428922186335256131446266250070547316
+
+float melScale(float freq){
+	return 2595 * log10 (1 + freq / 700.0);
+}
+
+float hertzFromMel(float mel) {
+	return 700 * (pow(10, mel / 2595) - 1);
+}
+
+uniform texture2d audio <bool is_audio_source = true; bool is_fft = true; int fft_samples = 1024; string window = "blackmann_harris";>;
+uniform bool vertical;
+uniform float px_shift <bool is_slider = true; float min = 0.5; float max = 1920; float step = 0.5;>;
+uniform bool show_fft;
+uniform float sample_rate <string expr = "sample_rate";>;
+uniform float mel_total <string expr = "mel_from_hz(sample_rate / 2)";>;
+uniform float variability <bool is_slider = true; float min = 0; float max = 10000;>;
+uniform float rand_num <string expr = "random(0,1.0)"; bool update_expr_per_frame = true;>;
+
+float4 mainImage(VertData v_in) : TARGET
+{
+	float2 px;
+	float mel;
+	float hz;
+	float4 color;
+	float px_2;
+	float2 shift;
+	float db;
+	if(vertical){
+		px = float2((1 - distance(v_in.uv.y, 0.5) * 2), v_in.uv.x);
+		color = audio.Sample(textureSampler_V, px + float2(elapsed_time * 0.0001 * variability * rand_num, 0));
+		if(show_fft)
+			return color;
+		db = clamp( ((log10( 1 / (2 * PI * 1024) * pow(color.r,2) )) + 12) / 12.0, 0, 2 );
+		px_2 = (sin(color.r) * db * px_shift);
+		shift = float2(px_2 * uv_pixel_interval.x, 0);
+		return image.Sample(textureSampler_H, v_in.uv + shift);
+	} else {
+		px = float2((1 - distance(v_in.uv.x, 0.5) * 2), v_in.uv.y);
+		color = audio.Sample(textureSampler_V, px + float2(elapsed_time * 0.0001 * variability * rand_num, 0));
+		if(show_fft)
+			return color;
+		db = clamp( ((log10( 1 / (2 * PI * 1024) * pow(color.r,2) )) + 12) / 12.0, 0, 2 );
+		px_2 = (sin(color.r) * db * px_shift);
+		shift = float2(0, px_2 * uv_pixel_interval.y);
+		return image.Sample(textureSampler_V, v_in.uv + shift);
+	}
 }
 
 technique Draw
