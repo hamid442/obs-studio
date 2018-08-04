@@ -412,63 +412,49 @@ void OBSBasic::UpdateVolumeControlsDecayRate()
 	double meterDecayRate = config_get_double(basicConfig, "Audio",
 			"MeterDecayRate");
 
-	for (size_t i = 0; i < volumes.size(); i++) {
-		volumes[i]->SetMeterDecayRate(meterDecayRate);
-	}
+	for (VolControl *volume : volumes)
+		volume->SetMeterDecayRate(meterDecayRate);
 }
 
 void OBSBasic::UpdateMasterVolumeControlsDecayRate() {
 	double meterDecayRate = config_get_double(basicConfig, "Audio",
 		"MasterMeterDecayRate");
 
-	for (size_t i = 0; i < MAX_AUDIO_MIXES; i++) {
+	for (size_t i = 0; i < MAX_AUDIO_MIXES; i++)
 		master_volumes[i]->SetMeterDecayRate(meterDecayRate);
+}
+
+static enum obs_peak_meter_type GetPeakMeterType(uint64_t peakMeterTypeIdx)
+{
+	switch (peakMeterTypeIdx) {
+	case 1:
+		return TRUE_PEAK_METER;
+	default:
+		return SAMPLE_PEAK_METER;
 	}
 }
 
 void OBSBasic::UpdateVolumeControlsPeakMeterType()
 {
-	uint32_t peakMeterTypeIdx = config_get_uint(basicConfig, "Audio",
+	uint64_t peakMeterTypeIdx = config_get_uint(basicConfig, "Audio",
 			"PeakMeterType");
 
-	enum obs_peak_meter_type peakMeterType;
-	switch (peakMeterTypeIdx) {
-	case 0:
-		peakMeterType = SAMPLE_PEAK_METER;
-		break;
-	case 1:
-		peakMeterType = TRUE_PEAK_METER;
-		break;
-	default:
-		peakMeterType = SAMPLE_PEAK_METER;
-		break;
-	}
+	enum obs_peak_meter_type peakMeterType = GetPeakMeterType(
+			peakMeterTypeIdx);
 
-	for (size_t i = 0; i < volumes.size(); i++) {
-		volumes[i]->setPeakMeterType(peakMeterType);
-	}
+	for (VolControl *volume : volumes)
+		volume->setPeakMeterType(peakMeterType);
 }
 
 void OBSBasic::UpdateMasterVolumeControlsPeakMeterType() {
-	uint32_t peakMeterTypeIdx = config_get_uint(basicConfig, "Audio",
+	uint64_t peakMeterTypeIdx = config_get_uint(basicConfig, "Audio",
 		"MasterPeakMeterType");
 
-	enum obs_peak_meter_type peakMeterType;
-	switch (peakMeterTypeIdx) {
-	case 0:
-		peakMeterType = SAMPLE_PEAK_METER;
-		break;
-	case 1:
-		peakMeterType = TRUE_PEAK_METER;
-		break;
-	default:
-		peakMeterType = SAMPLE_PEAK_METER;
-		break;
-	}
+	enum obs_peak_meter_type peakMeterType = GetPeakMeterType(
+			peakMeterTypeIdx);
 
-	for (size_t i = 0; i < MAX_AUDIO_MIXES; i++) {
+	for (size_t i = 0; i < MAX_AUDIO_MIXES; i++)
 		master_volumes[i]->setPeakMeterType(peakMeterType);
-	}
 }
 
 void OBSBasic::ClearVolumeControls()
