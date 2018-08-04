@@ -23,7 +23,7 @@ before_deploy:
   - cmd: C:\projects\obs-studio\CI\before-deploy-win.cmd
 
 deploy_script:
-  - ps: Push-AppveyorArtifact "build.zip" -FileName "$(git describe).zip"
+  - ps: Push-AppveyorArtifact "build.zip" -FileName "$(git rev-parse --abbrev-ref HEAD)_$(git describe).zip"
 
 test: off
 
