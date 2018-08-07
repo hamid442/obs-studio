@@ -58,6 +58,8 @@ static void opencv_filter_destroy(void *data)
 	
 	dstr_free(&filter->path);
 	
+	bfree(&filter->data);
+	
 	bfree(filter);
 }
 
