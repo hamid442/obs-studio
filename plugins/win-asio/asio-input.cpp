@@ -33,20 +33,6 @@ along with this program.  If not, see <http://www.gnu.org/licenses/>.
 #include <util/windows/WinHandle.hpp>
 #include <bassasio.h>
 
-//#include "RtAudio.h"
-
-//#include <obs-frontend-api.h>
-//
-//#include <QFileInfo>
-//#include <QProcess>
-//#include <QLibrary>
-//#include <QMainWindow>
-//#include <QAction>
-//#include <QMessageBox>
-//#include <QString>
-//#include <QStringList>
-
-
 OBS_DECLARE_MODULE()
 OBS_MODULE_USE_DEFAULT_LOCALE("win-asio", "en-US")
 
@@ -203,8 +189,8 @@ public:
 	const char *device;
 	uint8_t device_index;
 
-	uint64_t first_ts;       //first timestamp
-							 /* channels info */
+	uint64_t first_ts; //first timestamp
+	/* channels info */
 	DWORD input_channels; //total number of input channels
 	DWORD output_channels; // number of output channels of device (not used)
 	DWORD recorded_channels; // number of channels passed from device (including muted) to OBS; is at most 8
@@ -231,13 +217,6 @@ public:
 		ss << "0x" << std::uppercase << (int)address;
 		std::string name = ss.str();
 		return name;
-		//const char * format_id = "0x%x";
-		//size_t pad = sizeof(obs_source_t *) * 2;
-		//char * id_char = (char*)calloc(strlen(format_id) + pad + 1, sizeof(char));
-		//sprintf(id_char, format_id, source);
-		//std::string name = id_char;
-		//free(id_char);
-		//return name.c_str();
 	}
 
 	asio_data() : source(NULL), first_ts(0), device_index(-1) {
@@ -363,7 +342,7 @@ private:
 	WinHandle *receive_signals;
 	//create a square tick signal w/ two events
 	WinHandle all_recieved_signal;
-	WinHandle all_recieved_signal_2;
+	//WinHandle all_recieved_signal_2;
 	//to close out the device
 	WinHandle stop_listening_signal;
 	//tell listeners to to reinit
@@ -378,14 +357,6 @@ private:
 	circlebuf audio_buffer;
 public:
 	uint32_t samples_per_sec;
-
-	const WinHandle * get_handles() {
-		return receive_signals;
-	}
-
-	WinHandle on_buffer() {
-		return all_recieved_signal;
-	}
 
 	long get_input_channels() {
 		return input_chs;
@@ -414,7 +385,7 @@ public:
 		buffer_count = 32;
 
 		all_recieved_signal = CreateEvent(nullptr, true, false, nullptr);
-		all_recieved_signal_2 = CreateEvent(nullptr, true, true, nullptr);
+		//all_recieved_signal_2 = CreateEvent(nullptr, true, true, nullptr);
 		stop_listening_signal = CreateEvent(nullptr, true, false, nullptr);
 	}
 
@@ -430,7 +401,7 @@ public:
 		buffer_count = buffers ? buffers : 32;
 
 		all_recieved_signal = CreateEvent(nullptr, true, false, nullptr);
-		all_recieved_signal_2 = CreateEvent(nullptr, true, true, nullptr);
+		//all_recieved_signal_2 = CreateEvent(nullptr, true, true, nullptr);
 		stop_listening_signal = CreateEvent(nullptr, true, false, nullptr);
 	}
 
@@ -450,7 +421,6 @@ public:
 			}
 			circlebuf_free(&audio_buffer);
 		}
-
 	}
 
 	//check that all the required device settings have been set
@@ -574,8 +544,9 @@ public:
 			blog(LOG_INFO, "%s device %i is not prepared", __FUNCTION__, device_index);
 			return;
 		}
-		ResetEvent(all_recieved_signal);
-		SetEvent(all_recieved_signal_2);
+		SetEvent(all_recieved_signal);
+		//ResetEvent(all_recieved_signal);
+		//SetEvent(all_recieved_signal_2);
 		//get as much information from the device that called this function
 		BASS_ASIO_INFO info;
 		bool ret = BASS_ASIO_GetInfo(&info);
@@ -594,6 +565,7 @@ public:
 		device_source_audio* _source_audio = get_writeable_source_audio();
 		if (!_source_audio) {
 			blog(LOG_INFO, "%s _source_audio = NULL", __FUNCTION__);
+			ResetEvent(all_recieved_signal);
 			return;
 		}
 
@@ -612,8 +584,9 @@ public:
 
 		write_index++;
 		write_index = write_index % buffer_count;
-		SetEvent(all_recieved_signal);
-		ResetEvent(all_recieved_signal_2);
+		ResetEvent(all_recieved_signal);
+		//SetEvent(all_recieved_signal);
+		//ResetEvent(all_recieved_signal_2);
 	}
 
 	static DWORD WINAPI capture_thread(void *data) {
@@ -630,7 +603,6 @@ public:
 		os_set_thread_name(thread_name.c_str());
 
 		HANDLE signals_1[3] = { device->all_recieved_signal, device->stop_listening_signal, source->stop_listening_signal };
-		HANDLE signals_2[3] = { device->all_recieved_signal_2, device->stop_listening_signal, source->stop_listening_signal };
 
 		long route[MAX_AUDIO_CHANNELS];
 		for (short i = 0; i < aoi.speakers; i++) {
@@ -649,11 +621,9 @@ public:
 
 		while (source && device) {
 			waitResult = WaitForMultipleObjects(3, signals_1, false, INFINITE);
-			waitResult = WaitForMultipleObjects(3, signals_2, false, INFINITE);
-			//not entirely sure that all of these conditions are correct (at the very least this is)
 			if (waitResult == WAIT_OBJECT_0) {
 				while (read_index != device->write_index) {
-					device_source_audio* in = device->get_source_audio(read_index);//device->get_writeable_source_audio();
+					device_source_audio* in = device->get_source_audio(read_index);
 					source->render_audio(in, route);
 					read_index++;
 					read_index = read_index % device->buffer_count;
@@ -670,11 +640,6 @@ public:
 					delete pair;
 					return 0;
 				}
-				//uint64_t t_stamp = os_gettime_ns();
-				//os_sleepto_ns(t_stamp + buffer_time);
-				//os_sleepto_ns(os_gettime_ns() + ((device->frames * NSEC_PER_SEC) / device->samples_per_sec));
-				//Sleep(1);
-				//microsoft docs on the return codes gives the impression that you're supposed to subtract wait_object_0
 			}
 			else if (waitResult == WAIT_OBJECT_0 + 1) {
 				blog(LOG_INFO, "device %l indicated it wanted to disconnect", device->device_index);
@@ -834,27 +799,6 @@ static bool DeviceControlPanel(obs_properties_t *props,
 void asio_update(void *vptr, obs_data_t *settings);
 void asio_destroy(void *vptr);
 
-//creates the device list
-/*
-void fill_out_devices(obs_property_t *list) {
-	int numOfDevices = (int)getDeviceCount();
-	char** names = new char*[numOfDevices];
-	blog(LOG_INFO, "ASIO Devices: %i\n", numOfDevices);
-	BASS_ASIO_SetUnicode(false);
-	BASS_ASIO_DEVICEINFO info;
-	for (int i = 0; i < numOfDevices; i++) {
-		BASS_ASIO_GetDeviceInfo(i, &info);
-		blog(LOG_INFO, "device  %i = %ls\n", i, info.name);
-		std::string test = info.name;
-		char* cstr = new char[test.length() + 1];
-		strcpy(cstr, test.c_str());
-		names[i] = cstr;
-		blog(LOG_INFO, "Number of ASIO Devices: %i\n", numOfDevices);
-		blog(LOG_INFO, "device %i  = %s added successfully.\n", i, names[i]);
-		obs_property_list_add_string(list, names[i], names[i]);
-	}
-}
-*/
 void fill_out_devices(obs_property_t *list) {
 	int res;
 	BASS_ASIO_SetUnicode(false);
@@ -924,23 +868,16 @@ static bool fill_out_sample_rates(obs_properties_t *props, obs_property_t *list,
 	ret = BASS_ASIO_CheckRate(44100);
 	if (ret) {
 		std::string rate = "44100 Hz";
-		char* cstr = new char[rate.length() + 1];
-		strcpy(cstr, rate.c_str());
-		obs_property_list_add_int(list, cstr, 44100);
-		delete cstr;
-	}
-	else {
+		obs_property_list_add_int(list, rate.c_str(), 44100);
+	} else {
 		blog(LOG_INFO, "Device loaded does not support 44100 Hz sample rate\n");
 	}
+
 	ret = BASS_ASIO_CheckRate(48000);
 	if (ret) {
 		std::string rate = "48000 Hz";
-		char* cstr = new char[rate.length() + 1];
-		strcpy(cstr, rate.c_str());
-		obs_property_list_add_int(list, cstr, 48000);
-		delete cstr;
-	}
-	else {
+		obs_property_list_add_int(list, rate.c_str(), 48000);
+	} else {
 		blog(LOG_INFO, "Device loaded does not support 48000 Hz sample rate\n");
 	}
 	return true;
@@ -979,18 +916,15 @@ static bool fill_out_bit_depths(obs_properties_t *props, obs_property_t *list, o
 		obs_property_list_add_int(list, "16 bit (native)", AUDIO_FORMAT_16BIT);
 		obs_property_list_add_int(list, "32 bit", AUDIO_FORMAT_32BIT);
 		obs_property_list_add_int(list, "32 bit float", AUDIO_FORMAT_FLOAT);
-	}
-	else if (channelInfo.format == BASS_ASIO_FORMAT_32BIT) {
+	} else if (channelInfo.format == BASS_ASIO_FORMAT_32BIT) {
 		obs_property_list_add_int(list, "16 bit", AUDIO_FORMAT_16BIT);
 		obs_property_list_add_int(list, "32 bit (native)", AUDIO_FORMAT_32BIT);
 		obs_property_list_add_int(list, "32 bit float", AUDIO_FORMAT_FLOAT);
-	}
-	else if (channelInfo.format == BASS_ASIO_FORMAT_FLOAT) {
+	} else if (channelInfo.format == BASS_ASIO_FORMAT_FLOAT) {
 		obs_property_list_add_int(list, "16 bit", AUDIO_FORMAT_16BIT);
 		obs_property_list_add_int(list, "32 bit", AUDIO_FORMAT_32BIT);
 		obs_property_list_add_int(list, "32 bit float (native)", AUDIO_FORMAT_FLOAT);
-	}
-	else {
+	} else {
 		blog(LOG_ERROR, "Your device uses unsupported bit depth.\n"
 			"Only 16 bit, 32 bit signed int and 32 bit float are supported.\n"
 			"Change accordingly your device settings.\n"
@@ -1261,7 +1195,7 @@ void asio_init(struct asio_data *data)
 	// check buffer size is legit; if not set it to bufpref
 	// to be implemented : to avoid issues, force to bufpref
 	// this ignores any setting; bufpref is most likely set in asio control panel
-	//check channel setup
+	// check channel setup
 	DWORD checkrate = BASS_ASIO_GetRate();
 	blog(LOG_INFO, "sample rate is set in device to %i.\n", checkrate);
 	DWORD checkbitdepth = BASS_ASIO_ChannelGetFormat(true, 0);
@@ -1378,12 +1312,6 @@ void asio_destroy(void *vptr)
 		bfree((void*)data->device);
 		if (data->device_index < device_list.size()) {
 			device_data *device = device_list[data->device_index];
-			//send disconnect event
-			//SetEvent(data->stop_listening_signal);
-			//data->isASIOActive = false;
-			//HANDLE single_buffer[1] = { device->on_buffer() };
-			//WaitForMultipleObjects(1, single_buffer, false, 1000);
-			//WaitForMultipleObjects(device->get_input_channels(), wait_for_complete_buffer, true, 40);
 			data->disconnect();
 		}
 	}
@@ -1507,14 +1435,7 @@ void asio_update(void *vptr, obs_data_t *settings)
 		data->muted_chs = data->_get_muted_chs(data->route);
 		data->unmuted_chs = data->_get_unmuted_chs(data->route);
 
-		//safe to leave the critical section
-		//LeaveCriticalSection(&data->settings_mutex);
-
 		//spin up the asio device if it hasn't already and create a listener thread
-		/*rate = (double)obs_data_get_int(settings, "sample rate");
-		BufferSize = (uint16_t)obs_data_get_int(settings, "buffer");
-		BitDepth = (audio_format)obs_data_get_int(settings, "bit depth");
-		if ((rate == 44100 || rate == 48000) && BufferSize != 0)*/
 		asio_init(data);
 	}
 
