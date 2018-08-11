@@ -186,10 +186,15 @@ static void midicallback(double deltatime, std::vector<uint8_t> *message,
 	/* todo: figure out how to post events properly */
 	//App()->notify(App()->focusObject(), midiEvent);
 	QWidget *widget = App()->focusWidget();
-	if (widget)
-		App()->postEvent(widget, midiEvent);
-	else
+	if (widget) {
+		const char* n = widget->metaObject()->className();
+		if (strcmp(n, "OBSHotkeyEdit") == 0)
+			App()->postEvent(widget, midiEvent);
+		else
+			App()->postEvent(App()->activeWindow(), midiEvent);
+	} else {
 		App()->postEvent(App()->activeWindow(), midiEvent);
+	}
 	/*
 	QObject *focusObject = App()->focusObject();
 	if (focusObject) {
