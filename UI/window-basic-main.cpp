@@ -167,6 +167,78 @@ static int CountVideoSources()
 	return count;
 }
 
+
+static RtMidiIn *midiin = nullptr;
+
+static void midicallback(double deltatime, std::vector<uint8_t> *message,
+		void *userData)
+{
+	size_t nBytes = message->size();
+	if (nBytes > 0)
+		blog(LOG_INFO, "midi message:");
+	for (size_t i = 0; i < nBytes; i++) {
+		int val = (int)message->at(i);
+		blog(LOG_INFO, "%i (0x%x)", val, val);
+	}
+	if (nBytes > 0)
+		blog(LOG_INFO, "midi timestamp: %f\n", deltatime);
+	QMidiEvent *midiEvent = new QMidiEvent(*message, deltatime);
+	App()->postEvent(App(), midiEvent, Qt::NormalEventPriority);
+}
+
+/*
+if ((int)message->at(0) == 144) {
+obs_key_combination_t key_combo;
+key_combo.modifiers = 0;
+key_combo.key = (obs_key_t)(OBS_MIDI_KEY_C0 + ((int)message->at(1) % 12));
+
+if ((int)message->at(2) > 0) {
+blog(LOG_INFO, "midi: injecting %s pressed",
+obs_key_to_name(key_combo.key));
+obs_hotkey_inject_event(key_combo, true);
+} else {
+blog(LOG_INFO, "midi: injecting %s released",
+obs_key_to_name(key_combo.key));
+obs_hotkey_inject_event(key_combo, false);
+}
+}
+*/
+
+static void MidiInit(int deviceIndex)
+{
+	if (midiin)
+		delete midiin;
+	midiin = new RtMidiIn();
+	blog(LOG_INFO, "midi: initializing...");
+	// Check available ports.
+	unsigned int nPorts = midiin->getPortCount();
+	if (nPorts == 0) {
+		blog(LOG_INFO, "midi: no ports available");
+		goto cleanup;
+	} else {
+		blog(LOG_INFO, "midi: %i ports available", nPorts);
+		for (uint32_t i = 0; i < nPorts; i++) {
+			try {
+				blog(LOG_INFO, "midi: [%i] %s", i,
+						midiin->getPortName(i).c_str());
+			} catch (RtMidiError &error) {
+				blog(LOG_INFO, "midi: [%i] (error) %s", i,
+						error.getMessage().c_str());
+			}
+		}
+	}
+	if (deviceIndex < nPorts) {
+		midiin->openPort(deviceIndex);
+		midiin->setCallback(&midicallback);
+		// Don't ignore sysex, timing, or active sensing messages.
+		midiin->ignoreTypes(false, false, false);
+		return;
+	}
+cleanup:
+	delete midiin;
+	midiin = nullptr;
+}
+
 OBSBasic::OBSBasic(QWidget *parent)
 	: OBSMainWindow  (parent),
 	  ui             (new Ui::OBSBasic)
@@ -314,6 +386,8 @@ OBSBasic::OBSBasic(QWidget *parent)
 						size(), rect));
 		}
 	}
+
+	MidiInit(1);
 }
 
 static void SaveAudioDevice(const char *name, int channel, obs_data_t *parent,
@@ -2043,6 +2117,7 @@ OBSBasic::~OBSBasic()
 	delete trayMenu;
 	delete programOptions;
 	delete program;
+	delete midiin;
 
 	/* XXX: any obs data must be released before calling obs_shutdown.
 	 * currently, we can't automate this with C++ RAII because of the
