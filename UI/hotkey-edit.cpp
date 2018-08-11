@@ -69,6 +69,23 @@ void OBSHotkeyEdit::keyPressEvent(QKeyEvent *event)
 	HandleNewKey(new_key);
 }
 
+void OBSHotkeyEdit::midiPressEvent(QMidiEvent *event)
+{
+	obs_key_combination_t new_key = { 0, OBS_KEY_NONE };
+	bool pressed = false;
+	std::vector<uint8_t> message = event->getMessage();
+	if ((int)message.at(0) == 144) {
+		new_key.key = (obs_key_t)(OBS_MIDI_KEY_C0 +
+			((int)message.at(1) % 12));
+
+		if ((int)message.at(2) > 0)
+			pressed = true;
+		else
+			pressed = false;
+	}
+	HandleNewKey(new_key);
+}
+
 #ifdef __APPLE__
 void OBSHotkeyEdit::keyReleaseEvent(QKeyEvent *event)
 {
@@ -179,6 +196,29 @@ void OBSHotkeyEdit::ClearKey()
 	emit KeyChanged(key);
 
 	RenderKey();
+}
+
+bool OBSHotkeyEdit::event(QEvent *e)
+{
+	QLineEdit::event(e);
+	switch (e->type()) {
+	case QEvent::MouseButtonPress:
+//	case QEvent::MouseButtonRelease:
+		mousePressEvent(static_cast<QMouseEvent*>(e));
+		return false;
+		/*case QEvent::MouseButtonDblClick:
+		case QEvent::Wheel:*/
+	case QEvent::KeyPress:
+//	case QEvent::KeyRelease:
+		keyPressEvent(static_cast<QKeyEvent*>(e));
+		return false;
+	case QMidiEvent::midiType:
+		midiPressEvent(static_cast<QMidiEvent*>(e));
+		return false;
+	default:
+		return true;
+	}
+	return true;
 }
 
 void OBSHotkeyEdit::InitSignalHandler()

@@ -183,26 +183,9 @@ static void midicallback(double deltatime, std::vector<uint8_t> *message,
 	if (nBytes > 0)
 		blog(LOG_INFO, "midi timestamp: %f\n", deltatime);
 	QMidiEvent *midiEvent = new QMidiEvent(*message, deltatime);
-	App()->postEvent(App(), midiEvent, Qt::NormalEventPriority);
+	App()->postEvent(App()->GetMainWindow(), midiEvent,
+			Qt::NormalEventPriority);
 }
-
-/*
-if ((int)message->at(0) == 144) {
-obs_key_combination_t key_combo;
-key_combo.modifiers = 0;
-key_combo.key = (obs_key_t)(OBS_MIDI_KEY_C0 + ((int)message->at(1) % 12));
-
-if ((int)message->at(2) > 0) {
-blog(LOG_INFO, "midi: injecting %s pressed",
-obs_key_to_name(key_combo.key));
-obs_hotkey_inject_event(key_combo, true);
-} else {
-blog(LOG_INFO, "midi: injecting %s released",
-obs_key_to_name(key_combo.key));
-obs_hotkey_inject_event(key_combo, false);
-}
-}
-*/
 
 static void MidiInit(int deviceIndex)
 {
