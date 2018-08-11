@@ -185,15 +185,10 @@ QObject *CreateShortcutFilter()
 			obs_key_combination_t hotkey = { 0, OBS_KEY_NONE };
 			bool pressed = false;
 			std::vector<uint8_t> message = event->getMessage();
-			if ((int)message.at(0) == 144) {
-				hotkey.key = (obs_key_t)(OBS_MIDI_KEY_C0 +
-						((int)message.at(1) % 12));
+			hotkey.key = event->getKey();
+			if (event->notePressed() || event->controlPressed())
+				pressed = true;
 
-				if ((int)message.at(2) > 0)
-					pressed = true;
-				else
-					pressed = false;
-			}
 			if(pressed)
 				blog(LOG_INFO, "injecting %s pressed",
 						obs_key_to_name(hotkey.key));

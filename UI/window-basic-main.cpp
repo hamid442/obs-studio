@@ -173,18 +173,47 @@ static RtMidiIn *midiin = nullptr;
 static void midicallback(double deltatime, std::vector<uint8_t> *message,
 		void *userData)
 {
+	QMidiEvent *midiEvent = new QMidiEvent(*message, deltatime);
 	size_t nBytes = message->size();
 	if (nBytes > 0)
-		blog(LOG_INFO, "midi message:");
+		blog(LOG_INFO, "midi message (%s):", obs_key_to_name(midiEvent->getKey()));
 	for (size_t i = 0; i < nBytes; i++) {
 		int val = (int)message->at(i);
 		blog(LOG_INFO, "%i (0x%x)", val, val);
 	}
 	if (nBytes > 0)
 		blog(LOG_INFO, "midi timestamp: %f\n", deltatime);
-	QMidiEvent *midiEvent = new QMidiEvent(*message, deltatime);
-	App()->postEvent(App()->GetMainWindow(), midiEvent,
+	/* todo: figure out how to post events properly */
+	//App()->notify(App()->focusObject(), midiEvent);
+	QWidget *widget = App()->focusWidget();
+	if (widget)
+		App()->postEvent(widget, midiEvent);
+	else
+		App()->postEvent(App()->activeWindow(), midiEvent);
+	/*
+	QObject *focusObject = App()->focusObject();
+	if (focusObject) {
+		App()->postEvent(focusObject, midiEvent, Qt::NormalEventPriority);
+		//return;
+	}
+
+	QWidget *activeWindow = App()->activeWindow();
+	if (activeWindow) {
+		App()->postEvent(activeWindow, midiEvent, Qt::NormalEventPriority);
+		//return;
+	}
+
+	QMainWindow *mainWindow = App()->GetMainWindow();
+	if (mainWindow) {
+		App()->postEvent(mainWindow, midiEvent, Qt::NormalEventPriority);
+		//return;
+	}
+	*/
+	/*
+	App()->postEvent(, midiEvent,
 			Qt::NormalEventPriority);
+			*/
+
 }
 
 static void MidiInit(int deviceIndex)

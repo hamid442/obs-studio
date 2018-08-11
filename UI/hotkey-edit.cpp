@@ -72,17 +72,7 @@ void OBSHotkeyEdit::keyPressEvent(QKeyEvent *event)
 void OBSHotkeyEdit::midiPressEvent(QMidiEvent *event)
 {
 	obs_key_combination_t new_key = { 0, OBS_KEY_NONE };
-	bool pressed = false;
-	std::vector<uint8_t> message = event->getMessage();
-	if ((int)message.at(0) == 144) {
-		new_key.key = (obs_key_t)(OBS_MIDI_KEY_C0 +
-			((int)message.at(1) % 12));
-
-		if ((int)message.at(2) > 0)
-			pressed = true;
-		else
-			pressed = false;
-	}
+	new_key.key = event->getKey();
 	HandleNewKey(new_key);
 }
 
@@ -200,7 +190,7 @@ void OBSHotkeyEdit::ClearKey()
 
 bool OBSHotkeyEdit::event(QEvent *e)
 {
-	QLineEdit::event(e);
+	bool ret = QLineEdit::event(e);
 	switch (e->type()) {
 	case QEvent::MouseButtonPress:
 //	case QEvent::MouseButtonRelease:
@@ -216,9 +206,8 @@ bool OBSHotkeyEdit::event(QEvent *e)
 		midiPressEvent(static_cast<QMidiEvent*>(e));
 		return false;
 	default:
-		return true;
+		return ret;
 	}
-	return true;
 }
 
 void OBSHotkeyEdit::InitSignalHandler()
