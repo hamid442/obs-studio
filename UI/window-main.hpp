@@ -51,6 +51,22 @@ public:
 	{
 		return _modifiers;
 	}
+	virtual bool hasBinding()
+	{
+		return false;
+	}
+	virtual double getBindingValue()
+	{
+		return 0;
+	}
+	virtual double getBindingMin()
+	{
+		return 0;
+	}
+	virtual double getBindingMax()
+	{
+		return 0;
+	}
 };
 
 class QMidiEvent : public QHotkeyEvent {
@@ -92,9 +108,9 @@ public:
 			return (obs_key_t)(OBS_MIDI_KEY_CN1_CHANNEL0 + dataMask(_message.at(1)) + 128 * l);
 		case 0xB0: /* control change */
 			return (obs_key_t)(OBS_MIDI_CONTROL0_CHANNEL0 + dataMask(_message.at(1)) + 128 * l);
-		case 0xC0:
+		case 0xC0: /* program change */
 			return (obs_key_t)(OBS_MIDI_PROGRAM0 + l);
-		case 0xE0:
+		case 0xE0: /* pitch wheel */
 			return (obs_key_t)(OBS_MIDI_PITCH_WHEEL0 + l);
 		default:
 			return OBS_KEY_NONE;
@@ -150,5 +166,74 @@ public:
 			return l;
 		else
 			return -1;
+	}
+
+	bool hasBinding()
+	{
+		int m = _message.at(0);
+		int h = m & 0xF0;
+		int l = m & 0x0F;
+		switch (h) {
+		case 0x80: /* note off */
+		case 0x90: /* note on */
+		case 0xA0: /* polymorphic pressure */
+		case 0xB0: /* control change */
+		case 0xC0: /* program change */
+		case 0xE0: /* pitch wheel */
+			return true;
+		default:
+			return false;
+		}
+		return false;
+	}
+
+	double getBindingValue()
+	{
+		int m = _message.at(0);
+		int h = m & 0xF0;
+		uint8_t c1;
+		uint8_t c2;
+		int16_t c3 = 0;
+		switch (h) {
+		case 0x80: /* note off */
+		case 0x90: /* note on */
+		case 0xA0: /* polymorphic pressure */
+		case 0xB0: /* control change */
+			return _message.at(2);
+		case 0xC0: /* program change */
+			return _message.at(1);
+		case 0xE0: /* pitch wheel */
+			c1 = _message.at(1);
+			c2 = _message.at(2);
+			c3 = ((c1 & 0x7F) << 7) | (c2 & 0x7F);
+			return c3;
+		default:
+			return false;
+		}
+		return false;
+	}
+
+	double getBindingMin()
+	{
+		return 0;
+	}
+
+	double getBindingMax()
+	{
+		int m = _message.at(0);
+		int h = m & 0xF0;
+		switch (h) {
+		case 0x80: /* note off */
+		case 0x90: /* note on */
+		case 0xA0: /* polymorphic pressure */
+		case 0xB0: /* control change */
+		case 0xC0: /* program change */
+			return 0x7F;
+		case 0xE0: /* pitch wheel */
+			return 0x3FFF;
+		default:
+			return 0x7F;
+		}
+		return 0x7F;
 	}
 };

@@ -194,6 +194,11 @@ QObject *CreateShortcutFilter()
 				blog(LOG_INFO, "injecting %s released",
 						obs_key_to_name(hotkey.key));
 			obs_hotkey_inject_event(hotkey, pressed);
+			if (event->hasBinding())
+				signal_action("property_change",
+						event->getBindingValue(),
+						event->getBindingMin(),
+						event->getBindingMax());
 			return true;
 		};
 		switch (event->type()) {

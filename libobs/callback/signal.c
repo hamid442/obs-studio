@@ -422,8 +422,10 @@ static struct signal_handler *action_handler = NULL;
 
 void signal_init_action_handler()
 {
-	if (!action_handler)
-		action_handler = (struct signal_handler *)bzalloc(sizeof(*action_handler));
+	if (!action_handler) {
+		action_handler = signal_handler_create();
+		signal_handler_add(action_handler, "property_change");
+	}
 }
 
 void signal_free_action_handler()
@@ -439,13 +441,14 @@ bool signal_action(const char *signal, double value, double min,
 {
 	if (!action_handler)
 		return false;
-	calldata_t cb_data;
-	calldata_init(&cb_data);
-	calldata_set_float(&cb_data, "value", value);
-	calldata_set_float(&cb_data, "min", min);
-	calldata_set_float(&cb_data, "max", max);
-	signal_handler_signal(action_handler, signal, &cb_data);
+	calldata_t *cb_data = bzalloc(sizeof(calldata_t));
+	calldata_init(cb_data);
+	calldata_set_float(cb_data, "value", value);
+	calldata_set_float(cb_data, "min", min);
+	calldata_set_float(cb_data, "max", max);
+	signal_handler_signal(action_handler, signal, cb_data);
 
+	//bfree(cb_data);
 	return true;
 }
 
