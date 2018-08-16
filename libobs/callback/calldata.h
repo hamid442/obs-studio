@@ -50,7 +50,25 @@ struct calldata {
 	bool    fixed;    /* fixed size (using call stack) */
 };
 
+struct val {
+	union {
+		uint64_t u_int;
+		int64_t s_int;
+		double d;
+	};
+};
+
+struct action_event {
+	uint64_t id;
+	uint64_t mod;
+	struct val value;
+	struct val min;
+	struct val max;
+};
+
 typedef struct calldata calldata_t;
+typedef struct action_event action_event_t;
+typedef struct val val_t;
 
 static inline void calldata_init(struct calldata *data)
 {
