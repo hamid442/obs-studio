@@ -417,3 +417,58 @@ void signal_handler_disconnect_global(signal_handler_t *handler,
 
 	pthread_mutex_unlock(&handler->global_callbacks_mutex);
 }
+
+static struct signal_handler *action_handler = NULL;
+
+void signal_init_action_handler()
+{
+	if (!action_handler)
+		action_handler = (struct signal_handler *)bzalloc(sizeof(*action_handler));
+}
+
+void signal_free_action_handler()
+{
+	if (action_handler) {
+		bfree(action_handler);
+		action_handler = NULL;
+	}
+}
+
+bool signal_action(const char *signal, double value, double min,
+		double max)
+{
+	if (!action_handler)
+		return false;
+	calldata_t cb_data;
+	calldata_init(&cb_data);
+	calldata_set_float(&cb_data, "value", value);
+	calldata_set_float(&cb_data, "min", min);
+	calldata_set_float(&cb_data, "max", max);
+	signal_handler_signal(action_handler, signal, &cb_data);
+
+	return true;
+}
+
+void signal_action_connect(const char *signal, signal_callback_t callback,
+		void *data)
+{
+	if(action_handler)
+		signal_handler_connect_internal(action_handler, signal,
+				callback, data, false);
+}
+
+void signal_action_connect_ref(const char *signal, signal_callback_t callback,
+		void *data)
+{
+	if(action_handler)
+		signal_handler_connect_internal(action_handler, signal,
+				callback, data, true);
+}
+
+void signal_action_disconnect(const char *signal, signal_callback_t callback,
+		void *data)
+{
+	if(action_handler)
+		signal_handler_disconnect(action_handler, signal, callback,
+				data);
+}

@@ -1735,6 +1735,39 @@ void WidgetInfo::TogglePasswordText(bool show)
 			show ? QLineEdit::Normal : QLineEdit::Password);
 }
 
+void WidgetInfo::ActionCallback(void *vptr, calldata_t *cb_data)
+{
+	WidgetInfo *widgetInfo = reinterpret_cast<WidgetInfo*>(vptr);
+	widgetInfo->ProcessAction(cb_data);
+}
+
+void WidgetInfo::ProcessAction(calldata_t *cb_data)
+{
+	uint64_t action = 0;
+	calldata_get_int(cb_data, "action_id", (long long*)&action);
+	if (obs_property_action_id(property) != action)
+		return;
+
+	obs_property_type type = obs_property_get_type(property);
+	double val;
+	switch (type) {
+	case OBS_PROPERTY_BOOL:
+		calldata_get_float(cb_data, "value", &val);
+		static_cast<QCheckBox*>(widget)->setChecked(val != 0.0);
+		break;
+	case OBS_PROPERTY_INT:
+		calldata_get_float(cb_data, "value", &val);
+		static_cast<QSpinBox*>(widget)->setValue((int)val);
+		break;
+	case OBS_PROPERTY_FLOAT:
+		calldata_get_float(cb_data, "value", &val);
+		static_cast<QDoubleSpinBox*>(widget)->setValue(val);
+		break;
+	default: return;
+	}
+	ControlChanged();
+}
+
 void WidgetInfo::ControlChanged()
 {
 	const char        *setting = obs_property_name(property);

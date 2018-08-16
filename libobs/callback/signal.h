@@ -73,6 +73,22 @@ EXPORT void signal_handler_remove_current(void);
 EXPORT void signal_handler_signal(signal_handler_t *handler, const char *signal,
 		calldata_t *params);
 
+EXPORT void signal_init_action_handler();
+
+EXPORT void signal_free_action_handler();
+
+EXPORT bool signal_action(const char *signal, double value, double min,
+		double max);
+
+EXPORT void signal_action_connect(const char *signal,
+		signal_callback_t callback, void *data);
+
+EXPORT void signal_action_connect_ref(const char *signal,
+		signal_callback_t callback, void *data);
+
+EXPORT void signal_action_disconnect(const char *signal,
+		signal_callback_t callback, void *data);
+
 #ifdef __cplusplus
 }
 #endif

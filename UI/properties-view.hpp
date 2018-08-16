@@ -37,16 +37,25 @@ private:
 	void ButtonClicked();
 
 	void TogglePasswordText(bool checked);
-
+	static void ActionCallback(void *vptr, calldata_t *cb_data);
 public:
 	inline WidgetInfo(OBSPropertiesView *view_, obs_property_t *prop,
 			QWidget *widget_)
 		: view(view_), property(prop), widget(widget_)
-	{}
+	{
+		signal_action_connect("property_change", ActionCallback, this);
+	}
+
+	~WidgetInfo()
+	{
+		signal_action_disconnect("property_change", ActionCallback, this);
+	}
+
+	virtual void ProcessAction(calldata_t *cb_data);
 
 public slots:
 
-	void ControlChanged();
+	virtual void ControlChanged();
 
 	/* editable list */
 	void EditListAdd();

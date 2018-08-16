@@ -230,10 +230,13 @@ typedef bool (*obs_property_modified_t)(obs_properties_t *props,
 typedef bool (*obs_property_modified2_t)(void *priv, obs_properties_t *props,
 		obs_property_t *property, obs_data_t *settings);
 
+EXPORT void obs_property_set_action_callback(obs_property_t *p,
+		signal_callback_t callback);
 EXPORT void obs_property_set_modified_callback(obs_property_t *p,
 		obs_property_modified_t modified);
 EXPORT void obs_property_set_modified_callback2(obs_property_t *p,
 		obs_property_modified2_t modified, void *priv);
+EXPORT void obs_property_set_action_id(obs_property_t *p, uint64_t id);
 
 EXPORT bool obs_property_modified(obs_property_t *p, obs_data_t *settings);
 EXPORT bool obs_property_button_clicked(obs_property_t *p, void *obj);
@@ -269,6 +272,7 @@ EXPORT const char *           obs_property_path_filter(obs_property_t *p);
 EXPORT const char *           obs_property_path_default_path(obs_property_t *p);
 EXPORT enum obs_combo_type    obs_property_list_type(obs_property_t *p);
 EXPORT enum obs_combo_format  obs_property_list_format(obs_property_t *p);
+EXPORT uint64_t               obs_property_action_id(obs_property_t *p);
 
 EXPORT void obs_property_int_set_limits(obs_property_t *p,
 		int min, int max, int step);

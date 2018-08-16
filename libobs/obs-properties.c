@@ -157,6 +157,8 @@ struct obs_property {
 	obs_property_modified2_t modified2;
 
 	struct obs_property     *next;
+	signal_callback_t       callback;
+	uint64_t                action_id;
 };
 
 struct obs_properties {
@@ -332,6 +334,8 @@ static inline struct obs_property *new_prop(struct obs_properties *props,
 	p->type    = type;
 	p->name    = bstrdup(name);
 	p->desc    = bstrdup(desc);
+	p->callback = NULL;
+	p->action_id = DARRAY_INVALID;
 	propertes_add(props, p);
 
 	return p;
@@ -586,6 +590,15 @@ bool obs_property_next(obs_property_t **p)
 	return *p != NULL;
 }
 
+void obs_property_set_action_callback(obs_property_t *p, const char* action,
+		signal_callback_t callback)
+{
+	if (p) {
+		p->callback = callback;
+		signal_action_connect("property_change", callback, p);
+	}
+}
+
 void obs_property_set_modified_callback(obs_property_t *p,
 		obs_property_modified_t modified)
 {
@@ -658,6 +671,16 @@ void obs_property_set_long_description(obs_property_t *p, const char *long_desc)
 			? bstrdup(long_desc)
 			: NULL;
 	}
+}
+
+void obs_property_set_action_id(obs_property_t *p, uint64_t id)
+{
+	if (p) p->action_id = id;
+}
+
+uint64_t obs_property_action_id(obs_property_t *p)
+{
+	return p ? p->action_id : DARRAY_INVALID;
 }
 
 const char *obs_property_name(obs_property_t *p)

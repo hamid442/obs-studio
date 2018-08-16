@@ -425,6 +425,8 @@ OBSBasic::OBSBasic(QWidget *parent)
 						size(), rect));
 		}
 	}
+
+	signal_init_action_handler();
 }
 
 static void SaveAudioDevice(const char *name, int channel, obs_data_t *parent,
@@ -2246,6 +2248,7 @@ OBSBasic::~OBSBasic()
 		}
 	}
 #endif
+	signal_free_action_handler();
 }
 
 void OBSBasic::SaveProjectNow()
