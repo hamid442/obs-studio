@@ -792,6 +792,91 @@ MuteCheckBox::indicator:unchecked:disabled {
 	image: url(./Dark/unmute.png);
 }
 
+/* Master Mixer */
+MonCheckBox {
+	outline: none;
+}
+
+MonCheckBox::indicator:checked {
+	image: url(./Dark/monON.png);
+}
+
+MonCheckBox::indicator:unchecked {
+	image: url(./Dark/monOFF.png);
+}
+
+MonCheckBox::indicator:checked:hover {
+	image: url(./Dark/monON.png);
+}
+
+MonCheckBox::indicator:checked:focus {
+	image: url(./Dark/monON.png);
+}
+
+MonCheckBox::indicator:unchecked:hover {
+	image: url(./Dark/monOFF.png);
+}
+
+MonCheckBox::indicator:unchecked:focus {
+	image: url(./Dark/monOFF.png);
+}
+
+StreamCheckBox {
+	outline: none;
+}
+
+StreamCheckBox::indicator:checked {
+	image: url(:/res/images/streamON.png);
+}
+
+StreamCheckBox::indicator:checked:hover {
+	image: url(:/res/images/streamON.png);
+}
+
+StreamCheckBox::indicator:checked:focus {
+	image: url(:/res/images/streamON.png);
+}
+
+StreamCheckBox::indicator:unchecked {
+	image: url(:/res/images/streamOFF.png);
+}
+
+StreamCheckBox::indicator:unchecked:hover {
+	image: url(:/res/images/streamOFF.png);
+}
+
+StreamCheckBox::indicator:unchecked:focus {
+	image: url(:/res/images/streamOFF.png);
+}
+
+RecCheckBox {
+	outline: none;
+}
+
+RecCheckBox::indicator:checked {
+	image: url(:/res/images/recON.png);
+}
+
+RecCheckBox::indicator:checked:hover {
+	image: url(:/res/images/recON.png);
+}
+
+RecCheckBox::indicator:checked:focus {
+	image: url(:/res/images/recON.png);;
+}
+
+RecCheckBox::indicator:unchecked {
+	image: url(:/res/images/recOFF.png);
+}
+
+RecCheckBox::indicator:unchecked:hover {
+	image: url(:/res/images/recOFF.png);
+}
+
+RecCheckBox::indicator:unchecked:focus {
+	image: url(:/res/images/recOFF.png);
+}
+
 OBSHotkeyLabel[hotkeyPairHover=true] {
 	color: rgba(27, 96, 166);
 }
