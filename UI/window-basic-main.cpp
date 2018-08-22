@@ -2121,6 +2121,15 @@ OBSBasic::~OBSBasic()
 	 * libobs. */
 	ClearMasterVolumeControls();
 
+	obs_audio_mix_lock();
+	obs_source_t **tracks = (obs_source_t **)obs_audio_mix_tracks();
+	for (int i = 0; i < MAX_AUDIO_MIXES; i++) {
+		if (tracks[i])
+			obs_source_release(tracks[i]);
+		tracks[i] = nullptr;
+	}
+	obs_audio_mix_unlock();
+
 	delete cpuUsageTimer;
 	os_cpu_usage_info_destroy(cpuUsageInfo);
 
