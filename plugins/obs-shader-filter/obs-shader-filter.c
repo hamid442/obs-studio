@@ -982,9 +982,14 @@ void prep_bind_value(bool *bound, int *binding, struct effect_param_data *param,
 		/* update values */
 		size_t i;
 		const char *mixin = "xyzw";
-		for (i = 0; i < 4; i++)
-			dstr_copy_cat(&param->array_names[i], param->name.array,
+		int vec_num = obs_get_vec_num(param->type);
+		for (i = 0; i < vec_num; i++) {
+			if (dstr_is_empty(&param->array_names[i])) {
+				dstr_copy_cat(&param->array_names[i],
+					param->name.array,
 					"_", mixin + i, 1);
+			}
+		}
 
 		switch (param->type) {
 		case GS_SHADER_PARAM_BOOL:
@@ -997,7 +1002,7 @@ void prep_bind_value(bool *bound, int *binding, struct effect_param_data *param,
 		case GS_SHADER_PARAM_INT2:
 		case GS_SHADER_PARAM_INT3:
 		case GS_SHADER_PARAM_INT4:
-			for (i = 0; i < 4; i++)
+			for (i = 0; i < vec_num; i++)
 				param->te_bind.f[i] =
 						(double)param->value.l4.ptr[i];
 
@@ -1005,7 +1010,7 @@ void prep_bind_value(bool *bound, int *binding, struct effect_param_data *param,
 		case GS_SHADER_PARAM_VEC2:
 		case GS_SHADER_PARAM_VEC3:
 		case GS_SHADER_PARAM_VEC4:
-			for (i = 0; i < 4; i++)
+			for (i = 0; i < vec_num; i++)
 				param->te_bind.f[i] =
 						(double)param->value.v4.ptr[i];
 
@@ -1029,7 +1034,7 @@ void prep_bind_value(bool *bound, int *binding, struct effect_param_data *param,
 			case GS_SHADER_PARAM_VEC2:
 			case GS_SHADER_PARAM_VEC3:
 			case GS_SHADER_PARAM_VEC4:
-				for (i = 0; i < 4; i++) {
+				for (i = 0; i < vec_num; i++) {
 					var[i].address = &param->te_bind.f[i];
 					var[i].name    = param->array_names[i]
 								      .array;
@@ -1046,7 +1051,7 @@ void prep_bind_value(bool *bound, int *binding, struct effect_param_data *param,
 			}
 
 			if (bind_array) {
-				for (i = 0; i < 4; i++)
+				for (i = 0; i < vec_num; i++)
 					append_te_variable(var_list, &var[i]);
 			} else {
 				append_te_variable(var_list, &var[0]);
@@ -2052,8 +2057,10 @@ static void shader_filter_update(void *data, obs_data_t *settings)
 
 		/* get the property names (if this was meant to be an array) */
 		for (i = 0; i < 4; i++) {
-			dstr_copy_cat(&param->array_names[i], param_name, ".",
-					mixin + i, 1);
+			if (dstr_is_empty(&param->array_names[i])) {
+				dstr_copy_cat(&param->array_names[i],
+						param_name, "_", mixin + i, 1);
+			}
 		}
 
 		get_graphics_parameters(param, filter, settings);
