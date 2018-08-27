@@ -112,7 +112,7 @@ OBSAdvAudioCtrl::OBSAdvAudioCtrl(QGridLayout *, obs_source_t *source_)
 		true);
 	monitoringEnabled->addItem(QTStr("Disable"),
 		false);
-	mt = obs_source_monitor_audio(source);
+	mt = obs_source_monitoring_enabled(source);
 	idx = monitoringEnabled->findData(mt);
 	monitoringEnabled->setCurrentIndex(idx);
 #endif

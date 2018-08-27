@@ -710,8 +710,7 @@ struct obs_source {
 	struct matrix4                  transition_matrices[2];
 
 	struct audio_monitor            *monitor;
-	bool                            monitor_audio;
-	bool                            output_audio;
+	enum obs_monitoring_type        monitoring_type;
 
 	obs_data_t                      *private_settings;
 };
