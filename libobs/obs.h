@@ -1051,6 +1051,12 @@ EXPORT void obs_source_set_monitoring_type(obs_source_t *source,
 EXPORT enum obs_monitoring_type obs_source_get_monitoring_type(
 		const obs_source_t *source);
 EXPORT void obs_source_set_track_active(obs_source_t *source);
+EXPORT bool obs_source_monitor_audio(const obs_source_t *source);
+EXPORT bool obs_source_output_enabled(const obs_source_t *source);
+EXPORT void obs_source_set_monitor_audio(obs_source_t *source,
+		bool monitor_audio);
+EXPORT void obs_source_set_ouput_enabled(obs_source_t *source,
+		bool output_enabled);
 
 /** Gets private front-end settings data.  This data is saved/loaded
  * automatically.  Returns an incremented reference. */

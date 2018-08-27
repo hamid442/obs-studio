@@ -33,8 +33,10 @@ OBSAdvAudioCtrl::OBSAdvAudioCtrl(QGridLayout *, obs_source_t *source_)
 	forceMono                      = new QCheckBox();
 	panning                        = new QSlider(Qt::Horizontal);
 #if defined(_WIN32) || defined(__APPLE__) || HAVE_PULSEAUDIO
-	monitoringType                 = new QComboBox();
+//	monitoringType                 = new QComboBox();
+	monitoringEnabled              = new QComboBox();
 #endif
+	outputEnabled                   = new QComboBox();
 	syncOffset                     = new QSpinBox();
 	mixer1                         = new QCheckBox();
 	mixer2                         = new QCheckBox();
@@ -93,7 +95,9 @@ OBSAdvAudioCtrl::OBSAdvAudioCtrl(QGridLayout *, obs_source_t *source_)
 	syncOffset->setValue(int(cur_sync / NSEC_PER_MSEC));
 
 	int idx;
+	bool mt;
 #if defined(_WIN32) || defined(__APPLE__) || HAVE_PULSEAUDIO
+	/*
 	monitoringType->addItem(QTStr("Basic.AdvAudio.Monitoring.None"),
 			(int)OBS_MONITORING_TYPE_NONE);
 	monitoringType->addItem(QTStr("Basic.AdvAudio.Monitoring.MonitorOnly"),
@@ -103,7 +107,22 @@ OBSAdvAudioCtrl::OBSAdvAudioCtrl(QGridLayout *, obs_source_t *source_)
 	int mt = (int)obs_source_get_monitoring_type(source);
 	idx = monitoringType->findData(mt);
 	monitoringType->setCurrentIndex(idx);
+	*/
+	monitoringEnabled->addItem(QTStr("Enable"),
+		true);
+	monitoringEnabled->addItem(QTStr("Disable"),
+		false);
+	mt = obs_source_monitor_audio(source);
+	idx = monitoringEnabled->findData(mt);
+	monitoringEnabled->setCurrentIndex(idx);
 #endif
+	outputEnabled->addItem(QTStr("Enable"),
+		true);
+	outputEnabled->addItem(QTStr("Disable"),
+		false);
+	mt = obs_source_output_enabled(source);
+	idx = outputEnabled->findData(mt);
+	outputEnabled->setCurrentIndex(idx);
 
 	mixer1->setText("1");
 	mixer1->setChecked(mixers & (1<<0));
@@ -139,9 +158,15 @@ OBSAdvAudioCtrl::OBSAdvAudioCtrl(QGridLayout *, obs_source_t *source_)
 	QWidget::connect(syncOffset, SIGNAL(valueChanged(int)),
 			this, SLOT(syncOffsetChanged(int)));
 #if defined(_WIN32) || defined(__APPLE__) || HAVE_PULSEAUDIO
+	/*
 	QWidget::connect(monitoringType, SIGNAL(currentIndexChanged(int)),
 			this, SLOT(monitoringTypeChanged(int)));
+			*/
+	QWidget::connect(monitoringEnabled, SIGNAL(currentIndexChanged(int)),
+			this, SLOT(monitoringEnabledChanged(int)));
 #endif
+	QWidget::connect(outputEnabled, SIGNAL(currentIndexChanged(int)),
+			this, SLOT(outputEnabledChanged(int)));
 	QWidget::connect(mixer1, SIGNAL(clicked(bool)),
 			this, SLOT(mixer1Changed(bool)));
 	QWidget::connect(mixer2, SIGNAL(clicked(bool)),
@@ -166,8 +191,12 @@ OBSAdvAudioCtrl::~OBSAdvAudioCtrl()
 	panningContainer->deleteLater();
 	syncOffset->deleteLater();
 #if defined(_WIN32) || defined(__APPLE__) || HAVE_PULSEAUDIO
+	/*
 	monitoringType->deleteLater();
+	*/
+	monitoringEnabled->deleteLater();
 #endif
+	outputEnabled->deleteLater();
 	mixerContainer->deleteLater();
 }
 
@@ -182,8 +211,12 @@ void OBSAdvAudioCtrl::ShowAudioControl(QGridLayout *layout)
 	layout->addWidget(panningContainer, lastRow, idx++);
 	layout->addWidget(syncOffset, lastRow, idx++);
 #if defined(_WIN32) || defined(__APPLE__) || HAVE_PULSEAUDIO
+	/*
 	layout->addWidget(monitoringType, lastRow, idx++);
+		*/
+	layout->addWidget(monitoringEnabled, lastRow, idx++);
 #endif
+	layout->addWidget(outputEnabled, lastRow, idx++);
 	layout->addWidget(mixerContainer, lastRow, idx++);
 	layout->layout()->setAlignment(mixerContainer,
 		Qt::AlignHCenter | Qt::AlignVCenter);
@@ -298,27 +331,22 @@ void OBSAdvAudioCtrl::syncOffsetChanged(int milliseconds)
 				int64_t(milliseconds) * NSEC_PER_MSEC);
 }
 
-void OBSAdvAudioCtrl::monitoringTypeChanged(int index)
+void OBSAdvAudioCtrl::monitoringEnabledChanged(int index)
 {
-	int mt = monitoringType->itemData(index).toInt();
-	obs_source_set_monitoring_type(source, (obs_monitoring_type)mt);
-
-	const char *type = nullptr;
-
-	switch (mt) {
-	case OBS_MONITORING_TYPE_NONE:
-		type = "none";
-		break;
-	case OBS_MONITORING_TYPE_MONITOR_ONLY:
-		type = "monitor only";
-		break;
-	case OBS_MONITORING_TYPE_MONITOR_AND_OUTPUT:
-		type = "monitor and output";
-		break;
-	}
+	bool mt = monitoringEnabled->itemData(index).toBool();
+	obs_source_set_monitor_audio(source, mt);
 
 	blog(LOG_INFO, "User changed audio monitoring for source '%s' to: %s",
-			obs_source_get_name(source), type);
+			obs_source_get_name(source), mt ? "true" : "false");
+}
+
+void OBSAdvAudioCtrl::outputEnabledChanged(int index)
+{
+	bool ot = outputEnabled->itemData(index).toBool();
+	obs_source_set_ouput_enabled(source, ot);
+
+	blog(LOG_INFO, "User changed audio monitoring for source '%s' to: %s",
+		obs_source_get_name(source), ot ? "true" : "false");
 }
 
 static inline void setMixer(obs_source_t *source, const int mixerIdx,

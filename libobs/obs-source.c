@@ -1317,7 +1317,7 @@ static void source_output_audio_data(obs_source_t *source,
 		source->last_sync_offset = sync_offset;
 	}
 
-	if (source->monitoring_type != OBS_MONITORING_TYPE_MONITOR_ONLY) {
+	if (source->output_audio) {
 		if (push_back && source->audio_ts)
 			source_output_audio_push_back(source, &in);
 		else
@@ -4089,10 +4089,8 @@ void obs_source_set_monitoring_type(obs_source_t *source,
 
 	if (!obs_source_valid(source, "obs_source_set_monitoring_type"))
 		return;
-	if (source->monitoring_type == type)
-		return;
 
-	was_on = source->monitoring_type != OBS_MONITORING_TYPE_NONE;
+	was_on = source->monitor_audio;
 	now_on = type != OBS_MONITORING_TYPE_NONE;
 
 	if (was_on != now_on) {
@@ -4104,14 +4102,64 @@ void obs_source_set_monitoring_type(obs_source_t *source,
 		}
 	}
 
-	source->monitoring_type = type;
+	source->monitor_audio = now_on;
 }
 
 enum obs_monitoring_type obs_source_get_monitoring_type(
 		const obs_source_t *source)
 {
-	return obs_source_valid(source, "obs_source_get_monitoring_type") ?
-		source->monitoring_type : OBS_MONITORING_TYPE_NONE;
+	if(!obs_source_valid(source, "obs_source_get_monitoring_type"))
+		return OBS_MONITORING_TYPE_NONE;
+
+	if (source->monitor_audio && source->output_audio)
+		return OBS_MONITORING_TYPE_MONITOR_AND_OUTPUT;
+	else if (source->monitor_audio && !source->output_audio)
+		return OBS_MONITORING_TYPE_MONITOR_ONLY;
+	else
+		return OBS_MONITORING_TYPE_NONE;
+}
+
+bool obs_source_monitor_audio(const obs_source_t *source)
+{
+	if (!obs_source_valid(source, "obs_source_monitor_audio"))
+		return false;
+	return source->monitor_audio;
+}
+
+bool obs_source_output_enabled(const obs_source_t *source)
+{
+	if (!obs_source_valid(source, "obs_source_output_audio"))
+		return false;
+	return source->output_audio;
+}
+
+void obs_source_set_monitor_audio(obs_source_t *source, bool monitor_audio)
+{
+	bool was_on;
+
+	if (!obs_source_valid(source, "obs_source_set_monitor_audio"))
+		return;
+
+	was_on = source->monitor_audio;
+
+	if (was_on != monitor_audio) {
+		if (!was_on) {
+			source->monitor = audio_monitor_create(source);
+		} else {
+			audio_monitor_destroy(source->monitor);
+			source->monitor = NULL;
+		}
+	}
+
+	source->monitor_audio = monitor_audio;
+
+}
+
+void obs_source_set_ouput_enabled(obs_source_t *source, bool output_enabled)
+{
+	if (!obs_source_valid(source, "obs_source_set_monitor_audio"))
+		return;
+	source->output_audio = output_enabled;
 }
 
 void obs_source_set_async_unbuffered(obs_source_t *source, bool unbuffered)

@@ -28,7 +28,8 @@ private:
 	QPointer<QLabel>       labelL;
 	QPointer<QLabel>       labelR;
 	QPointer<QSpinBox>     syncOffset;
-	QPointer<QComboBox>    monitoringType;
+	QPointer<QComboBox>    monitoringEnabled;
+	QPointer<QComboBox>    outputEnabled;
 	QPointer<QCheckBox>    mixer1;
 	QPointer<QCheckBox>    mixer2;
 	QPointer<QCheckBox>    mixer3;
@@ -63,7 +64,8 @@ public slots:
 	void downmixMonoChanged(bool checked);
 	void panningChanged(int val);
 	void syncOffsetChanged(int milliseconds);
-	void monitoringTypeChanged(int index);
+	void monitoringEnabledChanged(int index);
+	void outputEnabledChanged(int index);
 	void mixer1Changed(bool checked);
 	void mixer2Changed(bool checked);
 	void mixer3Changed(bool checked);

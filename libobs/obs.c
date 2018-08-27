@@ -1664,7 +1664,6 @@ static obs_source_t *obs_load_source_type(obs_data_t *source_data)
 	uint32_t     mixers;
 	int          di_order;
 	int          di_mode;
-	int          monitoring_type;
 
 	source = obs_source_create(id, name, settings, hotkeys);
 
@@ -1716,9 +1715,13 @@ static obs_source_t *obs_load_source_type(obs_data_t *source_data)
 	obs_source_set_deinterlace_field_order(source,
 			(enum obs_deinterlace_field_order)di_order);
 
-	monitoring_type = (int)obs_data_get_int(source_data, "monitoring_type");
-	obs_source_set_monitoring_type(source,
-			(enum obs_monitoring_type)monitoring_type);
+	obs_data_set_default_bool(source_data, "monitoring_enabled", false);
+	obs_source_set_monitor_audio(source,
+			obs_data_get_bool(source_data, "monitoring_enabled"));
+
+	obs_data_set_default_bool(source_data, "output_enabled", true);
+	obs_source_set_ouput_enabled(source_data,
+			obs_data_get_bool(source_data, "output_enabled"));
 
 	obs_data_release(source->private_settings);
 	source->private_settings =
@@ -1827,6 +1830,9 @@ obs_data_t *obs_save_source(obs_source_t *source)
 	int        di_mode     = (int)obs_source_get_deinterlace_mode(source);
 	int        di_order    =
 		(int)obs_source_get_deinterlace_field_order(source);
+	bool       monitor_enabled = obs_source_monitor_audio(source);
+	bool       output_enabled = obs_source_output_enabled(source);
+
 
 	obs_source_save(source);
 	hotkeys = obs_hotkeys_save_source(source);
@@ -1845,6 +1851,7 @@ obs_data_t *obs_save_source(obs_source_t *source)
 	obs_data_set_int   (source_data, "flags",    flags);
 	obs_data_set_double(source_data, "volume",   volume);
 	obs_data_set_bool  (source_data, "enabled",  enabled);
+	obs_data_set_bool  (source_data, "output_enabled", output_enabled);
 	obs_data_set_bool  (source_data, "muted",    muted);
 	obs_data_set_bool  (source_data, "push-to-mute", push_to_mute);
 	obs_data_set_int   (source_data, "push-to-mute-delay", ptm_delay);
@@ -1853,7 +1860,7 @@ obs_data_t *obs_save_source(obs_source_t *source)
 	obs_data_set_obj   (source_data, "hotkeys",  hotkey_data);
 	obs_data_set_int   (source_data, "deinterlace_mode", di_mode);
 	obs_data_set_int   (source_data, "deinterlace_field_order", di_order);
-	obs_data_set_int   (source_data, "monitoring_type", m_type);
+	obs_data_set_bool  (source_data, "monitoring_enabled", monitor_enabled);
 
 	obs_data_set_obj(source_data, "private_settings",
 			source->private_settings);

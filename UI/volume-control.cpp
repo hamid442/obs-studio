@@ -71,6 +71,7 @@ void VolControl::SetMuted(bool checked)
 void VolControl::SetMon(bool checked) {
 	obs_audio_mix_lock();
 	obs_source_t **tracks = (obs_source_t **)obs_audio_mix_tracks();
+	/*
 	obs_monitoring_type mt;
 	if (!checked)
 		mt = OBS_MONITORING_TYPE_NONE;
@@ -81,6 +82,8 @@ void VolControl::SetMon(bool checked) {
 	if (track_index >= 0 && track_index < MAX_AUDIO_MIXES &&
 			tracks[track_index])
 		obs_source_set_monitoring_type(tracks[track_index], mt);
+	*/
+	obs_source_set_monitor_audio(tracks[track_index], checked);
 	obs_source_set_track_active(tracks[track_index]);
 	obs_audio_mix_unlock();
 }
