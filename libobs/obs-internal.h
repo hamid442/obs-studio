@@ -713,6 +713,8 @@ struct obs_source {
 	enum obs_monitoring_type        monitoring_type;
 
 	obs_data_t                      *private_settings;
+	bool                            monitoring;
+	bool                            send_audio;
 };
 
 extern struct obs_source_info *get_source_info(const char *id);

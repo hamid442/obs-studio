@@ -1720,13 +1720,11 @@ static obs_source_t *obs_load_source_type(obs_data_t *source_data)
 
 	const char *ver = obs_data_get_string(source_data, "source_version");
 	if (ver && *ver) {
-		obs_source_set_monitoring_type(source,
-			(enum obs_monitoring_type)monitoring_type);
+		obs_source_set_sends_enabled(source, obs_data_get_bool(
+				source_data, "sends_audio"));
+		obs_source_set_monitor_audio(source, obs_data_get_bool(
+				source_data, "monitoring"));
 	} else {
-		if (monitoring_type == OBS_MONITORING_TYPE_NONE)
-			monitoring_type = OBS_MONITORING_TYPE_OUTPUT_ONLY;
-		else if (monitoring_type == OBS_MONITORING_TYPE_OUTPUT_ONLY)
-			monitoring_type = OBS_MONITORING_TYPE_MONITOR_AND_OUTPUT;
 		obs_source_set_monitoring_type(source,
 			(enum obs_monitoring_type)monitoring_type);
 	}
@@ -1838,6 +1836,8 @@ obs_data_t *obs_save_source(obs_source_t *source)
 	int        di_mode     = (int)obs_source_get_deinterlace_mode(source);
 	int        di_order    =
 		(int)obs_source_get_deinterlace_field_order(source);
+	bool       sends_audio = obs_source_sends_enabled(source);
+	bool       monitoring  = obs_source_monitoring_enabled(source);
 
 	obs_source_save(source);
 	hotkeys = obs_hotkeys_save_source(source);
@@ -1865,7 +1865,9 @@ obs_data_t *obs_save_source(obs_source_t *source)
 	obs_data_set_int   (source_data, "deinterlace_mode", di_mode);
 	obs_data_set_int   (source_data, "deinterlace_field_order", di_order);
 	obs_data_set_int   (source_data, "monitoring_type", m_type);
-	obs_data_set_string(source_data, "source_version", "2.4");
+	obs_data_set_bool  (source_data, "monitoring", monitoring);
+	obs_data_set_bool  (source_data, "sends_audio", sends_audio);
+	obs_data_set_string(source_data, "source_version", "2.3");
 
 	obs_data_set_obj(source_data, "private_settings",
 			source->private_settings);

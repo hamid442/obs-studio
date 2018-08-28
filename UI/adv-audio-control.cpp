@@ -97,17 +97,6 @@ OBSAdvAudioCtrl::OBSAdvAudioCtrl(QGridLayout *, obs_source_t *source_)
 	int idx;
 	bool mt;
 #if defined(_WIN32) || defined(__APPLE__) || HAVE_PULSEAUDIO
-	/*
-	monitoringType->addItem(QTStr("Basic.AdvAudio.Monitoring.None"),
-			(int)OBS_MONITORING_TYPE_NONE);
-	monitoringType->addItem(QTStr("Basic.AdvAudio.Monitoring.MonitorOnly"),
-			(int)OBS_MONITORING_TYPE_MONITOR_ONLY);
-	monitoringType->addItem(QTStr("Basic.AdvAudio.Monitoring.Both"),
-			(int)OBS_MONITORING_TYPE_MONITOR_AND_OUTPUT);
-	int mt = (int)obs_source_get_monitoring_type(source);
-	idx = monitoringType->findData(mt);
-	monitoringType->setCurrentIndex(idx);
-	*/
 	monitoringEnabled->addItem(QTStr("Enable"),
 		true);
 	monitoringEnabled->addItem(QTStr("Disable"),
@@ -120,7 +109,7 @@ OBSAdvAudioCtrl::OBSAdvAudioCtrl(QGridLayout *, obs_source_t *source_)
 		true);
 	outputEnabled->addItem(QTStr("Disable"),
 		false);
-	mt = obs_source_output_enabled(source);
+	mt = obs_source_sends_enabled(source);
 	idx = outputEnabled->findData(mt);
 	outputEnabled->setCurrentIndex(idx);
 
@@ -343,7 +332,7 @@ void OBSAdvAudioCtrl::monitoringEnabledChanged(int index)
 void OBSAdvAudioCtrl::outputEnabledChanged(int index)
 {
 	bool ot = outputEnabled->itemData(index).toBool();
-	obs_source_set_ouput_enabled(source, ot);
+	obs_source_set_sends_enabled(source, ot);
 
 	blog(LOG_INFO, "User changed audio monitoring for source '%s' to: %s",
 		obs_source_get_name(source), ot ? "true" : "false");

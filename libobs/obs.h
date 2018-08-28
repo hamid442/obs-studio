@@ -1043,7 +1043,6 @@ EXPORT enum obs_deinterlace_field_order obs_source_get_deinterlace_field_order(
 enum obs_monitoring_type {
 	OBS_MONITORING_TYPE_NONE,
 	OBS_MONITORING_TYPE_MONITOR_ONLY,
-	OBS_MONITORING_TYPE_OUTPUT_ONLY,
 	OBS_MONITORING_TYPE_MONITOR_AND_OUTPUT
 };
 
@@ -1053,11 +1052,13 @@ EXPORT enum obs_monitoring_type obs_source_get_monitoring_type(
 		const obs_source_t *source);
 EXPORT void obs_source_set_track_active(obs_source_t *source);
 EXPORT bool obs_source_monitoring_enabled(const obs_source_t *source);
-EXPORT bool obs_source_output_enabled(const obs_source_t *source);
+EXPORT bool obs_source_sends_enabled(const obs_source_t *source);
+
 EXPORT void obs_source_set_monitor_audio(obs_source_t *source,
 		bool monitor_audio);
-EXPORT void obs_source_set_ouput_enabled(obs_source_t *source,
-		bool output_enabled);
+EXPORT void obs_source_set_sends_enabled(obs_source_t *source,
+		bool sends_enabled);
+
 
 /** Gets private front-end settings data.  This data is saved/loaded
  * automatically.  Returns an incremented reference. */
