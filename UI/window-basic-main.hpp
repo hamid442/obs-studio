@@ -127,7 +127,7 @@ private:
 	obs_frontend_callbacks *api = nullptr;
 
 	std::vector<VolControl*> volumes;
-
+	std::vector<VolControl*> master_volumes;
 	std::vector<OBSSignal> signalHandlers;
 
 	bool loaded = false;
@@ -212,6 +212,7 @@ private:
 	void          UpdateVolumeControlsDecayRate();
 	void          UpdateVolumeControlsPeakMeterType();
 	void          ClearVolumeControls();
+	void          ClearMasterVolumeControls();
 
 	void          UploadLog(const char *subdir, const char *file);
 
@@ -268,8 +269,10 @@ private:
 	void GetAudioSourceFilters();
 	void GetAudioSourceProperties();
 	void VolControlContextMenu();
+	void MasterVolControlContextMenu();
 	void ToggleVolControlLayout();
-	void ToggleMixerLayout(bool vertical);
+	void ToggleMasterVolControlLayout();
+	void ToggleMixerLayout(bool vertical, bool isMaster);
 
 	void RefreshSceneCollections();
 	void ChangeSceneCollection();
@@ -468,12 +471,16 @@ private slots:
 
 	void HideAudioControl();
 	void UnhideAllAudioControls();
+	void UnhideAllMasterAudioControls();
+
 	void ToggleHideMixer();
 
 	void MixerRenameSource();
 
 	void on_vMixerScrollArea_customContextMenuRequested();
 	void on_hMixerScrollArea_customContextMenuRequested();
+	void on_vMasterMixerScrollArea_customContextMenuRequested();
+	void on_hMasterMixerScrollArea_customContextMenuRequested();
 
 	void on_actionCopySource_triggered();
 	void on_actionPasteRef_triggered();
@@ -515,7 +522,8 @@ private:
 public:
 	OBSSource GetProgramSource();
 	OBSScene GetCurrentScene();
-
+	void InitAudioMasterMixer();
+	inline std::vector<VolControl*> const GetMasterVol() { return master_volumes; }
 	void SysTrayNotify(const QString &text, QSystemTrayIcon::MessageIcon n);
 
 	inline OBSSource GetCurrentSceneSource()
@@ -748,6 +756,7 @@ private slots:
 	void DeferredLoad(const QString &file, int requeueCount);
 
 	void StackedMixerAreaContextMenuRequested();
+	void StackedMasterMixerAreaContextMenuRequested();
 
 	void ResizeOutputSizeOfSource();
 
