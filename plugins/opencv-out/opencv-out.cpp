@@ -1,4 +1,5 @@
 #include <obs-module.h>
+#include <util/platform.h>
 #include <util/dstr.h>
 #include <opencv2/opencv.hpp>
 
@@ -32,9 +33,9 @@ static const char *opencv_filter_get_name(void *unused){
 	return _MT("OpencvFilter");
 }
 
-static void opencv_filter_create(obs_data_t *settings, obs_source_t *source)
+static void *opencv_filter_create(obs_data_t *settings, obs_source_t *source)
 {
-	struct opencv_filter_data *filter =
+	struct opencv_filter_data *filter = (struct opencv_filter_data *)
 			bzalloc(sizeof(struct opencv_filter_data));
 	filter->context = source;
 	filter->settings = settings;
@@ -49,7 +50,7 @@ static void opencv_filter_create(obs_data_t *settings, obs_source_t *source)
 
 static void opencv_filter_destroy(void *data)
 {
-	struct opencv_filter_data *filter = data;
+	struct opencv_filter_data *filter = (struct opencv_filter_data *)data;
 	obs_data_release(filter->settings);
 	
 	obs_enter_graphics();
@@ -64,7 +65,7 @@ static void opencv_filter_destroy(void *data)
 
 static obs_properties_t *opencv_filter_properties(void *data)
 {
-	struct opencv_filter_data *filter = data;
+	struct opencv_filter_data *filter = (struct opencv_filter_data *)data;
 	obs_properties_t *props = obs_properties_create();
 	
 	obs_properties_add_path(props, "path", _MT("Opencv.Folder"), OBS_PATH_FILE_SAVE, NULL, NULL);
@@ -74,7 +75,7 @@ static obs_properties_t *opencv_filter_properties(void *data)
 
 static void opencv_filter_update(void *data, obs_data_t *settings)
 {
-	struct opencv_filter_data *filter = data;
+	struct opencv_filter_data *filter = (struct opencv_filter_data *)data;
 	const char* path = obs_data_get_string(settings, "path");
 	dstr_free(&filter->path);
 	dstr_copy(&filter->path, path);
@@ -126,11 +127,12 @@ static void opencv_filter_tick(void *data, float seconds)
 	filter->linesize = linesize;
 }
 
-static gs_texture_t *render_original(void *data, gs_effect_t *effect, float source_cx, float source_cy)
+static gs_texture_t *render_original(void *data, gs_effect_t *effect,
+		float source_cx, float source_cy)
 {
 	UNUSED_PARAMETER(effect);
 
-	struct opencv_filter_data *filter = data;
+	struct opencv_filter_data *filter = (struct opencv_filter_data *)data;
 	obs_source_t *target = obs_filter_get_target(filter->context);
 	obs_source_t *parent = obs_filter_get_parent(filter->context);
 
@@ -169,10 +171,10 @@ static gs_texture_t *render_original(void *data, gs_effect_t *effect, float sour
 
 static void process_surf(void *data, size_t source_cy)
 {
-	struct opencv_filter_data *filter = data;
+	struct opencv_filter_data *filter = (struct opencv_filter_data *)data;
 	obs_source_t *parent = obs_filter_get_parent(filter->context);
 	if (!parent || !filter->context)
-		return NULL;
+		return;
 	/*
 	const char* p = obs_source_get_name(parent);
 	const char* f = obs_source_get_name(filter->context);
@@ -182,12 +184,15 @@ static void process_surf(void *data, size_t source_cy)
 		filter->read_texture = false;
 		if (dstr_is_empty(&filter->path))
 			return;
-		if (gs_stagesurface_map(filter->surf, &tex_data, &filter->linesize)) {
+		if (gs_stagesurface_map(filter->surf, &tex_data,
+				(uint32_t*)&filter->linesize)) {
 			/* write to buffer */
 			/* os_unlink(path.array); */
 			memcpy(filter->data, tex_data, filter->size);
 			gs_stagesurface_unmap(filter->surf);
-			os_quick_write_utf8_file(filter->path.array, filter->data, filter->size, false);
+			os_quick_write_utf8_file(filter->path.array,
+					(char*)filter->data, filter->size,
+					false);
 		}
 	}
 }
@@ -195,7 +200,7 @@ static void process_surf(void *data, size_t source_cy)
 static void opencv_filter_render(void *data, gs_effect_t *effect)
 {
 	UNUSED_PARAMETER(effect);
-	struct opencv_filter_data *filter = data;
+	struct opencv_filter_data *filter = (struct opencv_filter_data *)data;
 	
 	float src_cx = (float)obs_source_get_width(filter->context);
 	float src_cy = (float)obs_source_get_height(filter->context);
@@ -212,36 +217,37 @@ static void opencv_filter_render(void *data, gs_effect_t *effect)
 
 static uint32_t opencv_filter_width(void *data)
 {
-	struct opencv_filter_data *filter = data;
+	struct opencv_filter_data *filter = (struct opencv_filter_data *)data;
 	return filter->total_width;
 }
 
 static uint32_t opencv_filter_height(void *data)
 {
-	struct opencv_filter_data *filter = data;
+	struct opencv_filter_data *filter = (struct opencv_filter_data *)data;
 	return filter->total_height;
 }
 
 static void opencv_filter_defaults(obs_data_t *settings)
 {
 }
-
-struct obs_source_info opencv_filter = {.id = "opencv_out",
-		.type = OBS_SOURCE_TYPE_FILTER,
-		.output_flags = OBS_SOURCE_VIDEO,
-		.create = opencv_filter_create,
-		.destroy = opencv_filter_destroy,
-		.update = opencv_filter_update,
-		.video_tick = opencv_filter_tick,
-		.get_name = opencv_filter_get_name,
-		.get_defaults = opencv_filter_defaults,
-		.get_width = opencv_filter_width,
-		.get_height = opencv_filter_height,
-		.video_render = opencv_filter_render,
-		.get_properties = opencv_filter_properties};
 		
 bool obs_module_load(void)
 {
+	struct obs_source_info opencv_filter = { 0 };
+	opencv_filter.id = "opencv_out";
+	opencv_filter.type = OBS_SOURCE_TYPE_FILTER;
+	opencv_filter.output_flags = OBS_SOURCE_VIDEO;
+	opencv_filter.create = opencv_filter_create;
+	opencv_filter.destroy = opencv_filter_destroy;
+	opencv_filter.update = opencv_filter_update;
+	opencv_filter.video_tick = opencv_filter_tick;
+	opencv_filter.get_name = opencv_filter_get_name;
+	opencv_filter.get_defaults = opencv_filter_defaults;
+	opencv_filter.get_width = opencv_filter_width;
+	opencv_filter.get_height = opencv_filter_height;
+	opencv_filter.video_render = opencv_filter_render;
+	opencv_filter.get_properties = opencv_filter_properties;
+
 	obs_register_source(&opencv_filter);
 	return true;
 }
