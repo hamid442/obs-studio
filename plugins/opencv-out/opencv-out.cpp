@@ -98,12 +98,26 @@ void *opencv_thread(void *data)
 				ts = os_gettime_ns() - ts;
 				if (ts > filter->delay)
 					filter->delay = ts;
+				size_t sz = ofd.detected_regions.size();
+				for (size_t i = 0;
+						i < ofd.detected_regions.size();
+						i++) {
+					blog(LOG_INFO, "ROI: [<%i,%i>, <%i,%i>]", ofd.detected_regions[i].x, ofd.detected_regions[i].y,
+						ofd.detected_regions[i].width, ofd.detected_regions[i].height);
+					/*
+					cv::rectangle(ofd.frame,
+							ofd.detected_regions[i],
+							cv::Scalar(0, 255, 0),
+							10);
+							*/
+				}
 
 				/* (const uint8_t**)ofd.frame.ptr() */
+				const uint8_t *p = ofd.frame.data;//ofd.frame.ptr();
 				obs_enter_graphics();
 				ofd.tex = gs_texture_create(ofd.frame.cols,
 						ofd.frame.rows, GS_RGBA, 1,
-						(const uint8_t**)ofd.data, 0);
+						(const uint8_t**)&p, 0);
 				obs_leave_graphics();
 			}
 			filter->processed_frames->push_back(ofd);
@@ -162,10 +176,30 @@ static void opencv_filter_destroy(void *data)
 {
 	struct opencv_filter_data *filter = (struct opencv_filter_data *)data;
 	obs_data_release(filter->settings);
+
+	filter->run_thread = false;
+	pthread_join(filter->opencv_thread, NULL);
 	
 	obs_enter_graphics();
 	gs_texrender_destroy(filter->texrender);
 	gs_stagesurface_destroy(filter->surf);
+
+	for (size_t i = 0; i < filter->frames->size(); i++) {
+		opencv_frame_data ofd = filter->frames->front();
+		filter->frames->pop_front();
+		gs_texture_destroy(ofd.tex);
+		if(ofd.data)
+			bfree(ofd.data);
+	}
+
+	for (size_t i = 0; i < filter->processed_frames->size(); i++) {
+		opencv_frame_data ofd = filter->processed_frames->front();
+		filter->processed_frames->pop_front();
+		gs_texture_destroy(ofd.tex);
+		if(ofd.data)
+			bfree(ofd.data);
+	}
+
 	obs_leave_graphics();
 	
 	bfree(filter);
@@ -402,8 +436,13 @@ static void opencv_filter_render(void *data, gs_effect_t *effect)
 		filter->tex = ofd.tex;
 		//bfree(ofd.data);
 		if (!obs_source_process_filter_begin(filter->context, GS_RGBA,
-				OBS_NO_DIRECT_RENDERING))
+				OBS_NO_DIRECT_RENDERING)) {
+			obs_enter_graphics();
+			gs_texture_destroy(ofd.tex);
+			obs_leave_graphics();
+			bfree(ofd.data);
 			return;
+		}
 		gs_effect_set_texture(filter->image, filter->tex);
 		obs_source_process_filter_end(filter->context, filter->effect,
 			ofd.frame.cols, ofd.frame.rows);
@@ -411,6 +450,7 @@ static void opencv_filter_render(void *data, gs_effect_t *effect)
 		obs_enter_graphics();
 		gs_texture_destroy(ofd.tex);
 		obs_leave_graphics();
+		bfree(ofd.data);
 		//bfree(ofd.data);
 		/*
 		for (size_t i = 0; i < ofd.detected_regions.size(); i++) {
