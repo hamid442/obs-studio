@@ -1,4 +1,5 @@
 #include <obs-module.h>
+#include <util/threading.h>
 #include <util/platform.h>
 #include <util/dstr.h>
 #include <opencv2/opencv.hpp>
@@ -9,12 +10,32 @@ OBS_MODULE_USE_DEFAULT_LOCALE("opencv_out", "en-US")
 
 #define _MT obs_module_text
 
+struct opencv_frame_data {
+	uint8_t *data;
+	cv::Mat frame;
+	std::vector<cv::Rect> detected_regions;
+	uint64_t timestamp;
+	gs_texture_t *tex;
+};
+
 struct opencv_filter_data {
 	obs_source_t *context;
 	obs_data_t *settings;
 	
 	gs_texrender_t *texrender;
 	gs_stagesurf_t *surf;
+
+	gs_texture_t *tex;
+
+	gs_effect_t *effect;
+	gs_eparam_t *image;
+
+	pthread_t opencv_thread;
+	pthread_cond_t frame_sent;
+	pthread_mutex_t opencv_thread_mutex;
+
+	bool thread_created;
+	bool run_thread;
 	
 	uint8_t *data;
 	size_t size;
@@ -24,13 +45,73 @@ struct opencv_filter_data {
 	int total_height;
 
 	bool read_texture;
+	bool update_classifier;
+	bool valid_classifier;
 
-	struct dstr path;
+	std::string classifier_path;
+	cv::CascadeClassifier cascade;
+
+	std::list<opencv_frame_data> *frames;
+	std::list<opencv_frame_data> *processed_frames;
+
+	uint64_t delay;
 };
 
 static const char *opencv_filter_get_name(void *unused){
 	UNUSED_PARAMETER(unused);
 	return _MT("OpencvFilter");
+}
+
+void *opencv_thread(void *data)
+{
+	struct opencv_filter_data *filter = (struct opencv_filter_data*)data;
+
+	std::string n = "opencv_thread";
+	os_set_thread_name(n.c_str());
+	filter->run_thread = true;
+	do {
+		int rc = 0;
+		pthread_mutex_lock(&filter->opencv_thread_mutex);
+		while (filter->run_thread && !filter->frames->empty()) {
+			struct timespec stop;
+			uint64_t ts = os_gettime_ns();
+			stop.tv_nsec = ts + 500000000;
+			stop.tv_sec = (ts / 1000000000) + 1;
+			rc = pthread_cond_timedwait(&filter->frame_sent,
+					&filter->opencv_thread_mutex, &stop);
+			if (rc != ETIMEDOUT)
+				break;
+		}
+		pthread_mutex_unlock(&filter->opencv_thread_mutex);
+
+		while (filter->run_thread && !filter->frames->empty()) {
+			opencv_frame_data ofd = filter->frames->front();
+			filter->frames->pop_front();
+			if (filter->valid_classifier) {
+				uint64_t ts = os_gettime_ns();
+				cv::Mat frame_gray;
+				cv::cvtColor(ofd.frame, frame_gray,
+					cv::COLOR_RGBA2GRAY);
+				cv::equalizeHist(frame_gray, frame_gray);
+				filter->cascade.detectMultiScale(frame_gray,
+					ofd.detected_regions);
+				ts = os_gettime_ns() - ts;
+				if (ts > filter->delay)
+					filter->delay = ts;
+
+				/* (const uint8_t**)ofd.frame.ptr() */
+				obs_enter_graphics();
+				ofd.tex = gs_texture_create(ofd.frame.cols,
+						ofd.frame.rows, GS_RGBA, 1,
+						(const uint8_t**)ofd.data, 0);
+				obs_leave_graphics();
+			}
+			filter->processed_frames->push_back(ofd);
+		}
+
+	} while (filter->run_thread);
+
+	return NULL;
 }
 
 static void *opencv_filter_create(obs_data_t *settings, obs_source_t *source)
@@ -39,13 +120,42 @@ static void *opencv_filter_create(obs_data_t *settings, obs_source_t *source)
 			bzalloc(sizeof(struct opencv_filter_data));
 	filter->context = source;
 	filter->settings = settings;
+	filter->classifier_path = "";
+	filter->valid_classifier = false;
+	filter->frames = new std::list<opencv_frame_data>();
+	filter->processed_frames = new std::list<opencv_frame_data>();
 	
 	filter->texrender = gs_texrender_create(GS_RGBA, GS_ZS_NONE);
-	dstr_init(&filter->path);
+	filter->effect = obs_get_base_effect(OBS_EFFECT_DEFAULT);
+	filter->image = gs_effect_get_param_by_name(filter->effect,
+			"image");
+
+	pthread_mutexattr_t attr;
+
+	if (pthread_mutexattr_init(&attr) != 0)
+		goto fail;
+	if (pthread_mutexattr_settype(&attr, PTHREAD_MUTEX_RECURSIVE) != 0)
+		goto fail;
+	if (pthread_mutex_init(&filter->opencv_thread_mutex, &attr) != 0)
+		goto fail;
+
+	pthread_condattr_t cond_attr;
+	pthread_condattr_init(&cond_attr);
+
+	if (pthread_cond_init(&filter->frame_sent, &cond_attr))
+		goto fail;
+
+	if (pthread_create(&filter->opencv_thread, NULL,
+			&opencv_thread, filter))
+		filter->thread_created = false;
+	else
+		filter->thread_created = true;
 	
 	obs_source_update(source, settings);
 	
 	return filter;
+fail:
+	return NULL;
 }
 
 static void opencv_filter_destroy(void *data)
@@ -58,8 +168,6 @@ static void opencv_filter_destroy(void *data)
 	gs_stagesurface_destroy(filter->surf);
 	obs_leave_graphics();
 	
-	dstr_free(&filter->path);
-	
 	bfree(filter);
 }
 
@@ -68,7 +176,8 @@ static obs_properties_t *opencv_filter_properties(void *data)
 	struct opencv_filter_data *filter = (struct opencv_filter_data *)data;
 	obs_properties_t *props = obs_properties_create();
 	
-	obs_properties_add_path(props, "path", _MT("Opencv.Folder"), OBS_PATH_FILE_SAVE, NULL, NULL);
+	obs_properties_add_path(props, "classifier_path",
+			_MT("OpenCV.Classifier"), OBS_PATH_FILE, NULL, NULL);
 	
 	return props;
 }
@@ -76,9 +185,12 @@ static obs_properties_t *opencv_filter_properties(void *data)
 static void opencv_filter_update(void *data, obs_data_t *settings)
 {
 	struct opencv_filter_data *filter = (struct opencv_filter_data *)data;
-	const char* path = obs_data_get_string(settings, "path");
-	dstr_free(&filter->path);
-	dstr_copy(&filter->path, path);
+	const char* classifier_path = obs_data_get_string(settings,
+			"classifier_path");
+	std::string c_path = classifier_path;
+	if (filter->classifier_path != c_path)
+		filter->update_classifier = true;
+	filter->classifier_path = c_path;
 }
 
 static void opencv_filter_tick(void *data, float seconds)
@@ -93,6 +205,11 @@ static void opencv_filter_tick(void *data, float seconds)
 	int surf_cy = 0;
 	int src_cx = obs_source_get_width(target);
 	int src_cy = obs_source_get_height(target);
+
+	if (filter->update_classifier) {
+		filter->valid_classifier = filter->cascade.load(filter->classifier_path);
+		filter->update_classifier = false;
+	}
 
 	if(filter->surf){
 		obs_enter_graphics();
@@ -169,7 +286,44 @@ static gs_texture_t *render_original(void *data, gs_effect_t *effect,
 	return gs_texrender_get_texture(filter->texrender);
 }
 
-static void process_surf(void *data, size_t source_cy)
+/*
+void detectAndDisplay(struct opencv_filter_data *filter)
+{
+	if (!filter->valid_classifier || filter->frame.empty())
+		return;
+	cv::Mat frame_gray;
+	cv::cvtColor(filter->frame, frame_gray, cv::COLOR_RGBA2GRAY);
+	cv::equalizeHist(frame_gray, frame_gray);
+	
+	filter->detected_regions.clear();
+	filter->cascade.detectMultiScale(frame_gray, filter->detected_regions);
+	
+	for (size_t i = 0; i < filter->detected_regions.size(); i++) {
+		blog(LOG_INFO, "ROI: [<%i,%i>, <%i,%i>]", filter->detected_regions[i].x, filter->detected_regions[i].y,
+			filter->detected_regions[i].width, filter->detected_regions[i].height);
+		//cv::rectangle(filter->frame, filter->detected_regions[i], cv::Scalar(255, 0, 0), 2);
+	}
+	
+	//cv::imshow("Detection", filter->frame);
+}
+*/
+/*
+//face_cascade.detectMultiScale(frame_gray, faces);
+for (size_t i = 0; i < faces.size(); i++) {
+	Point center(faces[i].x + faces[i].width / 2, faces[i].y + faces[i].height / 2);
+	ellipse(frame, center, Size(faces[i].width / 2, faces[i].height / 2), 0, 0, 360, Scalar(255, 0, 255), 4);
+	Mat faceROI = frame_gray(faces[i]);
+	//-- In each face, detect eyes
+	std::vector<Rect> eyes;
+	eyes_cascade.detectMultiScale(faceROI, eyes);
+	for (size_t j = 0; j < eyes.size(); j++) {
+		Point eye_center(faces[i].x + eyes[j].x + eyes[j].width / 2, faces[i].y + eyes[j].y + eyes[j].height / 2);
+		int radius = cvRound((eyes[j].width + eyes[j].height)*0.25);
+		circle(frame, eye_center, radius, Scalar(255, 0, 0), 4);
+	}
+}
+*/
+static void process_surf(void *data, size_t source_cx, size_t source_cy)
 {
 	struct opencv_filter_data *filter = (struct opencv_filter_data *)data;
 	obs_source_t *parent = obs_filter_get_parent(filter->context);
@@ -182,19 +336,41 @@ static void process_surf(void *data, size_t source_cy)
 	uint8_t *tex_data = NULL;
 	if (filter->read_texture && filter->surf) {
 		filter->read_texture = false;
-		if (dstr_is_empty(&filter->path))
-			return;
 		if (gs_stagesurface_map(filter->surf, &tex_data,
 				(uint32_t*)&filter->linesize)) {
 			/* write to buffer */
 			/* os_unlink(path.array); */
-			memcpy(filter->data, tex_data, filter->size);
+			/* memcpy(filter->data, tex_data, filter->size); */
+			if (filter->thread_created) {
+				struct opencv_frame_data f = { 0 };
+				f.data = (uint8_t*)bmemdup(tex_data,
+						filter->size);
+				f.frame = cv::Mat(cvSize(source_cx, source_cy),
+						CV_8UC4, f.data);
+				if (!f.frame.isContinuous())
+					blog(LOG_WARNING, "There will be problems");
+				else {
+					filter->frames->push_back(f);
+					pthread_cond_broadcast(&filter->frame_sent);
+				}
+			}
+			/*
+			filter->frame = cv::Mat(cvSize(source_cx, source_cy),
+					CV_8UC4, tex_data);
+					*/
 			gs_stagesurface_unmap(filter->surf);
+			/*
+			detectAndDisplay(filter);
+			*/
+			/*
 			os_quick_write_utf8_file(filter->path.array,
 					(char*)filter->data, filter->size,
 					false);
+					*/
+
 		}
 	}
+	IplImage *frame;
 }
 
 static void opencv_filter_render(void *data, gs_effect_t *effect)
@@ -209,10 +385,42 @@ static void opencv_filter_render(void *data, gs_effect_t *effect)
 	if(filter->surf)
 		gs_stage_texture(filter->surf, tex);
 	filter->read_texture = true;
+
+	if (filter->processed_frames->empty() || filter->effect == NULL) {
+		obs_source_skip_video_filter(filter->context);
+	} else {
+		opencv_frame_data ofd = filter->processed_frames->front();
+		filter->processed_frames->pop_front();
+		/*
+		obs_enter_graphics();
+		if (filter->tex)
+			gs_texture_destroy(filter->tex);
+		filter->tex = gs_texture_create(ofd.frame.cols, ofd.frame.rows,
+			GS_RGBA, 1, (const uint8_t**)ofd.frame.ptr(), 0);
+		obs_leave_graphics();
+		*/
+		filter->tex = ofd.tex;
+		//bfree(ofd.data);
+		if (!obs_source_process_filter_begin(filter->context, GS_RGBA,
+				OBS_NO_DIRECT_RENDERING))
+			return;
+		gs_effect_set_texture(filter->image, filter->tex);
+		obs_source_process_filter_end(filter->context, filter->effect,
+			ofd.frame.cols, ofd.frame.rows);
+
+		obs_enter_graphics();
+		gs_texture_destroy(ofd.tex);
+		obs_leave_graphics();
+		//bfree(ofd.data);
+		/*
+		for (size_t i = 0; i < ofd.detected_regions.size(); i++) {
+			
+		}
+		*/
+
+	}
 	
-	obs_source_skip_video_filter(filter->context);
-	
-	process_surf(filter, src_cy);
+	process_surf(filter, src_cx, src_cy);
 }
 
 static uint32_t opencv_filter_width(void *data)
