@@ -10,6 +10,10 @@ OBS_MODULE_USE_DEFAULT_LOCALE("opencv_out", "en-US")
 
 #define _MT obs_module_text
 
+#ifdef HAVE_CUDA
+
+#endif
+
 struct opencv_frame_data {
 	uint8_t *data;
 	cv::Mat frame;
@@ -37,7 +41,6 @@ struct opencv_filter_data {
 	bool thread_created;
 	bool run_thread;
 	
-	uint8_t *data;
 	size_t size;
 	size_t linesize;
 	
@@ -60,6 +63,20 @@ struct opencv_filter_data {
 static const char *opencv_filter_get_name(void *unused){
 	UNUSED_PARAMETER(unused);
 	return _MT("OpencvFilter");
+}
+
+void opencv_frame_data_release(struct opencv_frame_data &ofd)
+{
+	obs_enter_graphics();
+	if (ofd.tex) {
+		gs_texture_destroy(ofd.tex);
+		ofd.tex = NULL;
+	}
+	if (ofd.data) {
+		bfree(ofd.data);
+		ofd.data = NULL;
+	}
+	obs_leave_graphics();
 }
 
 void *opencv_thread(void *data)
@@ -94,16 +111,17 @@ void *opencv_thread(void *data)
 					cv::COLOR_RGBA2GRAY);
 				cv::equalizeHist(frame_gray, frame_gray);
 				filter->cascade.detectMultiScale(frame_gray,
-					ofd.detected_regions);
-				ts = os_gettime_ns() - ts;
+					ofd.detected_regions, 1.3, 5);
+				uint64_t sts = os_gettime_ns();
+				ts = sts - ts;
 				if (ts > filter->delay)
 					filter->delay = ts;
 				size_t sz = ofd.detected_regions.size();
 				for (size_t i = 0;
 						i < ofd.detected_regions.size();
 						i++) {
-					blog(LOG_INFO, "ROI: [<%i,%i>, <%i,%i>]", ofd.detected_regions[i].x, ofd.detected_regions[i].y,
-						ofd.detected_regions[i].width, ofd.detected_regions[i].height);
+					blog(LOG_INFO, "ROI: [<%i,%i>, <%i,%i>] %f ms", ofd.detected_regions[i].x, ofd.detected_regions[i].y,
+						ofd.detected_regions[i].width, ofd.detected_regions[i].height, ts * 0.000001);
 					/*
 					cv::rectangle(ofd.frame,
 							ofd.detected_regions[i],
@@ -112,15 +130,25 @@ void *opencv_thread(void *data)
 							*/
 				}
 
+				opencv_frame_data_release(ofd);
 				/* (const uint8_t**)ofd.frame.ptr() */
-				const uint8_t *p = ofd.frame.data;//ofd.frame.ptr();
+				/*
+				const uint8_t *p = ofd.frame.data;
 				obs_enter_graphics();
 				ofd.tex = gs_texture_create(ofd.frame.cols,
 						ofd.frame.rows, GS_RGBA, 1,
 						(const uint8_t**)&p, 0);
 				obs_leave_graphics();
+				*/
 			}
+
+
+			/*
 			filter->processed_frames->push_back(ofd);
+			blog(LOG_INFO, "Frames: [%i, %i]",
+					filter->processed_frames->size(),
+					filter->frames->size());
+					*/
 		}
 
 	} while (filter->run_thread);
@@ -184,7 +212,7 @@ static void opencv_filter_destroy(void *data)
 	gs_texrender_destroy(filter->texrender);
 	gs_stagesurface_destroy(filter->surf);
 
-	for (size_t i = 0; i < filter->frames->size(); i++) {
+	while(!filter->frames->empty()) {
 		opencv_frame_data ofd = filter->frames->front();
 		filter->frames->pop_front();
 		gs_texture_destroy(ofd.tex);
@@ -192,13 +220,19 @@ static void opencv_filter_destroy(void *data)
 			bfree(ofd.data);
 	}
 
-	for (size_t i = 0; i < filter->processed_frames->size(); i++) {
+	while(!filter->processed_frames->empty()) {
 		opencv_frame_data ofd = filter->processed_frames->front();
 		filter->processed_frames->pop_front();
 		gs_texture_destroy(ofd.tex);
 		if(ofd.data)
 			bfree(ofd.data);
 	}
+
+	delete filter->frames;
+	delete filter->processed_frames;
+
+	pthread_mutex_destroy(&filter->opencv_thread_mutex);
+	pthread_cond_destroy(&filter->frame_sent);
 
 	obs_leave_graphics();
 	
@@ -221,7 +255,7 @@ static void opencv_filter_update(void *data, obs_data_t *settings)
 	struct opencv_filter_data *filter = (struct opencv_filter_data *)data;
 	const char* classifier_path = obs_data_get_string(settings,
 			"classifier_path");
-	std::string c_path = classifier_path;
+	std::string c_path(classifier_path);
 	if (filter->classifier_path != c_path)
 		filter->update_classifier = true;
 	filter->classifier_path = c_path;
@@ -258,10 +292,6 @@ static void opencv_filter_tick(void *data, float seconds)
 	
 	size_t linesize = base_width * 4;
 	size_t size = linesize * base_height;
-	if(filter->data){
-		if(filter->size != size)
-			filter->data = (uint8_t*)brealloc(filter->data, size);
-	}
 	
 	filter->total_width = base_width;
 	filter->total_height = base_height;
@@ -272,8 +302,6 @@ static void opencv_filter_tick(void *data, float seconds)
 		obs_leave_graphics();
 	}
 	
-	if(!filter->data)
-		filter->data = (uint8_t*)bzalloc(size);
 	filter->size = size;
 	filter->linesize = linesize;
 }
@@ -370,6 +398,8 @@ static void process_surf(void *data, size_t source_cx, size_t source_cy)
 	uint8_t *tex_data = NULL;
 	if (filter->read_texture && filter->surf) {
 		filter->read_texture = false;
+		if (filter->frames->size() > 0)
+			return;
 		if (gs_stagesurface_map(filter->surf, &tex_data,
 				(uint32_t*)&filter->linesize)) {
 			/* write to buffer */
@@ -381,9 +411,11 @@ static void process_surf(void *data, size_t source_cx, size_t source_cy)
 						filter->size);
 				f.frame = cv::Mat(cvSize(source_cx, source_cy),
 						CV_8UC4, f.data);
-				if (!f.frame.isContinuous())
+				f.tex = NULL;
+				if (!f.frame.isContinuous()) {
 					blog(LOG_WARNING, "There will be problems");
-				else {
+					bfree(f.data);
+				} else {
 					filter->frames->push_back(f);
 					pthread_cond_broadcast(&filter->frame_sent);
 				}
@@ -404,7 +436,6 @@ static void process_surf(void *data, size_t source_cx, size_t source_cy)
 
 		}
 	}
-	IplImage *frame;
 }
 
 static void opencv_filter_render(void *data, gs_effect_t *effect)
@@ -497,6 +528,20 @@ bool obs_module_load(void)
 	opencv_filter.get_properties = opencv_filter_properties;
 
 	obs_register_source(&opencv_filter);
+
+	blog(LOG_INFO, "%s", cv::getBuildInformation().c_str());
+	int deviceCount = cv::cuda::getCudaEnabledDeviceCount();
+	switch (deviceCount) {
+	case -1:
+		blog(LOG_INFO, "CUDA not installed or incompatible");
+		break;
+	case 0:
+		blog(LOG_INFO, "Compiled w/o CUDA");
+		break;
+	default:
+		blog(LOG_INFO, "Devices w/ CUDA enabled: %i", deviceCount);
+		break;
+	}
 	return true;
 }
 

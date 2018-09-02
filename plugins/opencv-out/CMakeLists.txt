@@ -1,10 +1,11 @@
 project(opencv-out)
 
-find_package(OPENCV REQUIRED)
-find_library(OPENCV_LIB opencv)
-if(OPENCV_LIB-NOTFOUND)
-	message(FATAL "OpenCV lib not found")
-endif()
+find_package(OpenCV REQUIRED)
+#find_library(OPENCV_LIB opencv)
+#if(OPENCV_LIB-NOTFOUND)
+#if(OPENCV_<MODULE>_FOUND)
+#	message(FATAL "OpenCV lib not found")
+#endif()
 
 if(WIN32 AND NOT MINGW)
 	include_directories(../w32-pthreads)
@@ -13,9 +14,7 @@ if(WIN32 AND NOT MINGW)
 endif()
 
 include_directories(
-	/
-	${OPENCV_DIR}
-	${OPENCV_DIR}/include
+	${OpenCV_INCLUDE_DIRS}
 )
 
 set(opencv-out_HEADERS
@@ -24,18 +23,17 @@ set(opencv-out_HEADERS
 
 set(opencv-out_SOURCES
 	opencv-out.cpp
-	${OPENCV}
 )
 
 add_library(opencv-out MODULE
 	${opencv-out_HEADERS}
 	${opencv-out_SOURCES}
-	${OPENCV_LIB}
+#	${OpenCV_LIBS}
 )
 	
 target_link_libraries(opencv-out
 	libobs
-	${OPENCV_LIB}
+	${OpenCV_LIBS}
 	${opencv_PLATFORM_DEPS}
 )
 
