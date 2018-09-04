@@ -69,6 +69,7 @@ typedef struct state {
     void *context;
 
     const te_variable *lookup;
+    te_variable *ordered_lookup;
     int lookup_len;
 } state;
 
@@ -218,16 +219,26 @@ static const te_variable *find_builtin(const char *name, int len) {
 }
 
 static const te_variable *find_lookup(const state *s, const char *name, int len) {
-    int iters;
-    const te_variable *var;
-    if (!s->lookup) return 0;
+	int imin = 0;
+	int imax = s->lookup_len - 1;
+	int steps;
+	te_variable *var;
+	if (!s->ordered_lookup) return 0;
 
-    for (var = s->lookup, iters = s->lookup_len; iters; ++var, --iters) {
-        if (strncmp(name, var->name, len) == 0 && var->name[len] == '\0') {
-            return var;
-        }
-    }
-    return 0;
+	while (imax >= imin) {
+		const int i = (imin + ((imax - imin) / 2));
+		var = &s->ordered_lookup[i];
+		int c = strncmp(name, var->name, len);
+		if (c == 0 && var->name[len] == '\0')
+			return var;
+		else if (c > 0) {
+			imin = i + 1;
+		} else {
+			imax = i - 1;
+		}
+	}
+
+	return 0;
 }
 
 
@@ -599,12 +610,27 @@ static void optimize(te_expr *n) {
     }
 }
 
+int compare_te_variables(const void *a, const void *b)
+{
+	te_variable *var_1 = (te_variable *)a;
+	te_variable *var_2 = (te_variable *)b;
+	return strcmp(var_1->name, var_2->name);
+}
 
 te_expr *te_compile(const char *expression, const te_variable *variables, int var_count, int *error) {
     state s;
     s.start = s.next = expression;
     s.lookup = variables;
     s.lookup_len = var_count;
+    
+    if (variables && var_count) {
+	size_t size = sizeof(te_variable) * var_count;
+	s.ordered_lookup = malloc(size);
+	memcpy(s.ordered_lookup, variables, size);
+	qsort(s.ordered_lookup, var_count, sizeof(te_variable), compare_te_variables);
+    } else {
+	    s.ordered_lookup = NULL;
+    }
 
     next_token(&s);
     te_expr *root = list(&s);
@@ -615,10 +641,12 @@ te_expr *te_compile(const char *expression, const te_variable *variables, int va
             *error = (s.next - s.start);
             if (*error == 0) *error = 1;
         }
+	free(s.ordered_lookup);
         return 0;
     } else {
         optimize(root);
         if (error) *error = 0;
+	free(s.ordered_lookup);
         return root;
     }
 }

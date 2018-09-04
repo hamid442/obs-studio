@@ -481,6 +481,16 @@ void gs_effect_set_val(gs_eparam_t *param, const void *val, size_t size)
 	effect_setval_inline(param, val, size);
 }
 
+size_t gs_effect_get_val_size(gs_eparam_t *param)
+{
+	return param->cur_val.num;
+}
+
+size_t gs_effect_get_default_val_size(gs_eparam_t *param)
+{
+	return param->default_val.num;
+}
+
 void *gs_effect_get_val(gs_eparam_t *param)
 {
 	size_t size = param->cur_val.num;
