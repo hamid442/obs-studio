@@ -29,11 +29,12 @@ set(obs-shader-filter_HEADERS
 	fft.h
 	tinyexpr.h
 	mtrandom.h
+	obs-shader-filter.hpp
 )
 
 set(obs-shader-filter_SOURCES
 	fft.c
-	obs-shader-filter.c
+	obs-shader-filter.cpp
 	tinyexpr.c
 	mtrandom.cpp
 )
