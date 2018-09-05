@@ -2,6 +2,7 @@
 
 #include <graphics/graphics.h>
 #include <graphics/image-file.h>
+#include <graphics/matrix4.h>
 #include <obs-module.h>
 #include <util/base.h>
 #include <util/circlebuf.h>
@@ -77,14 +78,11 @@ public:
 			te_free(_compiled);
 	}
 	template <class DataType>
-	DataType evaulate(DataType default_value = 0)
+	DataType evaluate(DataType default_value = 0)
 	{
 		DataType ret = default_value;
-
-		if (_compiled) {
+		if (_compiled)
 			ret = te_eval(_compiled);
-			te_free(n);
-		}
 		return ret;
 	}
 
@@ -138,6 +136,11 @@ public:
 
 	void lock();
 	void unlock();
+	void setData();
+	template <class DataType>
+	void setData(DataType t);
+	template <class DataType>
+	void setData(std::vector<DataType> t);
 	void videoTick(ShaderFilter *filter, float elapsed_time, float seconds);
 	void videoRender(ShaderFilter *filter);
 	void update(ShaderFilter *filter);
@@ -169,12 +172,16 @@ public:
 	int resize_right = 0;
 	int resize_top = 0;
 	int resize_bottom = 0;
-
 	float elapsed_time = 0;
 
 	vec2 uv_scale;
 	vec2 uv_offset;
 	vec2 uv_pixel_interval;
+	std::vector<std::pair<gs_eparam_t*, vec2*>> vec2_pairs;
+
+	matrix4 view_proj;
+	std::vector<std::pair<gs_eparam_t*, matrix4*>> matrix4_pairs;
+
 	obs_source_t *context = nullptr;
 
 	obs_data_t *getSettings();
