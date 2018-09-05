@@ -816,15 +816,19 @@ public:
 	{
 		uint32_t src_cx = obs_source_get_width(filter->context);
 		uint32_t src_cy = obs_source_get_height(filter->context);
-		if (!_data) {
-			_data = static_cast<uint8_t*>(bmalloc(src_cx * src_cy * 16));
-		}
-		if (!_tex) {
-			_tex = gs_texture_create(src_cx, src_cy, GS_RGBA, 1, (const uint8_t**)(&_data), 0);
-		}
-		if (_tex) {
-			EParam *e = _parent->getParameter();
-			e->setValue<gs_texture_t*>(&_tex, sizeof(gs_texture_t*));
+		if (src_cx > 0 && src_cy > 0) {
+			if (!_data) {
+				_data = static_cast<uint8_t*>(bzalloc(src_cx * src_cy * 16));
+			}
+			if (!_tex) {
+				obs_enter_graphics();
+				_tex = gs_texture_create(src_cx, src_cy, GS_RGBA, 1, (const uint8_t**)(&_data), 0);
+				obs_leave_graphics();
+			}
+			if (_tex) {
+				EParam *e = _parent->getParameter();
+				e->setValue<gs_texture_t*>(&_tex, sizeof(gs_texture_t*));
+			}
 		}
 	}
 };
