@@ -64,19 +64,22 @@ static 	enum ShaderParameterType {
 
 class TinyExpr : public std::vector<te_variable> {
 	std::string _expr;
-	te_expr *_compiled;
+	te_expr *_compiled = nullptr;
 public:
 	TinyExpr()
 	{
 	};
 	~TinyExpr()
 	{
-	}
+		releaseExpression();
+	};
 	void releaseExpression()
 	{
-		if (_compiled)
+		if (_compiled) {
 			te_free(_compiled);
-	}
+			_compiled = nullptr;
+		}
+	};
 	template <class DataType>
 	DataType evaluate(DataType default_value = 0)
 	{
@@ -84,23 +87,24 @@ public:
 		if (_compiled)
 			ret = te_eval(_compiled);
 		return ret;
-	}
+	};
 
 	void compile(std::string expression)
 	{
 		if (expression.empty())
 			return;
 		if (_compiled)
-			te_free(_compiled);
-		int err;
-		_compiled = te_compile(expression.c_str(), data(),
-			size(), &err);
+			releaseExpression();
+		int e;
+		_compiled = te_compile(expression.c_str(), data(), size(), &e);
 		if (!_compiled) {
 			blog(LOG_WARNING, "Expression Error At [%i]:\n%.*s[Error Here]",
-					err, err, expression.c_str(),
-					expression.c_str() + err);
+					e, e, expression.c_str(),
+					expression.c_str() + e);
+		} else {
+			_expr = expression;
 		}
-	}
+	};
 };
 
 class EVal;
@@ -121,7 +125,6 @@ protected:
 	gs_shader_param_type _paramType;
 
 	ShaderData *_shaderData = nullptr;
-
 	obs_property_t *_property;
 	ShaderFilter *_filter;
 public:
@@ -172,7 +175,10 @@ public:
 	int resize_right = 0;
 	int resize_top = 0;
 	int resize_bottom = 0;
-	float elapsed_time = 0;
+
+	float elapsedTime = 0;
+	double elapsedTimeBinding = 0;
+	std::vector<std::pair<gs_eparam_t*, float*>> float_pairs;
 
 	vec2 uv_scale;
 	vec2 uv_offset;
