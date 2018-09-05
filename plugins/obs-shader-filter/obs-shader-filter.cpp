@@ -567,11 +567,40 @@ class NumericalData : public ShaderData {
 	bool _isInt;
 	bool _skipProperty;
 	bool _skipCalculations;
+	enum BindType {
+		unspecified,
+		byte,
+		short_integer,
+		integer,
+		floating_point,
+		double_point
+	};
+	void *_bind = nullptr;
+	BindType bindType;
 public:
 	NumericalData(ShaderParameter *parent, ShaderFilter *filter) :
 		ShaderData(parent, filter)
 	{
 	};
+
+	template <class DataType>
+	NumericalData(ShaderParameter *parent, ShaderFilter *filter, std::vector<DataType> *bind) :
+		ShaderData(parent, filter)
+	{
+		_bind = bind;
+		if (typeid(DataType) == typeid(char))
+			bindType = byte;
+		else if (typeid(DataType) == typeid(short))
+			bindType = short_integer;
+		else if (typeid(DataType) == typeid(int))
+			bindType = integer;
+		else if (typeid(DataType) == typeid(float))
+			bindType = floating_point;
+		else if (typeid(DataType) == typeid(double))
+			bindType = double_point;
+		else
+			bindType = unspecified;
+	}
 
 	~NumericalData()
 	{
@@ -592,18 +621,13 @@ public:
 			}
 		}
 		std::string name = _parent->getName();
-		if (name == "ViewProj" || name == "uv_offset"
-			|| name == "uv_scale"
-			|| name == "uv_pixel_interval"
-			|| name == "elapsed_time") {
-			_skipProperty = true;
-			_skipCalculations = true;
-		}
 	}
 
 	void getProperties(ShaderFilter *filter, obs_properties_t *props)
 	{
 		size_t i;
+		if (_bind)
+			return;
 		if (_skipProperty)
 			return;
 		if (_isFloat) {
@@ -654,6 +678,8 @@ public:
 
 	void update(ShaderFilter *filter)
 	{
+		if (_bind)
+			return;
 		if (_skipProperty)
 			return;
 		obs_data_t *settings = filter->getSettings();
@@ -759,6 +785,7 @@ public:
 	{
 		if (_skipCalculations)
 			return;
+		
 		setData();
 	}
 };
@@ -843,6 +870,11 @@ public:
 	~NullData()
 	{
 	};
+	void init(ShaderParameterType type,
+			gs_shader_param_type paramType)
+	{
+		return;
+	}
 };
 
 
@@ -862,7 +894,7 @@ EParam *ShaderParameter::getParameter()
 }
 
 ShaderParameter::ShaderParameter(gs_eparam_t *param, ShaderFilter *filter) :
-	_filter(filter)
+		_filter(filter)
 {
 	struct gs_effect_param_info info;
 	gs_effect_get_param_info(param, &info);
@@ -1102,11 +1134,13 @@ void ShaderFilter::updateCache(gs_eparam_t *param)
 	} else if (n == "uv_pixel_interval") {
 		vec2_pairs.push_back(std::pair<gs_eparam_t*, vec2*>(param, &uv_pixel_interval));
 	} else if (n == "elapsed_time") {
+		//float_pairs.push_back(std::pair<gs_eparam_t*, float*>(param, &elapsedTime));
 		/*
 		if (elapsedTime)
 			delete elapsedTime;
 		elapsedTime = p;
 		*/
+		paramList.push_back(p);
 	} else {
 		paramList.push_back(p);
 	}
@@ -1174,14 +1208,15 @@ const char *ShaderFilter::getName(void *unused)
 void ShaderFilter::videoTick(void *data, float seconds)
 {
 	ShaderFilter *filter = static_cast<ShaderFilter*>(data);
-	filter->elapsed_time += seconds;
+	filter->elapsedTimeBinding += seconds;
+	filter->elapsedTime += seconds;
 
 	size_t i;
 	std::vector<ShaderParameter*> parameters = filter->parameters();
 	for (i = 0; i < parameters.size(); i++) {
-		if (parameters[i]) {
-			parameters[i]->videoTick(filter, filter->elapsed_time, seconds);
-		}
+		if (parameters[i])
+			parameters[i]->videoTick(filter, filter->elapsedTime,
+					seconds);
 	}
 
 	obs_source_t *target = obs_filter_get_target(filter->context);
@@ -1190,16 +1225,14 @@ void ShaderFilter::videoTick(void *data, float seconds)
 	int base_height = obs_source_get_base_height(target);
 
 	filter->total_width = filter->resize_left + base_width +
-		filter->resize_right;
+			filter->resize_right;
 	filter->total_height = filter->resize_top + base_height +
-		filter->resize_bottom;
+			filter->resize_bottom;
 
 	filter->uv_scale.x = (float)filter->total_width / base_width;
 	filter->uv_scale.y = (float)filter->total_height / base_height;
-
 	filter->uv_offset.x = (float)(-filter->resize_left) / base_width;
 	filter->uv_offset.y = (float)(-filter->resize_top) / base_height;
-
 	filter->uv_pixel_interval.x = 1.0f / base_width;
 	filter->uv_pixel_interval.y = 1.0f / base_height;
 }
@@ -1214,22 +1247,25 @@ void ShaderFilter::videoRender(void *data, gs_effect_t *effect)
 			GS_RGBA, OBS_NO_DIRECT_RENDERING))
 			return;
 
-		std::vector<ShaderParameter*> parameters =
-				filter->parameters();
+		std::vector<ShaderParameter*> parameters = filter->parameters();
 
 		for (i = 0; i < filter->vec2_pairs.size(); i++) {
-			gs_effect_set_vec2(filter->vec2_pairs[i].first, filter->vec2_pairs[i].second);
+			gs_effect_set_vec2(filter->vec2_pairs[i].first,
+				filter->vec2_pairs[i].second);
+		}
+		for (i = 0; i < filter->float_pairs.size(); i++) {
+			if (filter->float_pairs[i].second)
+				gs_effect_set_float(filter->float_pairs[i].first,
+					*filter->float_pairs[i].second);
 		}
 
 		for (i = 0; i < parameters.size(); i++) {
-			if (parameters[i]) {
+			if (parameters[i])
 				parameters[i]->videoRender(filter);
-			}
 		}
 
-		obs_source_process_filter_end(filter->context,
-			filter->effect, filter->total_width,
-			filter->total_height);
+		obs_source_process_filter_end(filter->context, filter->effect,
+				filter->total_width, filter->total_height);
 	} else {
 		obs_source_skip_video_filter(filter->context);
 	}
@@ -1243,9 +1279,8 @@ void ShaderFilter::update(void *data, obs_data_t *settings)
 	size_t i;
 	std::vector<ShaderParameter*> parameters = filter->parameters();
 	for (i = 0; i < parameters.size(); i++) {
-		if (parameters[i]) {
+		if (parameters[i])
 			parameters[i]->update(filter);
-		}
 	}
 }
 
@@ -1275,9 +1310,8 @@ obs_properties_t *ShaderFilter::getProperties(void *data)
 
 	std::vector<ShaderParameter*> parameters = filter->parameters();
 	for (i = 0; i < parameters.size(); i++) {
-		if (parameters[i]) {
+		if (parameters[i])
 			parameters[i]->getProperties(filter, props);
-		}
 	}
 	return props;
 }
