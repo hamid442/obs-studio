@@ -2,7 +2,6 @@
 #include "ui_asioselector.h"
 
 AsioSelector::AsioSelector(QWidget *parent) :
-    //QDialog(parent), // QDockWidget(parent), //QMainWindow(parent),
     QMainWindow(parent),
     ui(new Ui::AsioSelector)
 {
