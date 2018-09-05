@@ -10,8 +10,7 @@ find_package(Qt5Core REQUIRED)
 find_package(Qt5Widgets REQUIRED)
 
 include_directories(
-	SYSTEM "${CMAKE_SOURCE_DIR}/libobs"
-	"${CMAKE_SOURCE_DIR}/UI/obs-frontend-api"
+	${CMAKE_SOURCE_DIR}/UI/obs-frontend-api
 	${PORTAUDIO_INCLUDE_DIR}
 	${Qt5Core_INCLUDES}
 	${Qt5Widgets_INCLUDES}
@@ -27,9 +26,11 @@ set(win-asio_HEADERS
 set(win-asio_SOURCES
 	asioselector.cpp
 	asio-input.cpp
-)
+	)
+
 set(win-asio_QRC
-	asio-input.qrc)
+	asio-input.qrc
+	)
 
 qt5_add_resources(win-asio_QRC_SOURCES ${win-asio_QRC})
 

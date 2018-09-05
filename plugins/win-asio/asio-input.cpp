@@ -22,8 +22,6 @@ along with this program.  If not, see <http://www.gnu.org/licenses/>.
 * extent that you do not distribute your binaries.
 */
 
-#pragma once
-
 #include <util/bmem.h>
 #include <util/dstr.h>
 #include <util/platform.h>
@@ -1025,13 +1023,13 @@ void obs_module_post_load(void) {
 
 		for (uint64_t j = 0; j < devices_count; j++) {
 			if (device_id == device_selector->getDeviceName(j)) {
-				device_selector->setSampleRateForDevice(i,
+				device_selector->setSampleRateForDevice(j,
 					(double)obs_data_get_double(item, "sample_rate"));
-				device_selector->setBufferSizeForDevice(i,
+				device_selector->setBufferSizeForDevice(j,
 					(uint64_t)obs_data_get_int(item, "buffer_size"));
-				device_selector->setAudioFormatForDevice(i,
+				device_selector->setAudioFormatForDevice(j,
 					std::string(obs_data_get_string(item, "audio_format")));
-				device_selector->setDeviceActive(i,
+				device_selector->setDeviceActive(j,
 					(bool)obs_data_get_bool(item, "_device_active"));
 				break;
 			}
