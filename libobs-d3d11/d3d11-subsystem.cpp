@@ -1373,6 +1373,10 @@ void device_draw(gs_device_t *device, enum gs_draw_mode draw_mode,
 				error.hr);
 		LogD3D11ErrorDetails(error, device);
 		return;
+	} catch (std::exception error) {
+		blog(LOG_ERROR, "device_texture_create_gdi (D3D11): %s",
+				error.what());
+		return;
 	}
 
 	D3D11_PRIMITIVE_TOPOLOGY newTopology = ConvertGSTopology(draw_mode);
@@ -2057,16 +2061,16 @@ extern "C" EXPORT bool device_shared_texture_available(void)
 }
 
 extern "C" EXPORT gs_texture_t *device_texture_create_gdi(gs_device_t *device,
-		uint32_t width, uint32_t height)
+	uint32_t width, uint32_t height)
 {
 	gs_texture *texture = nullptr;
 	try {
 		texture = new gs_texture_2d(device, width, height, GS_BGRA,
-				1, nullptr, GS_RENDER_TARGET, GS_TEXTURE_2D,
-				true, false);
+			1, nullptr, GS_RENDER_TARGET, GS_TEXTURE_2D,
+			true, false);
 	} catch (HRError error) {
 		blog(LOG_ERROR, "device_texture_create_gdi (D3D11): %s (%08lX)",
-				error.str, error.hr);
+			error.str, error.hr);
 		LogD3D11ErrorDetails(error, device);
 	} catch (const char *error) {
 		blog(LOG_ERROR, "device_texture_create_gdi (D3D11): %s", error);
