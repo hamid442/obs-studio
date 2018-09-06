@@ -544,7 +544,7 @@ void asio_update(void *vptr, obs_data_t *settings)
 		/* connects the listener to the server */
 		devicebuf->add_listener(listener);
 	} else {
-		listener->device_index = selected_device;
+		listener->device_index = cur_index;
 		listener->disconnect();
 	}
 }
