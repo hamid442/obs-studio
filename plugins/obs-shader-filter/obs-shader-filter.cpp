@@ -162,6 +162,10 @@ public:
 	void *data = nullptr;
 	size_t size = 0;
 	gs_shader_param_type type = GS_SHADER_PARAM_UNKNOWN;
+	EVal()
+	{
+
+	};
 	~EVal()
 	{
 		if (data)
@@ -320,8 +324,9 @@ public:
 
 class EParam {
 protected:
-	gs_eparam_t *_param;
+	gs_eparam_t *_param = nullptr;
 	gs_effect_param_info _param_info = { 0 };
+	EVal *_value = nullptr;
 	std::vector<EParam *> _annotations;
 	std::vector<gs_effect_param_info> _annotations_info;
 public:
@@ -352,9 +357,19 @@ public:
 		return v;
 	}
 
+	EVal *getValue()
+	{
+		return _value ? _value : (_value = getValue(_param));
+	}
+
 	gs_eparam_t *getParam()
 	{
 		return _param;
+	}
+
+	size_t getAnnotationCount()
+	{
+		return _annotations.size();
 	}
 
 	EParam *getAnnotation(size_t idx)
@@ -390,9 +405,14 @@ public:
 	{
 		try {
 			size_t i = getAnnotationIndex(name);
-			EParam *p = getAnnotation(i);
-			gs_eparam_t *par = p->getParam();
-			return getValue(par);
+			if (i < _annotations.size()) {
+				EParam *p = getAnnotation(i);
+				return p->getValue();
+			} else {
+				return nullptr;
+			}
+			//gs_eparam_t *par = p->getParam();
+			//getValue(par);
 		} catch (std::out_of_range err) {
 			return nullptr;
 		}
@@ -402,6 +422,7 @@ public:
 	{
 		_param = param;
 		gs_effect_get_param_info(param, &_param_info);
+		_value = getValue(param);
 
 		size_t i;
 		size_t num = gs_param_get_num_annotations(_param);
@@ -433,6 +454,8 @@ public:
 
 	~EParam()
 	{
+		if (_value)
+			delete _value;
 		while (!_annotations.empty()) {
 			EParam *p = _annotations.back();
 			_annotations.pop_back();
@@ -490,9 +513,9 @@ public:
 	{
 	}
 
-	~ShaderData()
+	virtual ~ShaderData()
 	{
-	}
+	};
 
 	virtual void init(ShaderParameterType type,
 			gs_shader_param_type paramType)
@@ -528,12 +551,10 @@ public:
 			_bindings.push_back(emptyBinding);
 
 			val = e->getAnnotationValue(_binding_names[i] + "_expr");
-			if (val) {
+			if (val)
 				_expressions.push_back(*val);
-				delete val;
-			} else {
+			else
 				_expressions.push_back("");
-			}
 
 			te_variable var = { 0 };
 			var.address = &_bindings[i];
@@ -569,6 +590,7 @@ class NumericalData : public ShaderData {
 	bool _skipCalculations;
 	enum BindType {
 		unspecified,
+		none,
 		byte,
 		short_integer,
 		integer,
@@ -581,26 +603,28 @@ public:
 	NumericalData(ShaderParameter *parent, ShaderFilter *filter) :
 		ShaderData(parent, filter)
 	{
-	};
-
-	template <class DataType>
-	NumericalData(ShaderParameter *parent, ShaderFilter *filter, std::vector<DataType> *bind) :
-		ShaderData(parent, filter)
-	{
-		_bind = bind;
-		if (typeid(DataType) == typeid(char))
-			bindType = byte;
-		else if (typeid(DataType) == typeid(short))
-			bindType = short_integer;
-		else if (typeid(DataType) == typeid(int))
-			bindType = integer;
-		else if (typeid(DataType) == typeid(float))
+		gs_eparam_t *param = parent->getParameter()->getParam();
+		struct gs_effect_param_info info;
+		gs_effect_get_param_info(param, &info);
+		/* std::vector<DataType> *bind */
+		std::string n = info.name;
+		if (n == "ViewProj") {
 			bindType = floating_point;
-		else if (typeid(DataType) == typeid(double))
-			bindType = double_point;
-		else
-			bindType = unspecified;
-	}
+			_bind = &_filter->view_proj;
+		} else if (n == "uv_offset") {
+			bindType = floating_point;
+			_bind = &_filter->uvOffset;
+		} else if (n == "uv_scale") {
+			bindType = floating_point;
+			_bind = &_filter->uvScale;
+		} else if (n == "uv_pixel_interval") {
+			bindType = floating_point;
+			_bind = &_filter->uvPixelInterval;
+		} else if (n == "elapsed_time") {
+			bindType = floating_point;
+			_bind = &_filter->elapsedTime;
+		}
+	};
 
 	~NumericalData()
 	{
@@ -611,16 +635,18 @@ public:
 		ShaderData::init(type, paramType);
 		_isFloat = isFloatType(paramType);
 		_isInt = isIntType(paramType);
-		_skipProperty = false;
+		_skipProperty = _bind ? true : false;
 		_skipCalculations = false;
 		size_t i;
-		for (i = 0; i < _expressions.size(); i++) {
-			if (!_expressions[i].empty()) {
-				_skipProperty = true;
-				break;
+		if (_skipProperty) {
+			for (i = 0; i < _expressions.size(); i++) {
+				if (!_expressions[i].empty()) {
+					_skipProperty = true;
+					break;
+				}
 			}
 		}
-		std::string name = _parent->getName();
+		//std::string name = _parent->getName();
 	}
 
 	void getProperties(ShaderFilter *filter, obs_properties_t *props)
@@ -720,33 +746,57 @@ public:
 		if (_skipCalculations)
 			return;
 		for (i = 0; i < _dataCount; i++) {
-			if (_expressions[i].empty())
-				continue;
-			switch (_paramType) {
-			case GS_SHADER_PARAM_BOOL:
-				_filter->compileExpression(_expressions[i]);
-				_bindings[i].s64i = filter->evaluateExpression<long long>(0);
-				_values[i].s32i = _bindings[i].s64i;
-				break;
-			case GS_SHADER_PARAM_INT:
-			case GS_SHADER_PARAM_INT2:
-			case GS_SHADER_PARAM_INT3:
-			case GS_SHADER_PARAM_INT4:
-				_filter->compileExpression(_expressions[i]);
-				_bindings[i].s64i = filter->evaluateExpression<long long>(0);
-				_values[i].s32i = _bindings[i].s64i;
-				break;
-			case GS_SHADER_PARAM_FLOAT:
-			case GS_SHADER_PARAM_VEC2:
-			case GS_SHADER_PARAM_VEC3:
-			case GS_SHADER_PARAM_VEC4:
-			case GS_SHADER_PARAM_MATRIX4X4:
-				_filter->compileExpression(_expressions[i]);
-				_bindings[i].d = filter->evaluateExpression<double>(0);
-				_values[i].f = _bindings[i].d;
-				break;
-			default:
-				break;
+			if (!_expressions[i].empty()) {
+				switch (_paramType) {
+				case GS_SHADER_PARAM_BOOL:
+					_filter->compileExpression(_expressions[i]);
+					_bindings[i].s64i = filter->evaluateExpression<long long>(0);
+					_values[i].s32i = _bindings[i].s64i;
+					break;
+				case GS_SHADER_PARAM_INT:
+				case GS_SHADER_PARAM_INT2:
+				case GS_SHADER_PARAM_INT3:
+				case GS_SHADER_PARAM_INT4:
+					_filter->compileExpression(_expressions[i]);
+					_bindings[i].s64i = filter->evaluateExpression<long long>(0);
+					_values[i].s32i = _bindings[i].s64i;
+					break;
+				case GS_SHADER_PARAM_FLOAT:
+				case GS_SHADER_PARAM_VEC2:
+				case GS_SHADER_PARAM_VEC3:
+				case GS_SHADER_PARAM_VEC4:
+				case GS_SHADER_PARAM_MATRIX4X4:
+					_filter->compileExpression(_expressions[i]);
+					_bindings[i].d = filter->evaluateExpression<double>(0);
+					_values[i].f = _bindings[i].d;
+					break;
+				default:
+					break;
+				}
+			} else if (_bind) {
+				switch (_paramType) {
+				case GS_SHADER_PARAM_BOOL:
+					_bindings[i].s64i = static_cast<bool*>(_bind)[i];
+					_values[i].s32i = _bindings[i].s64i;
+					break;
+				case GS_SHADER_PARAM_INT:
+				case GS_SHADER_PARAM_INT2:
+				case GS_SHADER_PARAM_INT3:
+				case GS_SHADER_PARAM_INT4:
+					_bindings[i].s64i = static_cast<int*>(_bind)[i];
+					_values[i].s32i = _bindings[i].s64i;
+					break;
+				case GS_SHADER_PARAM_FLOAT:
+				case GS_SHADER_PARAM_VEC2:
+				case GS_SHADER_PARAM_VEC3:
+				case GS_SHADER_PARAM_VEC4:
+				case GS_SHADER_PARAM_MATRIX4X4:
+					_bindings[i].d = static_cast<float*>(_bind)[i];
+					_values[i].f = _bindings[i].d;
+					break;
+				default:
+					break;
+				}
 			}
 		}
 	}
@@ -844,9 +894,8 @@ public:
 		uint32_t src_cx = obs_source_get_width(filter->context);
 		uint32_t src_cy = obs_source_get_height(filter->context);
 		if (src_cx > 0 && src_cy > 0) {
-			if (!_data) {
-				_data = static_cast<uint8_t*>(bzalloc(src_cx * src_cy * 16));
-			}
+			if (!_data)
+				_data = (uint8_t*)bzalloc(src_cx * src_cy * 16);
 			if (!_tex) {
 				obs_enter_graphics();
 				_tex = gs_texture_create(src_cx, src_cy, GS_RGBA, 1, (const uint8_t**)(&_data), 0);
@@ -873,7 +922,6 @@ public:
 	void init(ShaderParameterType type,
 			gs_shader_param_type paramType)
 	{
-		return;
 	}
 };
 
@@ -931,11 +979,10 @@ ShaderParameter::ShaderParameter(gs_eparam_t *param, ShaderFilter *filter) :
 	if (v) {
 		size_t index = search(map, *v);
 		t = (ShaderParameterType)(index + 1);
+		delete v;
 	}
 
 	init(t, info.type);
-	if(v)
-		delete v;
 }
 
 void ShaderParameter::init(ShaderParameterType type,
@@ -979,6 +1026,9 @@ ShaderParameter::~ShaderParameter()
 
 	if (_param)
 		delete _param;
+
+	if (_shaderData)
+		delete _shaderData;
 }
 
 void ShaderParameter::lock()
@@ -1090,11 +1140,29 @@ ShaderFilter::ShaderFilter(obs_data_t *settings, obs_source_t *source)
 		return;
 	}
 	_mutex_created = pthread_mutex_init(&_mutex, NULL) == 0;
+	prepReload();
 	update(this, _settings);
 };
 
 ShaderFilter::~ShaderFilter()
 {
+	/* Clear previous settings */
+	while (!paramList.empty()) {
+		ShaderParameter *p = paramList.back();
+		paramList.pop_back();
+		delete p;
+	}
+	std::vector<ShaderParameter *>().swap(paramList);
+	std::vector<ShaderParameter *>().swap(evaluationList);
+	std::vector<te_variable>().swap(expression);
+	//paramList.clear();
+	//evaluationList.clear();
+	//expression.clear();
+
+	obs_enter_graphics();
+	gs_effect_destroy(effect);
+	effect = nullptr;
+	obs_leave_graphics();
 };
 
 void ShaderFilter::lock()
@@ -1120,30 +1188,9 @@ uint32_t ShaderFilter::getHeight()
 
 void ShaderFilter::updateCache(gs_eparam_t *param)
 {
-	struct gs_effect_param_info info;
-	gs_effect_get_param_info(param, &info);
-
-	std::string n = info.name;
 	ShaderParameter *p = new ShaderParameter(param, this);
-	if (n == "ViewProj") {
-		//matrix4_pairs.push_back(std::pair<gs_eparam_t*, matrix4*>(param, &view_proj));
-	} else if (n == "uv_offset") {
-		vec2_pairs.push_back(std::pair<gs_eparam_t*, vec2*>(param, &uv_offset));
-	} else if (n == "uv_scale") {
-		vec2_pairs.push_back(std::pair<gs_eparam_t*, vec2*>(param, &uv_scale));
-	} else if (n == "uv_pixel_interval") {
-		vec2_pairs.push_back(std::pair<gs_eparam_t*, vec2*>(param, &uv_pixel_interval));
-	} else if (n == "elapsed_time") {
-		//float_pairs.push_back(std::pair<gs_eparam_t*, float*>(param, &elapsedTime));
-		/*
-		if (elapsedTime)
-			delete elapsedTime;
-		elapsedTime = p;
-		*/
+	if(p)
 		paramList.push_back(p);
-	} else {
-		paramList.push_back(p);
-	}
 }
 
 void ShaderFilter::reload()
@@ -1157,6 +1204,7 @@ void ShaderFilter::reload()
 		paramList.pop_back();
 		delete p;
 	}
+
 	evaluationList.clear();
 	expression.clear();
 
@@ -1170,16 +1218,18 @@ void ShaderFilter::reload()
 	_effect_path = obs_data_get_string(_settings,
 		"shader_file_name");
 	/* Load default effect text if no file is selected */
+	char *effect_string = nullptr;
 	if (!_effect_path.empty())
-		_effect_string = os_quick_read_utf8_file(
-			_effect_path.c_str());
+		effect_string = os_quick_read_utf8_file(_effect_path.c_str());
 	else
 		return;
 
 	obs_enter_graphics();
-	effect = gs_effect_create(_effect_string.c_str(), NULL,
-		&errors);
+	effect = gs_effect_create(effect_string, NULL, &errors);
 	obs_leave_graphics();
+
+	_effect_string = effect_string;
+	bfree(effect_string);
 
 	size_t effect_count = gs_effect_get_num_params(effect);
 	for (i = 0; i < effect_count; i++) {
@@ -1208,7 +1258,7 @@ const char *ShaderFilter::getName(void *unused)
 void ShaderFilter::videoTick(void *data, float seconds)
 {
 	ShaderFilter *filter = static_cast<ShaderFilter*>(data);
-	filter->elapsedTimeBinding += seconds;
+	filter->elapsedTimeBinding.d += seconds;
 	filter->elapsedTime += seconds;
 
 	size_t i;
@@ -1221,20 +1271,23 @@ void ShaderFilter::videoTick(void *data, float seconds)
 
 	obs_source_t *target = obs_filter_get_target(filter->context);
 	/* Determine offsets from expansion values. */
-	int base_width = obs_source_get_base_width(target);
-	int base_height = obs_source_get_base_height(target);
+	int baseWidth = obs_source_get_base_width(target);
+	int baseHeight = obs_source_get_base_height(target);
 
-	filter->total_width = filter->resize_left + base_width +
-			filter->resize_right;
-	filter->total_height = filter->resize_top + base_height +
-			filter->resize_bottom;
+	filter->total_width = filter->resizeLeft + baseWidth +
+			filter->resizeRight;
+	filter->total_height = filter->resizeTop + baseHeight +
+			filter->resizeBottom;
 
-	filter->uv_scale.x = (float)filter->total_width / base_width;
-	filter->uv_scale.y = (float)filter->total_height / base_height;
-	filter->uv_offset.x = (float)(-filter->resize_left) / base_width;
-	filter->uv_offset.y = (float)(-filter->resize_top) / base_height;
-	filter->uv_pixel_interval.x = 1.0f / base_width;
-	filter->uv_pixel_interval.y = 1.0f / base_height;
+	filter->uvScale.x = (float)filter->total_width / baseWidth;
+	filter->uvScale.y = (float)filter->total_height / baseHeight;
+	filter->uvOffset.x = (float)(-filter->resizeLeft) / baseWidth;
+	filter->uvOffset.y = (float)(-filter->resizeTop) / baseHeight;
+	filter->uvPixelInterval.x = 1.0f / baseWidth;
+	filter->uvPixelInterval.y = 1.0f / baseHeight;
+
+	filter->uvScaleBinding = filter->uvScale;
+	filter->uvOffsetBinding = filter->uvOffset;
 }
 
 void ShaderFilter::videoRender(void *data, gs_effect_t *effect)
@@ -1249,21 +1302,11 @@ void ShaderFilter::videoRender(void *data, gs_effect_t *effect)
 
 		std::vector<ShaderParameter*> parameters = filter->parameters();
 
-		for (i = 0; i < filter->vec2_pairs.size(); i++) {
-			gs_effect_set_vec2(filter->vec2_pairs[i].first,
-				filter->vec2_pairs[i].second);
-		}
-		for (i = 0; i < filter->float_pairs.size(); i++) {
-			if (filter->float_pairs[i].second)
-				gs_effect_set_float(filter->float_pairs[i].first,
-					*filter->float_pairs[i].second);
-		}
-
 		for (i = 0; i < parameters.size(); i++) {
 			if (parameters[i])
 				parameters[i]->videoRender(filter);
 		}
-
+		
 		obs_source_process_filter_end(filter->context, filter->effect,
 				filter->total_width, filter->total_height);
 	} else {
