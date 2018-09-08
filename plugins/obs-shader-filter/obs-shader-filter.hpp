@@ -37,6 +37,17 @@ struct in_shader_data {
 		uint8_t u8i;
 		int8_t s8i;
 	};
+	
+	in_shader_data &operator =(const double &rhs)
+	{
+		d = rhs;
+		return *this;
+	}
+
+	operator double() const
+	{
+		return d;
+	}
 };
 
 struct out_shader_data {
@@ -49,6 +60,50 @@ struct out_shader_data {
 		uint8_t u8i;
 		int8_t s8i;
 	};
+
+	out_shader_data &operator =(const float &rhs)
+	{
+		f = rhs;
+		return *this;
+	}
+
+	operator float() const
+	{
+		return f;
+	}
+
+	operator uint32_t() const
+	{
+		return u32i;
+	}
+
+	operator int32_t() const
+	{
+		return s32i;
+	}
+};
+
+struct bind2 {
+	union {
+		in_shader_data x, y;
+		double ptr[2];
+	};
+	
+	bind2 &operator =(const vec2 &rhs)
+	{
+		x = rhs.x;
+		y = rhs.y;
+		return *this;
+	}
+	/*
+	operator vec2() const
+	{
+		vec2 v;
+		v.x = x;
+		v.y = y;
+		return v;
+	}
+	*/
 };
 
 static 	enum ShaderParameterType {
@@ -88,7 +143,6 @@ public:
 			ret = te_eval(_compiled);
 		return ret;
 	};
-
 	void compile(std::string expression)
 	{
 		if (expression.empty())
@@ -114,7 +168,7 @@ class ShaderData;
 
 class ShaderParameter {
 protected:
-	EParam *_param;
+	EParam *_param = nullptr;
 	std::string _name;
 	std::string _description;
 
@@ -125,8 +179,8 @@ protected:
 	gs_shader_param_type _paramType;
 
 	ShaderData *_shaderData = nullptr;
-	obs_property_t *_property;
-	ShaderFilter *_filter;
+	obs_property_t *_property = nullptr;
+	ShaderFilter *_filter = nullptr;
 public:
 	ShaderParameter(gs_eparam_t *param, ShaderFilter *filter);
 	~ShaderParameter();
@@ -156,8 +210,8 @@ protected:
 	uint32_t total_width;
 	uint32_t total_height;
 
-	std::vector<ShaderParameter*> paramList;
-	std::vector<ShaderParameter*> evaluationList;
+	std::vector<ShaderParameter*> paramList = {};
+	std::vector<ShaderParameter*> evaluationList = {};
 
 	std::string _effect_path;
 	std::string _effect_string;
@@ -171,18 +225,25 @@ protected:
 
 	TinyExpr expression;
 public:
-	int resize_left = 0;
-	int resize_right = 0;
-	int resize_top = 0;
-	int resize_bottom = 0;
+	std::string resizeExpressions[4];
+	int resizeLeft = 0;
+	int resizeRight = 0;
+	int resizeTop = 0;
+	int resizeBottom = 0;
 
 	float elapsedTime = 0;
-	double elapsedTimeBinding = 0;
+	in_shader_data elapsedTimeBinding = { 0 };
+
 	std::vector<std::pair<gs_eparam_t*, float*>> float_pairs;
 
-	vec2 uv_scale;
-	vec2 uv_offset;
-	vec2 uv_pixel_interval;
+	vec2 uvScale;
+	vec2 uvOffset;
+	vec2 uvPixelInterval;
+
+	bind2 uvScaleBinding;
+	bind2 uvOffsetBinding;
+	bind2 uvPixelIntervalBinding;
+
 	std::vector<std::pair<gs_eparam_t*, vec2*>> vec2_pairs;
 
 	matrix4 view_proj;
