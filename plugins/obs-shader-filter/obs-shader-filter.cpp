@@ -13,6 +13,12 @@ static bool shader_filter_reload_effect_clicked(obs_properties_t *props,
 static bool shader_filter_file_name_changed(obs_properties_t *props,
 	obs_property_t *p, obs_data_t *settings);
 
+static const char *shader_filter_texture_file_filter =
+"Textures (*.bmp *.tga *.png *.jpeg *.jpg *.gif);;";
+
+static const char *shader_filter_media_file_filter =
+"Video Files (*.mp4 *.ts *.mov *.wmv *.flv *.mkv *.avi *.gif *.webm);;";
+
 bool is_power_of_two(size_t val)
 {
 	return val != 0 && (val & (val - 1)) == 0;
@@ -159,6 +165,9 @@ bool isIntType(enum gs_shader_param_type type)
 
 class EVal {
 public:
+	float defaultFloat = 0.0;
+	int defaultInt = 0;
+
 	void *data = nullptr;
 	size_t size = 0;
 	gs_shader_param_type type = GS_SHADER_PARAM_UNKNOWN;
@@ -298,6 +307,24 @@ public:
 		return d_bool;
 	}
 
+	explicit operator float()
+	{
+		std::vector<float> ret = (std::vector<float>)*this;
+		if (ret.size())
+			return ret[0];
+		else
+			return defaultFloat;
+	}
+
+	operator int()
+	{
+		std::vector<int> ret = (std::vector<int>)*this;
+		if (ret.size())
+			return ret[0];
+		else
+			defaultInt;
+	}
+
 	operator std::string()
 	{
 		std::string str = "";
@@ -323,24 +350,8 @@ public:
 };
 
 class EParam {
-protected:
-	gs_eparam_t *_param = nullptr;
-	gs_effect_param_info _param_info = { 0 };
-	EVal *_value = nullptr;
-	std::vector<EParam *> _annotations;
-	std::vector<gs_effect_param_info> _annotations_info;
-public:
-	gs_effect_param_info info() const
-	{
-		return _param_info;
-	}
-
-	int nameCompare(std::string name) const
-	{
-		return strcmp(this->info().name, name.c_str());
-	}
-
-	static EVal *getValue(gs_eparam_t *eparam)
+private:
+	EVal *getValue(gs_eparam_t *eparam)
 	{
 		EVal *v = nullptr;
 
@@ -348,7 +359,7 @@ public:
 			gs_effect_param_info note_info;
 			gs_effect_get_param_info(eparam, &note_info);
 
-			EVal *v = new EVal();
+			v = new EVal();
 			v->data = gs_effect_get_default_val(eparam);
 			v->size = gs_effect_get_default_val_size(eparam);
 			v->type = note_info.type;
@@ -356,10 +367,21 @@ public:
 
 		return v;
 	}
+protected:
+	gs_eparam_t *_param = nullptr;
+	gs_effect_param_info _param_info = { 0 };
+	EVal *_value = nullptr;
+	std::unordered_map<std::string, EParam *> _annotations_map;
+	size_t _annotationCount;
+public:
+	gs_effect_param_info info() const
+	{
+		return _param_info;
+	}
 
 	EVal *getValue()
 	{
-		return _value ? _value : (_value = getValue(_param));
+		return _value != nullptr ? _value : (_value = getValue(_param));
 	}
 
 	gs_eparam_t *getParam()
@@ -367,55 +389,40 @@ public:
 		return _param;
 	}
 
-	size_t getAnnotationCount()
+	operator gs_eparam_t*()
 	{
-		return _annotations.size();
+		return _param;
 	}
 
-	EParam *getAnnotation(size_t idx)
+	size_t getAnnotationCount()
 	{
-		return _annotations.at(idx);
+		return _annotations_map.size();
 	}
-	
-	/* Binary Search */
-	size_t getAnnotationIndex(std::string name)
+
+	/* Hash Map Search */
+	EParam *getAnnotation(std::string name)
 	{
-		if (_annotations.size() == 0)
-			return -1;
-		size_t low = 0;
-		size_t hi = _annotations.size() - 1;
-		int i;
-		int r;
-		while (low <= hi) {
-			i = (low + ((hi - low) / 2));
-			r = getAnnotation(i)->nameCompare(name);
-			if (r == 0)
-				return i;
-			else if (r > 0)
-				low = i + 1;
-			else
-				hi = i - 1;
-			if (hi == -1)
-				break;
-		}
-		return low;
+		if (_annotations_map.find(name) != _annotations_map.end())
+			return _annotations_map.at(name);
+		else
+			return nullptr;
 	}
 
 	EVal *getAnnotationValue(std::string name)
 	{
-		try {
-			size_t i = getAnnotationIndex(name);
-			if (i < _annotations.size()) {
-				EParam *p = getAnnotation(i);
-				return p->getValue();
-			} else {
-				return nullptr;
-			}
-			//gs_eparam_t *par = p->getParam();
-			//getValue(par);
-		} catch (std::out_of_range err) {
+		if (name == "texture_type" && _annotationCount == 4)
+			blog(LOG_INFO, "");
+
+		EParam *note = getAnnotation(name);
+		if (note)
+			return note->getValue();
+		else
 			return nullptr;
-		}
+	}
+
+	bool hasAnnotation(std::string name)
+	{
+		return _annotations_map.count(name);
 	}
 
 	EParam(gs_eparam_t *param)
@@ -425,30 +432,21 @@ public:
 		_value = getValue(param);
 
 		size_t i;
-		size_t num = gs_param_get_num_annotations(_param);
-		_annotations.reserve(num);
-		_annotations_info.reserve(num);
+		_annotationCount = gs_param_get_num_annotations(_param);
+		_annotations_map.reserve(_annotationCount);
 
 		gs_eparam_t *p = nullptr;
 		std::vector<EParam *>::iterator annotation_it;
 		std::vector<gs_effect_param_info>::iterator info_it;
 
-		for (i = 0; i < num; i++) {
+		for (i = 0; i < _annotationCount; i++) {
 			p = gs_param_get_annotation_by_idx(_param, i);
 			EParam *ep = new EParam(p);
 			gs_effect_param_info _info;
 			gs_effect_get_param_info(p, &_info);
-			/* Alphabetically order annotations */
-			size_t insert = getAnnotationIndex(_info.name);
-			if (insert < _annotations.size()) {
-				 annotation_it = _annotations.begin() + insert;
-				 info_it = _annotations_info.begin() + insert;
-				_annotations.insert(annotation_it, ep);
-				_annotations_info.insert(info_it, _info);
-			} else {
-				_annotations.push_back(ep);
-				_annotations_info.push_back(_info);
-			}
+
+			_annotations_map.insert(std::pair<std::string, EParam *>
+					(_info.name, ep));
 		}
 	}
 
@@ -456,12 +454,10 @@ public:
 	{
 		if (_value)
 			delete _value;
-		while (!_annotations.empty()) {
-			EParam *p = _annotations.back();
-			_annotations.pop_back();
-			delete p;
-		}
-		_annotations_info.clear();
+		for(const auto &annotation : _annotations_map)
+			delete annotation.second;
+		_annotations_map.erase(_annotations_map.begin(),
+				_annotations_map.end());
 	}
 
 	template <class DataType>
@@ -470,6 +466,13 @@ public:
 		size_t len = size / sizeof(DataType);
 		size_t arraySize = len * sizeof(DataType);
 		gs_effect_set_val(_param, data, arraySize);
+	}
+
+	template <class DataType>
+	void setValue(std::vector<DataType> data)
+	{
+		size_t arraySize = data.size() * sizeof(DataType);
+		gs_effect_set_val(_param, data.data(), arraySize);
 	}
 };
 
@@ -861,53 +864,391 @@ public:
 	}
 };
 
+/* functions to add sources to a list for use as textures */
+static bool fillPropertiesSourceList(void *param, obs_source_t *source)
+{
+	obs_property_t *p = (obs_property_t *)param;
+	uint32_t flags = obs_source_get_output_flags(source);
+	const char *source_name = obs_source_get_name(source);
+
+	if ((flags & OBS_SOURCE_VIDEO) != 0 && obs_source_active(source))
+		obs_property_list_add_string(p, source_name, source_name);
+
+	return true;
+}
+
+static void fillSourceList(obs_property_t *p)
+{
+	obs_property_list_add_string(p, _MT("None"), "");
+	obs_enum_sources(&fillPropertiesSourceList, (void *)p);
+}
+
+static bool fillPropertiesAudioSourceList(void *param, obs_source_t *source)
+{
+	obs_property_t *p = (obs_property_t *)param;
+	uint32_t flags = obs_source_get_output_flags(source);
+	const char *source_name = obs_source_get_name(source);
+
+	if ((flags & OBS_SOURCE_AUDIO) != 0 && obs_source_active(source))
+		obs_property_list_add_string(p, source_name, source_name);
+
+	return true;
+}
+
+static void fillAudioSourceList(obs_property_t *p)
+{
+	obs_property_list_add_string(p, _MT("None"), "");
+	obs_enum_sources(&fillPropertiesAudioSourceList, (void *)p);
+}
+
 class TextureData : public ShaderData {
+private:
+	void renderSource(EParam *param, uint32_t cx, uint32_t cy)
+	{
+		if (!param)
+			return;
+		uint32_t media_cx = obs_source_get_width(_mediaSource);
+		uint32_t media_cy = obs_source_get_height(_mediaSource);
+
+		if (!media_cx || !media_cy)
+			return;
+
+		float scale_x = cx / (float)media_cx;
+		float scale_y = cy / (float)media_cy;
+
+		gs_texrender_reset(_texrender);
+		if (gs_texrender_begin(_texrender, media_cx, media_cy)) {
+			struct vec4 clear_color;
+			vec4_zero(&clear_color);
+
+			gs_clear(GS_CLEAR_COLOR, &clear_color, 1, 0);
+			gs_matrix_scale3f(scale_x, scale_y, 1.0f);
+			obs_source_video_render(_mediaSource);
+
+			gs_texrender_end(_texrender);
+		} else {
+			return;
+		}
+
+		gs_texture_t *tex = gs_texrender_get_texture(_texrender);
+		gs_effect_set_texture(*param, tex);
+	}
+
+	uint32_t processAudio(size_t samples)
+	{
+		size_t i;
+		size_t j;
+		size_t k;
+		size_t h_samples = samples / 2;
+		size_t h_sample_size = samples * 2;
+
+		for (i = 0; i < _channels; i++) {
+			audio_fft_complex(((float*)_data) + (i * samples),
+				(uint32_t)samples);
+		}
+		for (i = 1; i < _channels; i++) {
+			memcpy(((float*)_data) + (i * h_samples),
+				((float*)_data) + (i * samples),
+				h_sample_size);
+		}
+		/* Calculate a periodogram */
+		/*
+		if (param->fft_bins < h_samples) {
+			size_t bin_width = h_samples / param->fft_bins;
+			for (i = 0; i < param->num_channels; i++) {
+				for (j = 0; j < param->fft_bins; j++) {
+					float bin_sum = 0;
+					for (k = 0; k < bin_width; k++) {
+						bin_sum += param->sidechain_buf[k +
+							i * h_samples +
+							j * bin_width];
+					}
+					param->sidechain_buf[i * param->fft_bins + j] =
+						bin_sum / bin_width;
+				}
+			}
+			return param->fft_bins;
+		}
+		*/
+		return (uint32_t)h_samples;
+	}
+
+	void renderAudioSource(EParam *param, uint64_t samples)
+	{
+		if (!_data)
+			_data = (uint8_t*)bzalloc(_maxAudioSize * _channels * sizeof(float));
+		size_t px_width = samples;
+		memcpy(_data, _audio->data(), samples * sizeof(float));
+		if (_isFFT)
+			processAudio(samples);
+
+		obs_enter_graphics();
+		gs_texture_destroy(_tex);
+		_tex = gs_texture_create((uint32_t)px_width,
+				(uint32_t)_channels, GS_R32F, 1,
+				(const uint8_t **)&_data, 0);
+		obs_leave_graphics();
+		gs_effect_set_texture(*param, _tex);
+	}
+
+	void updateAudioSource(std::string name)
+	{
+		obs_source_t *sidechain = nullptr;
+		if (!name.empty())
+			sidechain = obs_get_source_by_name(name.c_str());
+		obs_source_t *old_sidechain = _mediaSource;
+
+		if (old_sidechain) {
+			obs_source_remove_audio_capture_callback(old_sidechain,
+					sidechain_capture, this);
+			obs_source_release(old_sidechain);
+			for (size_t i = 0; i < MAX_AV_PLANES; i++)
+				_audio[i].clear();
+		}
+		if (sidechain)
+			obs_source_add_audio_capture_callback(sidechain,
+					sidechain_capture, this);
+		_mediaSource = sidechain;
+	}
+
+
 protected:
-	gs_texrender_t *_texrender = nullptr;
-	gs_texture_t *_tex =  nullptr;
+	gs_texrender_t * _texrender = nullptr;
+	gs_texture_t *_tex = nullptr;
+	gs_image_file_t *_image = nullptr;
+	std::vector<float> _audio[MAX_AV_PLANES];
+	bool _isFFT = false;
+	std::vector<float> _fft_data[MAX_AV_PLANES];
+	size_t _channels = 0;
+	size_t _maxAudioSize = AUDIO_OUTPUT_FRAMES;
 	uint8_t *_data = nullptr;
+	obs_source_t *_mediaSource = nullptr;
+	std::string _sourceName = "";
 	size_t _size;
+	enum TextureType {
+		ignored,
+		unspecified,
+		source,
+		audio,
+		image,
+		media
+	};
+	fft_windowing_type _window;
+	TextureType _texType;
 public:
 	TextureData(ShaderParameter *parent, ShaderFilter *filter) :
-			ShaderData(parent, filter)
+			ShaderData(parent, filter),
+			_maxAudioSize(AUDIO_OUTPUT_FRAMES)
 	{
+		_maxAudioSize = AUDIO_OUTPUT_FRAMES;
 	};
 
 	~TextureData()
 	{
 		obs_enter_graphics();
-		if(_tex)
-			gs_texture_destroy(_tex);
+		gs_texrender_destroy(_texrender);
+		gs_image_file_free(_image);
+		gs_texture_destroy(_tex);
 		obs_leave_graphics();
 		if (_data)
 			bfree(_data);
 	};
 
+	size_t getAudioChannels()
+	{
+		return _channels;
+	}
+
+	void insertAudio(float* data, size_t samples, size_t index)
+	{
+		if (!samples || index > (MAX_AV_PLANES - 1))
+			return;
+		size_t old_size = _audio[index].size() * sizeof(float);
+		size_t insert_size = samples * sizeof(float);
+		float* old_data = nullptr;
+		if (old_size)
+			old_data = (float*)bmemdup(_audio[index].data(), old_size);
+		_audio[index].resize(AUDIO_OUTPUT_FRAMES);
+		if (samples < AUDIO_OUTPUT_FRAMES) {
+			if (old_data)
+				memcpy(&_audio[index][samples], old_data, old_size - insert_size);
+			if (data)
+				memcpy(&_audio[index][0], data, insert_size);
+			else
+				memset(&_audio[index][0], 0, insert_size);
+		} else {
+			if (data)
+				memcpy(&_audio[index][0], data,
+					AUDIO_OUTPUT_FRAMES * sizeof(float));
+			else
+				memset(&_audio[index][0], 0,
+					AUDIO_OUTPUT_FRAMES * sizeof(float));
+		}
+		bfree(old_data);
+	}
+
 	void init(ShaderParameterType type, gs_shader_param_type paramType)
 	{
 		_type = type;
 		_paramType = paramType;
+		_names.push_back(_parent->getName());
+		_descs.push_back(_parent->getDescription());
+
+		EParam *e = _parent->getParameter();
+		EVal *texType = e->getAnnotationValue("texture_type");
+		std::unordered_map<std::string, uint32_t> types = {
+			{"source", source},
+			{"audio", audio},
+			{"image", image},
+			{"media", media}
+		};
+
+		try {
+			if (texType) {
+				std::string t = texType->getString();
+				_texType = (TextureType)types.at(t);
+			} else {
+				_texType = image;
+			}
+		} catch (std::out_of_range err) {
+			_texType = image;
+		}
+
+		if (_names[0] == "image")
+			_texType = ignored;
+
+		_channels = audio_output_get_channels(obs_get_audio());
+		if (_texType == audio) {
+			EVal *channels = e->getAnnotationValue("channels");
+			if (channels)
+				_channels = *channels;
+
+			for(size_t i = 0; i < MAX_AV_PLANES; i++)
+				_audio->resize(AUDIO_OUTPUT_FRAMES);
+
+			EVal *fft = e->getAnnotationValue("is_fft");
+			if (fft)
+				_isFFT = *fft;
+			else
+				_isFFT = false;
+
+			EVal *window = e->getAnnotationValue("window");
+			if (window)
+				_window = get_window_type(window->c_str());
+			else
+				_window = none;
+		}
+	}
+
+	void getProperties(ShaderFilter *filter, obs_properties_t *props)
+	{;
+		obs_property_t *p = nullptr;
+		switch (_texType) {
+		case source:
+			p = obs_properties_add_list(props, _names[0].c_str(),
+					_descs[0].c_str(), OBS_COMBO_TYPE_LIST,
+					OBS_COMBO_FORMAT_STRING);
+			fillSourceList(p);
+			break;
+		case audio:
+			p = obs_properties_add_list(props, _names[0].c_str(),
+					_descs[0].c_str(), OBS_COMBO_TYPE_LIST,
+					OBS_COMBO_FORMAT_STRING);
+			fillAudioSourceList(p);
+			break;
+		case media:
+			p = obs_properties_add_path(props, _names[0].c_str(),
+					_descs[0].c_str(), OBS_PATH_FILE,
+					shader_filter_media_file_filter,
+					NULL);
+			break;
+		case image:
+			p = obs_properties_add_path(props, _names[0].c_str(),
+					_descs[0].c_str(), OBS_PATH_FILE,
+					shader_filter_texture_file_filter,
+					NULL);
+			break;
+		}
+	}
+
+	void update(ShaderFilter *filter)
+	{
+		obs_data_t *settings = filter->getSettings();
+		_channels = audio_output_get_channels(obs_get_audio());
+		switch (_texType) {
+		case source:
+			if (!_texrender)
+				_texrender = gs_texrender_create(GS_RGBA, GS_ZS_NONE);
+			obs_source_release(_mediaSource);
+			_mediaSource = obs_get_source_by_name(
+					obs_data_get_string(settings,
+					_names[0].c_str()));
+			break;
+		case audio:
+			updateAudioSource(obs_data_get_string(settings,
+					_names[0].c_str()));
+			break;
+		case image:
+			if (!_image) {
+				_image = (gs_image_file_t *)bzalloc(sizeof(gs_image_file_t));
+			} else {
+				obs_enter_graphics();
+				gs_image_file_free(_image);
+				obs_leave_graphics();
+			}
+			gs_image_file_init(_image, obs_data_get_string(settings,
+					_names[0].c_str()));
+			obs_enter_graphics();
+			gs_image_file_init_texture(_image);
+			obs_leave_graphics();
+			break;
+		}
 	}
 
 	void videoRender(ShaderFilter *filter)
 	{
 		uint32_t src_cx = obs_source_get_width(filter->context);
 		uint32_t src_cy = obs_source_get_height(filter->context);
-		if (src_cx > 0 && src_cy > 0) {
-			if (!_data)
-				_data = (uint8_t*)bzalloc(src_cx * src_cy * 16);
-			if (!_tex) {
-				obs_enter_graphics();
-				_tex = gs_texture_create(src_cx, src_cy, GS_RGBA, 1, (const uint8_t**)(&_data), 0);
-				obs_leave_graphics();
-			}
-			if (_tex) {
-				EParam *e = _parent->getParameter();
-				e->setValue<gs_texture_t*>(&_tex, sizeof(gs_texture_t*));
-			}
+		EParam *e = _parent->getParameter();
+		gs_texture_t *t;
+		switch (_texType) {
+		case media:
+		case source:
+			renderSource(e, src_cx, src_cy);
+			break;
+		case audio:
+			renderAudioSource(e, AUDIO_OUTPUT_FRAMES);
+			break;
+		case image:
+			if (_image)
+				t = _image->texture;
+			else
+				t = nullptr;
+			e->setValue<gs_texture_t*>(&t, sizeof(gs_texture_t*));
+			break;
+		default:
+			break;
 		}
 	}
 };
+
+static void sidechain_capture(void *p, obs_source_t *source,
+		const struct audio_data *audio_data, bool muted)
+{
+	struct TextureData *data = static_cast<TextureData *>(p);
+
+	UNUSED_PARAMETER(source);
+
+	size_t i;
+	if (muted) {
+		for (i = 0; i < data->getAudioChannels(); i++)
+			data->insertAudio(nullptr, audio_data->frames, i);
+	} else {
+		for (i = 0; i < data->getAudioChannels(); i++)
+			data->insertAudio((float*)audio_data->data[i],
+					audio_data->frames, i);
+	}
+}
 
 class NullData : public ShaderData {
 public:
@@ -1152,13 +1493,14 @@ ShaderFilter::~ShaderFilter()
 		paramList.pop_back();
 		delete p;
 	}
+	/*
 	std::vector<ShaderParameter *>().swap(paramList);
 	std::vector<ShaderParameter *>().swap(evaluationList);
 	std::vector<te_variable>().swap(expression);
 	//paramList.clear();
 	//evaluationList.clear();
 	//expression.clear();
-
+	*/
 	obs_enter_graphics();
 	gs_effect_destroy(effect);
 	effect = nullptr;
@@ -1232,6 +1574,7 @@ void ShaderFilter::reload()
 	bfree(effect_string);
 
 	size_t effect_count = gs_effect_get_num_params(effect);
+	paramList.reserve(effect_count);
 	for (i = 0; i < effect_count; i++) {
 		gs_eparam_t *param = gs_effect_get_param_by_idx(effect, i);
 		updateCache(param);
@@ -1334,22 +1677,19 @@ obs_properties_t *ShaderFilter::getProperties(void *data)
 	obs_properties_t *props = obs_properties_create();
 	obs_properties_set_param(props, filter, NULL);
 
-	std::string defaultPath = obs_get_module_data_path(
-		obs_current_module());
-	defaultPath += "/shaders";
+	std::string shaderPath = obs_get_module_data_path(obs_current_module());
+	shaderPath += "/shaders";
 
 	obs_properties_add_button(props, "reload_effect",
 		_MT("ShaderFilter.ReloadEffect"),
 		shader_filter_reload_effect_clicked);
 
 	obs_property_t *file_name = obs_properties_add_path(props,
-		"shader_file_name",
-		_MT("ShaderFilter.ShaderFileName"),
-		OBS_PATH_FILE, NULL,
-		defaultPath.c_str());
+			"shader_file_name", _MT("ShaderFilter.ShaderFileName"),
+			OBS_PATH_FILE, NULL, shaderPath.c_str());
 
 	obs_property_set_modified_callback(file_name,
-		shader_filter_file_name_changed);
+			shader_filter_file_name_changed);
 
 	std::vector<ShaderParameter*> parameters = filter->parameters();
 	for (i = 0; i < parameters.size(); i++) {

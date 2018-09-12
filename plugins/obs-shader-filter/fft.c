@@ -24,7 +24,7 @@ const char *fft_window_strings[] = {
 	"welch"
 };
 
-enum fft_windowing_type get_window_type(char *window)
+enum fft_windowing_type get_window_type(const char *window)
 {
 	enum fft_windowing_type ret;
 	if (window) {

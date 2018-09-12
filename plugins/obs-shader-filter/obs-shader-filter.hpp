@@ -1,8 +1,15 @@
 #pragma once
 
+#ifdef __cplusplus
+extern "C" {
+#endif
 #include <graphics/graphics.h>
 #include <graphics/image-file.h>
 #include <graphics/matrix4.h>
+#ifdef __cplusplus
+}
+#endif
+
 #include <obs-module.h>
 #include <util/base.h>
 #include <util/circlebuf.h>
@@ -15,6 +22,7 @@
 #include <stdio.h>
 
 #include <string>
+#include <unordered_map>
 #include <vector>
 #include <list>
 
@@ -95,15 +103,6 @@ struct bind2 {
 		y = rhs.y;
 		return *this;
 	}
-	/*
-	operator vec2() const
-	{
-		vec2 v;
-		v.x = x;
-		v.y = y;
-		return v;
-	}
-	*/
 };
 
 static 	enum ShaderParameterType {
@@ -115,6 +114,25 @@ static 	enum ShaderParameterType {
 	audio_waveform,
 	audio_fft,
 	audio_power_spectrum
+};
+
+template <class T, class Alloc = allocator<T>>
+class circlevector : public std::vector<T> {
+public:
+	iterator push_front(const T& value)
+	{
+		return insert(begin(), value);
+	}
+
+	iterator push_front(const T&& value)
+	{
+		return insert(begin(), value);
+	}
+
+	void push_front(size_t count, const T& value)
+	{
+		insert(begin(), count, value);
+	}
 };
 
 class TinyExpr : public std::vector<te_variable> {
@@ -202,7 +220,6 @@ public:
 	void videoRender(ShaderFilter *filter);
 	void update(ShaderFilter *filter);
 	void getProperties(ShaderFilter *filter, obs_properties_t *props);
-
 };
 
 class ShaderFilter {
