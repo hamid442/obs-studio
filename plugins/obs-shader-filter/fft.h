@@ -4,6 +4,10 @@
 #include <math.h>
 #include <libavcodec\avfft.h>
 
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 /*Should be alphabetically ordered*/
 enum fft_windowing_type {
 	none = -1,
@@ -23,5 +27,9 @@ enum fft_windowing_type {
 };
 
 void audio_fft_complex(float* X, int N);
-enum fft_windowing_type get_window_type(char *window);
+enum fft_windowing_type get_window_type(const char *window);
 void window_function(float *data, int N, enum fft_windowing_type type);
+
+#ifdef __cplusplus
+}
+#endif
