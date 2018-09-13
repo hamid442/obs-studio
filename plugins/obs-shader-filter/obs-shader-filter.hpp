@@ -30,7 +30,7 @@ extern "C" {
 #include "tinyexpr.h"
 #include "mtrandom.h"
 
-#define _MT obs_module_text
+#define _OMT obs_module_text
 
 struct in_shader_data {
 	union {
@@ -105,17 +105,6 @@ struct bind2 {
 	}
 };
 
-static 	enum ShaderParameterType {
-	unspecified,
-	slider,
-	list,
-	media,
-	source,
-	audio_waveform,
-	audio_fft,
-	audio_power_spectrum
-};
-
 template <class T, class Alloc = allocator<T>>
 class circlevector : public std::vector<T> {
 public:
@@ -158,7 +147,7 @@ public:
 	{
 		DataType ret = default_value;
 		if (_compiled)
-			ret = te_eval(_compiled);
+			ret = (DataType)te_eval(_compiled);
 		return ret;
 	};
 	void compile(std::string expression)
@@ -168,7 +157,7 @@ public:
 		if (_compiled)
 			releaseExpression();
 		int e;
-		_compiled = te_compile(expression.c_str(), data(), size(), &e);
+		_compiled = te_compile(expression.c_str(), data(), (int)size(), &e);
 		if (!_compiled) {
 			blog(LOG_WARNING, "Expression Error At [%i]:\n%.*s[Error Here]",
 					e, e, expression.c_str(),
@@ -193,7 +182,6 @@ protected:
 	pthread_mutex_t _mutex;
 	bool _mutex_created = false;
 
-	ShaderParameterType _type;
 	gs_shader_param_type _paramType;
 
 	ShaderData *_shaderData = nullptr;
@@ -203,7 +191,7 @@ public:
 	ShaderParameter(gs_eparam_t *param, ShaderFilter *filter);
 	~ShaderParameter();
 
-	void init(ShaderParameterType type, gs_shader_param_type paramType);
+	void init(gs_shader_param_type paramType);
 
 	std::string getName();
 	std::string getDescription();
