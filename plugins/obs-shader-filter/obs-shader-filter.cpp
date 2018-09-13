@@ -72,7 +72,8 @@ void prepFunctions(std::vector<te_variable> *vars)
 			{"mel_from_hz", audio_mel_from_hz, TE_FUNCTION1},
 			{"hz_from_mel", audio_hz_from_mel, TE_FUNCTION1},
 			{"degrees", hlsl_degrees, TE_FUNCTION1},
-			{"radians", hlsl_rad, TE_FUNCTION1}};
+			{"radians", hlsl_rad, TE_FUNCTION1},
+			{"random", random_double, TE_FUNCTION2} };
 	vars->reserve(vars->size() + funcs.size());
 	vars->insert(vars->end(), funcs.begin(), funcs.end());
 }
@@ -518,7 +519,7 @@ public:
 			_values.push_back(empty);
 			_bindings.push_back(emptyBinding);
 
-			val = e->getAnnotationValue("expr"+strNum); //_binding_names[i]
+			val = e->getAnnotationValue("expr"+strNum);
 			if (val)
 				_expressions.push_back(*val);
 			else
@@ -640,6 +641,7 @@ protected:
 	bool _isSlider;
 	bool _skipWholeProperty;
 	bool _skipCalculations;
+	bool _showExpressionLess;
 	std::vector<bool> _skipProperty;
 	std::vector<bool> _disableProperty;
 	double _min;
@@ -743,12 +745,14 @@ public:
 		
 		_disableProperty.reserve(_dataCount);
 		_skipProperty.reserve(_dataCount);
+		bool hasExpressions = false;
 		for (i = 0; i < _expressions.size(); i++) {
 			if (_expressions[i].empty()) {
 				_disableProperty.push_back(false);
 				_skipProperty.push_back(false);
 				continue;
 			}
+			hasExpressions = true;
 			_filter->compileExpression(_expressions[i]);
 			if (_filter->expressionCompiled()) {
 				_disableProperty.push_back(false);
@@ -759,6 +763,12 @@ public:
 				_tooltips[i] = _filter->expressionError();
 			}
 		}
+
+		EVal *showExprLess = e->getAnnotationValue("show_exprless");
+		if (!showExprLess)
+			_showExpressionLess = !hasExpressions;
+		else
+			_showExpressionLess = ((std::vector<bool>)*showExprLess)[0];
 	}
 
 	void getProperties(ShaderFilter *filter, obs_properties_t *props)
@@ -780,11 +790,9 @@ public:
 				return;
 			}
 			for (i = 0; i < _dataCount; i++) {
-				/*
-				if (!_expressions[i].empty())
-					continue;
-					*/
 				if (_skipProperty[i])
+					continue;
+				if (!_showExpressionLess && _expressions[i].empty())
 					continue;
 				switch (_numType) {
 				case combobox:
@@ -815,6 +823,8 @@ public:
 		} else if(_isInt) {
 			for (i = 0; i < _dataCount; i++) {
 				if (_skipProperty[i])
+					continue;
+				if (!_showExpressionLess && _expressions[i].empty())
 					continue;
 				switch (_numType) {
 				case combobox:
@@ -848,6 +858,8 @@ public:
 			for (i = 0; i < _dataCount; i++) {
 				if (_skipProperty[i])
 					continue;
+				if (!_showExpressionLess && _expressions[i].empty())
+					continue;
 				switch (_numType) {
 				case combobox:
 				case list:
@@ -875,6 +887,7 @@ public:
 			return;
 		if (_skipWholeProperty)
 			return;
+
 		obs_data_t *settings = filter->getSettings();
 		size_t i;
 		for (i = 0; i < _dataCount; i++) {
@@ -1928,6 +1941,7 @@ static bool shader_filter_file_name_changed(obs_properties_t *props,
 	if (filter->getPath() != path) {
 		filter->prepReload();
 		filter->setPath(path);
+		obs_source_update(filter->context, NULL);
 	}
 
 	return true;
