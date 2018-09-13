@@ -127,6 +127,8 @@ public:
 class TinyExpr : public std::vector<te_variable> {
 	std::string _expr;
 	te_expr *_compiled = nullptr;
+	int _err = 0;
+	std::string _errString = "";
 public:
 	TinyExpr()
 	{
@@ -156,16 +158,27 @@ public:
 			return;
 		if (_compiled)
 			releaseExpression();
-		int e;
-		_compiled = te_compile(expression.c_str(), data(), (int)size(), &e);
+		_compiled = te_compile(expression.c_str(), data(), (int)size(), &_err);
 		if (!_compiled) {
-			blog(LOG_WARNING, "Expression Error At [%i]:\n%.*s[Error Here]",
-					e, e, expression.c_str(),
-					expression.c_str() + e);
+			_errString = "Expression Error At [" + std::to_string(_err) + "]:\n" + expression.substr(0, _err) + "[ERROR HERE]" + expression.substr(_err);
+			blog(LOG_WARNING, _errString.c_str());
 		} else {
+			_errString = "";
 			_expr = expression;
 		}
 	};
+	bool success()
+	{
+		return _err == 0;
+	}
+	std::string errorString()
+	{
+		return _errString;
+	}
+	operator bool()
+	{
+		return success();
+	}
 };
 
 class EVal;
@@ -269,6 +282,8 @@ public:
 
 	template <class DataType>
 	DataType evaluateExpression(DataType default_value = 0);
+	bool expressionCompiled();
+	std::string expressionError();
 
 	ShaderFilter(obs_data_t *settings, obs_source_t *source);
 	~ShaderFilter();

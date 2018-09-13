@@ -163,7 +163,6 @@ public:
 	gs_shader_param_type type = GS_SHADER_PARAM_UNKNOWN;
 	EVal()
 	{
-
 	};
 	~EVal()
 	{
@@ -345,6 +344,11 @@ protected:
 	std::unordered_map<std::string, EParam *> _annotations_map;
 	size_t _annotationCount;
 public:
+	std::unordered_map<std::string, EParam *> *getAnnootations()
+	{
+		return &_annotations_map;
+	}
+
 	gs_effect_param_info info() const
 	{
 		return _param_info;
@@ -455,6 +459,7 @@ protected:
 
 	std::vector<std::string> _names;
 	std::vector<std::string> _descs;
+	std::vector<std::string> _tooltips;
 	std::vector<std::string> _binding_names;
 	std::vector<std::string> _expressions;
 
@@ -492,6 +497,7 @@ public:
 		_bindings.reserve(_dataCount);
 		_expressions.reserve(_dataCount);
 		_binding_names.reserve(_dataCount);
+		_tooltips.reserve(_dataCount);
 
 		size_t i;
 		out_shader_data empty = { 0 };
@@ -508,10 +514,11 @@ public:
 			_names.push_back(n + strNum);
 			_descs.push_back(d + strNum);
 			_binding_names.push_back(toSnakeCase(_names[i]));
+			_tooltips.push_back(_binding_names[i]);
 			_values.push_back(empty);
 			_bindings.push_back(emptyBinding);
 
-			val = e->getAnnotationValue(_binding_names[i] + "_expr");
+			val = e->getAnnotationValue("expr"+strNum); //_binding_names[i]
 			if (val)
 				_expressions.push_back(*val);
 			else
@@ -551,11 +558,90 @@ public:
 };
 
 class NumericalData : public ShaderData {
+private:
+	void fillIntList(EParam *e, obs_property_t *p)
+	{
+		std::unordered_map<std::string, EParam *> *notations =
+				e->getAnnootations();
+		for (std::unordered_map<std::string, EParam *>::iterator it =
+				notations->begin(); it != notations->end();
+				it++) {
+			EParam *eparam = (*it).second;
+			EVal *eval = eparam->getValue();
+			std::string name = eparam->info().name;
+			gs_shader_param_type type = eparam->info().type;
+
+			if (name.compare(0, 9, "list_item") == 0 &&
+					name.compare(name.size() - 6, 5, "_name") != 0) {
+				std::vector<int> iList = *eval;
+				if (iList.size()) {
+					EVal *evalname = e->getAnnotationValue((name + "_name"));
+					std::string itemname = *evalname;
+					int d = iList[0];
+					if (itemname.empty())
+						itemname = std::to_string(d);
+					obs_property_list_add_int(p,
+							itemname.c_str(), d);
+				}
+			}
+		}
+	}
+
+	void fillFloatList(EParam *e, obs_property_t *p)
+	{
+		std::unordered_map<std::string, EParam *> *notations =
+			e->getAnnootations();
+		for (std::unordered_map<std::string, EParam *>::iterator it =
+			notations->begin(); it != notations->end();
+			it++) {
+			EParam *eparam = (*it).second;
+			EVal *eval = eparam->getValue();
+			std::string name = eparam->info().name;
+			gs_shader_param_type type = eparam->info().type;
+
+			if (name.compare(0, 9, "list_item") == 0 &&
+				name.compare(name.size() - 6, 5, "_name") != 0) {
+				std::vector<float> fList = *eval;
+				if (fList.size()) {
+					EVal *evalname = e->getAnnotationValue((name + "_name"));
+					std::string itemname = *evalname;
+					double d = fList[0];
+					if (itemname.empty())
+						itemname = std::to_string(d);
+					obs_property_list_add_float(p,
+							itemname.c_str(), d);
+				}
+			}
+		}
+	}
+
+	void fillComboBox(EParam *e, obs_property_t *p)
+	{
+		EVal *enabledval = e->getAnnotationValue("enabled_desc");
+		EVal *disabledval = e->getAnnotationValue("disabled_desc");
+		std::string enabled = _OMT("On");
+		std::string disabled = _OMT("Off");
+		if (enabledval) {
+			std::string temp = *enabledval;
+			if (!temp.empty())
+				enabled = temp;
+		}
+		if (disabledval) {
+			std::string temp = *disabledval;
+			if (!temp.empty())
+				disabled = temp;
+		}
+		obs_property_list_add_int(p, enabled.c_str(), 1);
+		obs_property_list_add_int(p, disabled.c_str(), 0);
+	}
+protected:
 	bool _isFloat;
 	bool _isInt;
 	bool _isSlider;
-	bool _skipProperty;
+	bool _skipWholeProperty;
 	bool _skipCalculations;
+	std::vector<bool> _skipProperty;
+	std::vector<bool> _disableProperty;
 	double _min;
 	double _max;
 	double _step;
@@ -614,17 +700,9 @@ public:
 		ShaderData::init(paramType);
 		_isFloat = isFloatType(paramType);
 		_isInt = isIntType(paramType);
-		_skipProperty = _bind ? true : false;
+		_skipWholeProperty = _bind ? true : false;
 		_skipCalculations = false;
 		size_t i;
-		if (!_skipProperty) {
-			for (i = 0; i < _expressions.size(); i++) {
-				if (!_expressions[i].empty()) {
-					_skipProperty = true;
-					break;
-				}
-			}
-		}
 		if (_isFloat) {
 			_min = -FLT_MAX;
 			_max = FLT_MAX;
@@ -662,17 +740,38 @@ public:
 			if (isSlider && ((std::vector<bool>)*isSlider)[0])
 				_numType = slider;
 		}
-
+		
+		_disableProperty.reserve(_dataCount);
+		_skipProperty.reserve(_dataCount);
+		for (i = 0; i < _expressions.size(); i++) {
+			if (_expressions[i].empty()) {
+				_disableProperty.push_back(false);
+				_skipProperty.push_back(false);
+				continue;
+			}
+			_filter->compileExpression(_expressions[i]);
+			if (_filter->expressionCompiled()) {
+				_disableProperty.push_back(false);
+				_skipProperty.push_back(true);
+			} else {
+				_disableProperty.push_back(true);
+				_skipProperty.push_back(false);
+				_tooltips[i] = _filter->expressionError();
+			}
+		}
 	}
 
 	void getProperties(ShaderFilter *filter, obs_properties_t *props)
 	{
 		UNUSED_PARAMETER(filter);
 		size_t i;
+		size_t j;
+		EParam *e = _parent->getParameter();
 		if (_bind)
 			return;
-		if (_skipProperty)
+		if (_skipWholeProperty)
 			return;
+		obs_property_t *p;
 		if (_isFloat) {
 			if (_numType == color && _dataCount == 4) {
 				obs_properties_add_color(props,
@@ -681,55 +780,91 @@ public:
 				return;
 			}
 			for (i = 0; i < _dataCount; i++) {
+				/*
 				if (!_expressions[i].empty())
 					continue;
-				switch (_numType) {
-				case slider:
-					obs_properties_add_float_slider(props,
-							_names[i].c_str(),
-							_descs[i].c_str(), _min,
-							_max, _step);
-					break;
-				default:
-					obs_properties_add_float(props,
-							_names[i].c_str(),
-							_descs[i].c_str(), _min,
-							_max, _step);
-					break;
-				}
-			}
-		} else if(_isInt) {
-			for (i = 0; i < _dataCount; i++) {
-				if (!_expressions[i].empty())
+					*/
+				if (_skipProperty[i])
 					continue;
-				switch (_numType) {
-				case slider:
-					obs_properties_add_int_slider(props,
-							_names[i].c_str(),
-							_descs[i].c_str(),
-							(int)_min, (int)_max,
-							(int)_step);
-					break;
-				default:
-					obs_properties_add_int(props,
-							_names[i].c_str(),
-							_descs[i].c_str(),
-							(int)_min, (int)_max,
-							(int)_step);
-					break;
-				}
-			}
-		} else {
-			for (i = 0; i < _dataCount; i++) {
 				switch (_numType) {
 				case combobox:
 				case list:
-
+					p = obs_properties_add_list(props,
+							_names[i].c_str(),
+							_descs[i].c_str(),
+							OBS_COMBO_TYPE_LIST,
+							OBS_COMBO_FORMAT_FLOAT);
+					fillFloatList(e, p);
+					break;
+				case slider:
+					p = obs_properties_add_float_slider(props,
+							_names[i].c_str(),
+							_descs[i].c_str(), _min,
+							_max, _step);
+					break;
 				default:
-					obs_properties_add_bool(props,
+					p = obs_properties_add_float(props,
+							_names[i].c_str(),
+							_descs[i].c_str(), _min,
+							_max, _step);
+					break;
+				}
+				obs_property_set_enabled(p, !_disableProperty[i]);
+				obs_property_set_long_description(p, _tooltips[i].c_str());
+			}
+		} else if(_isInt) {
+			for (i = 0; i < _dataCount; i++) {
+				if (_skipProperty[i])
+					continue;
+				switch (_numType) {
+				case combobox:
+				case list:
+					p = obs_properties_add_list(props,
+							_names[i].c_str(),
+							_descs[i].c_str(),
+							OBS_COMBO_TYPE_LIST,
+							OBS_COMBO_FORMAT_INT);
+					fillIntList(e, p);
+					break;
+				case slider:
+					p = obs_properties_add_int_slider(props,
+							_names[i].c_str(),
+							_descs[i].c_str(),
+							(int)_min, (int)_max,
+							(int)_step);
+					break;
+				default:
+					p = obs_properties_add_int(props,
+							_names[i].c_str(),
+							_descs[i].c_str(),
+							(int)_min, (int)_max,
+							(int)_step);
+					break;
+				}
+				obs_property_set_enabled(p, !_disableProperty[i]);
+				obs_property_set_long_description(p, _tooltips[i].c_str());
+			}
+		} else {
+			for (i = 0; i < _dataCount; i++) {
+				if (_skipProperty[i])
+					continue;
+				switch (_numType) {
+				case combobox:
+				case list:
+					p = obs_properties_add_list(props,
+						_names[i].c_str(),
+						_descs[i].c_str(),
+						OBS_COMBO_TYPE_LIST,
+						OBS_COMBO_FORMAT_INT);
+					fillComboBox(e, p);
+					break;
+				default:
+					p = obs_properties_add_bool(props,
 							_names[i].c_str(),
 							_descs[i].c_str());
 				}
+				obs_property_set_enabled(p, !_disableProperty[i]);
+				obs_property_set_long_description(p, _tooltips[i].c_str());
 			}
 		}
 	}
@@ -738,16 +873,26 @@ public:
 	{
 		if (_bind)
 			return;
-		if (_skipProperty)
+		if (_skipWholeProperty)
 			return;
 		obs_data_t *settings = filter->getSettings();
 		size_t i;
 		for (i = 0; i < _dataCount; i++) {
 			switch (_paramType) {
 			case GS_SHADER_PARAM_BOOL:
-				_bindings[i].s64i = obs_data_get_bool(settings,
+				switch (_numType) {
+				case combobox:
+				case list:
+					_bindings[i].s64i = obs_data_get_int(settings,
 						_names[i].c_str());
-				_values[i].s32i = (int32_t)_bindings[i].s64i;
+					_values[i].s32i = (int32_t)_bindings[i].s64i;
+					break;
+				default:
+					_bindings[i].s64i = obs_data_get_bool(settings,
+						_names[i].c_str());
+					_values[i].s32i = (int32_t)_bindings[i].s64i;
+					break;
+				}
 				break;
 			case GS_SHADER_PARAM_INT:
 			case GS_SHADER_PARAM_INT2:
@@ -1499,6 +1644,16 @@ void ShaderFilter::appendVariable(te_variable var)
 void ShaderFilter::compileExpression(std::string expresion)
 {
 	expression.compile(expresion);
+}
+
+bool ShaderFilter::expressionCompiled()
+{
+	return expression;
+}
+
+std::string ShaderFilter::expressionError()
+{
+	return expression.errorString();
 }
 
 template <class DataType>
