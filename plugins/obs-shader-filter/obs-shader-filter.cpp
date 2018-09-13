@@ -1863,8 +1863,10 @@ void ShaderFilter::update(void *data, obs_data_t *settings)
 {
 	UNUSED_PARAMETER(settings);
 	ShaderFilter *filter = static_cast<ShaderFilter*>(data);
-	if (filter->needsReloading())
+	if (filter->needsReloading()) {
 		filter->reload();
+		obs_source_update_properties(filter->context);
+	}
 	size_t i;
 	std::vector<ShaderParameter*> parameters = filter->parameters();
 	for (i = 0; i < parameters.size(); i++) {
