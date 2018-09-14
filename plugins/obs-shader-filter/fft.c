@@ -3,7 +3,7 @@
 
 void audio_fft_complex(float *data, int N)
 {
-	int l = ceil(log2(N));
+	int l = (int)ceil(log2(N));
 	RDFTContext *context = av_rdft_init(l, DFT_R2C);
 	av_rdft_calc(context, data);
 	av_rdft_end(context);
@@ -54,11 +54,8 @@ enum fft_windowing_type get_window_type(const char *window)
 void window_function(float *data, int N, enum fft_windowing_type type)
 {
 	size_t n;
-	size_t n2;
-	size_t n3;
 	double d;
 	size_t N2;
-	size_t N3;
 	double a;
 	double a0;
 	double a1;
@@ -70,21 +67,21 @@ void window_function(float *data, int N, enum fft_windowing_type type)
 		N2 = N - 1;
 		for (n = 0; n < N; n++) {
 			d = 1.0 - fabs((n - (N2) / 2.0) / (N / 2.0));
-			data[n] *= d;
+			data[n] *= (float)d;
 		}
 		break;
 	case bartlett:
 		N2 = N - 1;
 		for (n = 0; n < N; n++) {
 			d = 1 - fabs((n - (N2) / 2.0) / (N2 / 2.0));
-			data[n] *= d;
+			data[n] *= (float)d;
 		}
 		break;
 	case welch:
 		N2 = N - 1;
 		for (n = 0; n < N; n++) {
 			d = 1 - pow((n - N2 / 2.0) / (N2 / 2.0), 2);
-			data[n] *= d;
+			data[n] *= (float)d;
 		}
 	case hann:
 		N2 = N - 1;
@@ -92,7 +89,7 @@ void window_function(float *data, int N, enum fft_windowing_type type)
 		a1 = 0.5;
 		for (n = 0; n < N; n++) {
 			d = a0 - a1 * cos((2.0 * M_PI_D * n) / N2);
-			data[n] *= d;
+			data[n] *= (float)d;
 		}
 		break;
 	case blackmann:
@@ -141,7 +138,7 @@ cossum2:
 	for (n = 0; n < N; n++) {
 		d = a0 - a1 * cos((2.0 * M_PI_D * n) / N2) +
 			a2 * cos((4.0 * M_PI_D * n) / N2);
-		data[n] *= d;
+		data[n] *= (float)d;
 	}
 	return;
 cossum3:
@@ -150,7 +147,7 @@ cossum3:
 		d = a0 - a1 * cos((2.0 * M_PI_D * n) / N2) +
 			a2 * cos((4.0 * M_PI_D * n) / N2) -
 			a3 * cos((6.0 * M_PI_D * n) / N2);
-		data[n] *= d;
+		data[n] *= (float)d;
 	}
 	return;
 cossum4:
@@ -160,7 +157,7 @@ cossum4:
 			a2 * cos((4.0 * M_PI_D * n) / N2) -
 			a3 * cos((6.0 * M_PI_D * n) / N2) +
 			a4 * cos((8.0 * M_PI_D * n) / N2);
-		data[n] *= d;
+		data[n] *= (float)d;
 	}
 	return;
 }
