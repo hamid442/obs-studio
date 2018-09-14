@@ -19,12 +19,8 @@ static const char *shader_filter_texture_file_filter =
 static const char *shader_filter_media_file_filter =
 "Video Files (*.mp4 *.ts *.mov *.wmv *.flv *.mkv *.avi *.gif *.webm);;";
 
-bool is_power_of_two(size_t val)
-{
-	return val != 0 && (val & (val - 1)) == 0;
-}
-
-double hlsl_clamp(double in, double min, double max)
+#define M_PI_D 3.141592653589793238462643383279502884197169399375
+static double hlsl_clamp(double in, double min, double max)
 {
 	if (in < min)
 		return min;
@@ -33,23 +29,22 @@ double hlsl_clamp(double in, double min, double max)
 	return in;
 }
 
-#define M_PI_D 3.141592653589793238462643383279502884197169399375
-double hlsl_degrees(double radians)
+static double hlsl_degrees(double radians)
 {
 	return radians * (180.0 / M_PI_D);
 }
 
-double hlsl_rad(double degrees)
+static double hlsl_rad(double degrees)
 {
 	return degrees * (M_PI_D / 180.0);
 }
 
-double audio_mel_from_hz(double hz)
+static double audio_mel_from_hz(double hz)
 {
 	return 2595 * log10(1 + hz / 700.0);
 }
 
-double audio_hz_from_mel(double mel)
+static double audio_hz_from_mel(double mel)
 {
 	return 700 * (pow(10, mel / 2595) - 1);
 }
@@ -384,6 +379,11 @@ public:
 			return nullptr;
 	}
 
+	EParam *operator[](std::string name)
+	{
+		return getAnnotation(name);
+	}
+
 	EVal *getAnnotationValue(std::string name)
 	{
 		EParam *note = getAnnotation(name);
@@ -392,6 +392,7 @@ public:
 		else
 			return nullptr;
 	}
+
 
 	bool hasAnnotation(std::string name)
 	{
@@ -454,6 +455,7 @@ protected:
 
 	ShaderFilter *_filter;
 	ShaderParameter *_parent;
+	EParam *_param;
 
 	std::vector<out_shader_data> _values;
 	std::vector<in_shader_data> _bindings;
@@ -481,6 +483,10 @@ public:
 			_parent(parent),
 			_filter(filter)
 	{
+		if (_parent)
+			_param = _parent->getParameter();
+		else
+			_param = nullptr;
 	}
 
 	virtual ~ShaderData()
@@ -503,7 +509,6 @@ public:
 		size_t i;
 		out_shader_data empty = { 0 };
 		in_shader_data emptyBinding = { 0 };
-		EParam *e = _parent->getParameter();
 
 		std::string n = _parent->getName();
 		std::string d = _parent->getDescription();
@@ -519,7 +524,7 @@ public:
 			_values.push_back(empty);
 			_bindings.push_back(emptyBinding);
 
-			val = e->getAnnotationValue("expr"+strNum);
+			val = _param->getAnnotationValue("expr"+strNum);
 			if (val)
 				_expressions.push_back(*val);
 			else
@@ -530,6 +535,15 @@ public:
 			var.name = _binding_names[i].c_str();
 			if (_filter)
 				_filter->appendVariable(var);
+		}
+
+		std::string dir[4] = { "left","right","top","bottom" };
+		for (i = 0; i < 4; i++) {
+			if (_filter->resizeExpressions[i].empty()) {
+				val = _param->getAnnotationValue("resize_expr_" + dir[i]);
+				if (val)
+					_filter->resizeExpressions[i] = val->getString();
+			}
 		}
 	};
 
@@ -570,7 +584,6 @@ private:
 			EParam *eparam = (*it).second;
 			EVal *eval = eparam->getValue();
 			std::string name = eparam->info().name;
-			gs_shader_param_type type = eparam->info().type;
 
 			if (name.compare(0, 9, "list_item") == 0 &&
 					name.compare(name.size() - 6, 5, "_name") != 0) {
@@ -714,18 +727,17 @@ public:
 			_max = INT_MAX;
 			_step = 1;
 		}
-		EParam *e = _parent->getParameter();
-		EVal *min = e->getAnnotationValue("min");
-		EVal *max = e->getAnnotationValue("max");
-		EVal *step = e->getAnnotationValue("step");
+		EVal *min = _param->getAnnotationValue("min");
+		EVal *max = _param->getAnnotationValue("max");
+		EVal *step = _param->getAnnotationValue("step");
 		if (min)
 			_min = ((std::vector<float>)*min)[0];
 		if (max)
 			_max = ((std::vector<float>)*max)[0];
 		if (step)
 			_step = ((std::vector<float>)*step)[0];
-		EVal *guitype = e->getAnnotationValue("type");
-		EVal *isSlider = e->getAnnotationValue("is_slider");
+		EVal *guitype = _param->getAnnotationValue("type");
+		EVal *isSlider = _param->getAnnotationValue("is_slider");
 
 		std::unordered_map<std::string, uint32_t> types = {
 			{ "combobox", combobox },
@@ -764,7 +776,7 @@ public:
 			}
 		}
 
-		EVal *showExprLess = e->getAnnotationValue("show_exprless");
+		EVal *showExprLess = _param->getAnnotationValue("show_exprless");
 		if (!showExprLess)
 			_showExpressionLess = !hasExpressions;
 		else
@@ -775,11 +787,7 @@ public:
 	{
 		UNUSED_PARAMETER(filter);
 		size_t i;
-		size_t j;
-		EParam *e = _parent->getParameter();
-		if (_bind)
-			return;
-		if (_skipWholeProperty)
+		if (_bind || _skipWholeProperty)
 			return;
 		obs_property_t *p;
 		if (_isFloat) {
@@ -802,7 +810,7 @@ public:
 							_descs[i].c_str(),
 							OBS_COMBO_TYPE_LIST,
 							OBS_COMBO_FORMAT_FLOAT);
-					fillFloatList(e, p);
+					fillFloatList(_param, p);
 					break;
 				case slider:
 					p = obs_properties_add_float_slider(props,
@@ -834,7 +842,7 @@ public:
 							_descs[i].c_str(),
 							OBS_COMBO_TYPE_LIST,
 							OBS_COMBO_FORMAT_INT);
-					fillIntList(e, p);
+					fillIntList(_param, p);
 					break;
 				case slider:
 					p = obs_properties_add_int_slider(props,
@@ -868,7 +876,7 @@ public:
 						_descs[i].c_str(),
 						OBS_COMBO_TYPE_LIST,
 						OBS_COMBO_FORMAT_INT);
-					fillComboBox(e, p);
+					fillComboBox(_param, p);
 					break;
 				default:
 					p = obs_properties_add_bool(props,
@@ -883,11 +891,8 @@ public:
 
 	void update(ShaderFilter *filter)
 	{
-		if (_bind)
+		if (_bind || _skipWholeProperty)
 			return;
-		if (_skipWholeProperty)
-			return;
-
 		obs_data_t *settings = filter->getSettings();
 		size_t i;
 		for (i = 0; i < _dataCount; i++) {
@@ -995,14 +1000,13 @@ public:
 
 	void setData()
 	{
-		EParam *e = _parent->getParameter();
-		if (e) {
+		if (_param) {
 			if (_isFloat) {
 				float *data = (float*)_values.data();
-				e->setValue<float>(data, _values.size() * sizeof(float));
+				_param->setValue<float>(data, _values.size() * sizeof(float));
 			} else {
 				int *data = (int*)_values.data();
-				e->setValue<int>(data, _values.size() * sizeof(int));
+				_param->setValue<int>(data, _values.size() * sizeof(int));
 			}
 		}
 	}
@@ -1010,17 +1014,15 @@ public:
 	template <class DataType>
 	void setData(DataType t)
 	{
-		EParam *e = _parent->getParameter();
-		if (e)
-			e->setValue<DataType>(&t, sizeof(t));
+		if (_param)
+			_param->setValue<DataType>(&t, sizeof(t));
 	}
 
 	template <class DataType>
 	void setData(std::vector<DataType> t)
 	{
-		EParam *e = _parent->getParameter();
-		if (e)
-			e->setValue<DataType>(t.data(), t.size() * sizeof(DataType));
+		if (_param)
+			_param->setValue<DataType>(t.data(), t.size() * sizeof(DataType));
 	}
 
 	void videoRender(ShaderFilter *filter)
@@ -1033,6 +1035,7 @@ public:
 	}
 };
 
+/* TODO? */
 class StringData : public ShaderData {
 	std::string _value;
 
@@ -1139,26 +1142,6 @@ private:
 				((float*)_data) + (i * samples),
 				h_sample_size);
 		}
-		/*
-		size_t j;
-		size_t k;
-		if (param->fft_bins < h_samples) {
-			size_t bin_width = h_samples / param->fft_bins;
-			for (i = 0; i < param->num_channels; i++) {
-				for (j = 0; j < param->fft_bins; j++) {
-					float bin_sum = 0;
-					for (k = 0; k < bin_width; k++) {
-						bin_sum += param->sidechain_buf[k +
-							i * h_samples +
-							j * bin_width];
-					}
-					param->sidechain_buf[i * param->fft_bins + j] =
-						bin_sum / bin_width;
-				}
-			}
-			return param->fft_bins;
-		}
-		*/
 		return (uint32_t)h_samples;
 	}
 
@@ -1311,8 +1294,7 @@ public:
 		_names.push_back(_parent->getName());
 		_descs.push_back(_parent->getDescription());
 
-		EParam *e = _parent->getParameter();
-		EVal *texType = e->getAnnotationValue("texture_type");
+		EVal *texType = _param->getAnnotationValue("texture_type");
 		std::unordered_map<std::string, uint32_t> types = {
 			{"source", source},
 			{"audio", audio},
@@ -1320,14 +1302,9 @@ public:
 			{"media", media}
 		};
 
-		try {
-			if (texType) {
-				std::string t = texType->getString();
-				_texType = (TextureType)types.at(t);
-			} else {
-				_texType = image;
-			}
-		} catch (std::out_of_range err) {
+		if (texType && types.find(texType->getString()) != types.end()) {
+			_texType = (TextureType)types.at(texType->getString());
+		} else {
 			_texType = image;
 		}
 
@@ -1336,20 +1313,20 @@ public:
 
 		_channels = audio_output_get_channels(obs_get_audio());
 		if (_texType == audio) {
-			EVal *channels = e->getAnnotationValue("channels");
+			EVal *channels = _param->getAnnotationValue("channels");
 			if (channels)
 				_channels = ((std::vector<int>)*channels)[0];
 
 			for(size_t i = 0; i < MAX_AV_PLANES; i++)
 				_audio->resize(AUDIO_OUTPUT_FRAMES);
 
-			EVal *fft = e->getAnnotationValue("is_fft");
+			EVal *fft = _param->getAnnotationValue("is_fft");
 			if (fft)
 				_isFFT = ((std::vector<bool>)*fft)[0];
 			else
 				_isFFT = false;
 
-			EVal *window = e->getAnnotationValue("window");
+			EVal *window = _param->getAnnotationValue("window");
 			if (window)
 				_window = get_window_type(window->c_str());
 			else
@@ -1476,7 +1453,6 @@ public:
 			ShaderData(parent, filter)
 	{
 	};
-
 	~NullData()
 	{
 	};
@@ -1738,6 +1714,7 @@ void ShaderFilter::updateCache(gs_eparam_t *param)
 
 void ShaderFilter::reload()
 {
+	_reload_effect = false;
 	size_t i;
 	char *errors = NULL;
 
@@ -1758,8 +1735,7 @@ void ShaderFilter::reload()
 	effect = nullptr;
 	obs_leave_graphics();
 
-	_effect_path = obs_data_get_string(_settings,
-		"shader_file_name");
+	_effect_path = obs_data_get_string(_settings, "shader_file_name");
 	/* Load default effect text if no file is selected */
 	char *effect_string = nullptr;
 	if (!_effect_path.empty())
@@ -1774,6 +1750,7 @@ void ShaderFilter::reload()
 	_effect_string = effect_string;
 	bfree(effect_string);
 
+	/* Create new parameters */
 	size_t effect_count = gs_effect_get_num_params(effect);
 	paramList.reserve(effect_count);
 	for (i = 0; i < effect_count; i++) {
@@ -1811,6 +1788,16 @@ void ShaderFilter::videoTick(void *data, float seconds)
 		if (parameters[i])
 			parameters[i]->videoTick(filter, filter->elapsedTime,
 					seconds);
+	}
+
+	int *resize[4] = {&filter->resizeLeft, &filter->resizeRight,
+			&filter->resizeTop, &filter->resizeBottom};
+	for (i = 0; i < 4; i++) {
+		if (filter->resizeExpressions[i].empty())
+			continue;
+		filter->compileExpression(filter->resizeExpressions[i]);
+		if (filter->expressionCompiled())
+			*resize[i] = filter->evaluateExpression<int>(0);
 	}
 
 	obs_source_t *target = obs_filter_get_target(filter->context);
