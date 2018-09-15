@@ -181,6 +181,43 @@ public:
 	}
 };
 
+class PThreadMutex {
+	bool _mutexCreated;
+	pthread_mutex_t _mutex;
+public:
+	PThreadMutex(int PTHREAD_MUTEX_TYPE = PTHREAD_MUTEX_RECURSIVE)
+	{
+		pthread_mutexattr_t attr;
+		if (pthread_mutexattr_init(&attr) != 0) {
+			_mutexCreated = false;
+			return;
+		}
+		if (pthread_mutexattr_settype(&attr, PTHREAD_MUTEX_TYPE) != 0) {
+			_mutexCreated = false;
+			return;
+		}
+		if (pthread_mutex_init(&_mutex, NULL) != 0)
+			_mutexCreated = false;
+		else
+			_mutexCreated = true;
+	}
+	~PThreadMutex()
+	{
+		if(_mutexCreated)
+			pthread_mutex_destroy(&_mutex);
+	}
+	void lock()
+	{
+		if(_mutexCreated)
+			pthread_mutex_lock(&_mutex);
+	}
+	void unlock()
+	{
+		if (_mutexCreated)
+			pthread_mutex_unlock(&_mutex);
+	}
+};
+
 class EVal;
 class EParam;
 class ShaderFilter;
@@ -192,8 +229,7 @@ protected:
 	std::string _name;
 	std::string _description;
 
-	pthread_mutex_t _mutex;
-	bool _mutex_created = false;
+	PThreadMutex *_mutex = nullptr;
 
 	gs_shader_param_type _paramType;
 
@@ -212,11 +248,6 @@ public:
 
 	void lock();
 	void unlock();
-	void setData();
-	template <class DataType>
-	void setData(DataType t);
-	template <class DataType>
-	void setData(std::vector<DataType> t);
 	void videoTick(ShaderFilter *filter, float elapsed_time, float seconds);
 	void videoRender(ShaderFilter *filter);
 	void update(ShaderFilter *filter);
@@ -237,8 +268,7 @@ protected:
 	gs_effect_t *effect = nullptr;
 	obs_data_t *_settings = nullptr;
 
-	pthread_mutex_t _mutex;
-	bool _mutex_created = false;
+	PThreadMutex *_mutex = nullptr;
 	bool _reload_effect = true;
 
 	TinyExpr expression;
