@@ -57,8 +57,9 @@ static double sample_rate;
 static double output_channels;
 
 /* Additional likely to be used functions for mathmatical expressions */
-void prepFunctions(std::vector<te_variable> *vars)
+void prepFunctions(std::vector<te_variable> *vars, ShaderFilter *filter)
 {
+	UNUSED_PARAMETER(filter);
 	std::vector<te_variable> funcs = {{"clamp", hlsl_clamp, TE_FUNCTION3},
 			{"float_max", &flt_max}, {"float_min", &flt_min},
 			{"int_max", &int_max}, {"int_min", &int_min},
@@ -68,7 +69,7 @@ void prepFunctions(std::vector<te_variable> *vars)
 			{"hz_from_mel", audio_hz_from_mel, TE_FUNCTION1},
 			{"degrees", hlsl_degrees, TE_FUNCTION1},
 			{"radians", hlsl_rad, TE_FUNCTION1},
-			{"random", random_double, TE_FUNCTION2} };
+			{"random", random_double, TE_FUNCTION2}};
 	vars->reserve(vars->size() + funcs.size());
 	vars->insert(vars->end(), funcs.begin(), funcs.end());
 }
@@ -1196,7 +1197,7 @@ private:
 		unlock();
 	}
 
-	pthread_mutex_t _mutex;
+	PThreadMutex *_mutex = nullptr;
 protected:
 	gs_texrender_t * _texrender = nullptr;
 	gs_texture_t *_tex = nullptr;
@@ -1226,8 +1227,7 @@ public:
 			_maxAudioSize(AUDIO_OUTPUT_FRAMES * 2)
 	{
 		_maxAudioSize = AUDIO_OUTPUT_FRAMES * 2;
-		if (pthread_mutex_init(&_mutex, NULL) != 0)
-			blog(LOG_INFO, "");
+		_mutex = new PThreadMutex();
 	};
 
 	~TextureData()
@@ -1242,17 +1242,18 @@ public:
 		obs_leave_graphics();
 		if (_data)
 			bfree(_data);
-		pthread_mutex_destroy(&_mutex);
+		if (_mutex)
+			delete _mutex;
 	};
 
 	void lock()
 	{
-		pthread_mutex_lock(&_mutex);
+		_mutex->lock();
 	}
 
 	void unlock()
 	{
-		pthread_mutex_unlock(&_mutex);
+		_mutex->unlock();
 	}
 
 	size_t getAudioChannels()
@@ -1483,18 +1484,8 @@ ShaderParameter::ShaderParameter(gs_eparam_t *param, ShaderFilter *filter) :
 {
 	struct gs_effect_param_info info;
 	gs_effect_get_param_info(param, &info);
-
-	pthread_mutexattr_t attr;
-	if (pthread_mutexattr_init(&attr) != 0) {
-		_mutex_created = false;
-		return;
-	}
-	if (pthread_mutexattr_settype(&attr, PTHREAD_MUTEX_RECURSIVE) != 0) {
-		_mutex_created = false;
-		return;
-	}
-
-	_mutex_created = pthread_mutex_init(&_mutex, NULL) == 0;
+	
+	_mutex = new PThreadMutex();
 	_name = info.name;
 	_description = info.name;
 	_param = new EParam(param);
@@ -1536,8 +1527,8 @@ void ShaderParameter::init(gs_shader_param_type paramType)
 
 ShaderParameter::~ShaderParameter()
 {
-	if (_mutex_created)
-		pthread_mutex_destroy(&_mutex);
+	if (_mutex)
+		delete _mutex;
 
 	if (_param)
 		delete _param;
@@ -1548,14 +1539,12 @@ ShaderParameter::~ShaderParameter()
 
 void ShaderParameter::lock()
 {
-	if (_mutex_created)
-		pthread_mutex_lock(&_mutex);
+	_mutex->lock();
 }
 
 void ShaderParameter::unlock()
 {
-	if (_mutex_created)
-		pthread_mutex_unlock(&_mutex);
+	_mutex->unlock();
 }
 
 void ShaderParameter::videoTick(ShaderFilter *filter, float elapsed_time, float seconds)
@@ -1655,16 +1644,7 @@ ShaderFilter::ShaderFilter(obs_data_t *settings, obs_source_t *source)
 {
 	context = source;
 	_settings = settings;
-	pthread_mutexattr_t attr;
-	if (pthread_mutexattr_init(&attr) != 0) {
-		_mutex_created = false;
-		return;
-	}
-	if (pthread_mutexattr_settype(&attr, PTHREAD_MUTEX_RECURSIVE) != 0) {
-		_mutex_created = false;
-		return;
-	}
-	_mutex_created = pthread_mutex_init(&_mutex, NULL) == 0;
+	_mutex = new PThreadMutex();
 	prepReload();
 	update(this, _settings);
 };
@@ -1682,18 +1662,19 @@ ShaderFilter::~ShaderFilter()
 	gs_effect_destroy(effect);
 	effect = nullptr;
 	obs_leave_graphics();
+
+	if (_mutex)
+		delete _mutex;
 };
 
 void ShaderFilter::lock()
 {
-	if (_mutex_created)
-		pthread_mutex_lock(&_mutex);
+	_mutex->lock();
 }
 
 void ShaderFilter::unlock()
 {
-	if (_mutex_created)
-		pthread_mutex_unlock(&_mutex);
+	_mutex->unlock();
 }
 
 uint32_t ShaderFilter::getWidth()
@@ -1728,7 +1709,7 @@ void ShaderFilter::reload()
 	evaluationList.clear();
 	expression.clear();
 
-	prepFunctions(&expression);
+	prepFunctions(&expression, this);
 
 	obs_enter_graphics();
 	gs_effect_destroy(effect);
@@ -1752,7 +1733,7 @@ void ShaderFilter::reload()
 
 	/* Create new parameters */
 	size_t effect_count = gs_effect_get_num_params(effect);
-	paramList.reserve(effect_count);
+	paramList.reserve(effect_count + paramList.size());
 	for (i = 0; i < effect_count; i++) {
 		gs_eparam_t *param = gs_effect_get_param_by_idx(effect, i);
 		updateCache(param);
