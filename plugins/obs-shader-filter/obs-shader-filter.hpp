@@ -34,70 +34,58 @@ extern "C" {
 
 struct in_shader_data {
 	union {
-		double d;
+		double   d;
 		uint64_t u64i;
-		int64_t s64i;
-		float f;
+		int64_t  s64i;
+		float    f;
 		uint32_t u32i;
-		int32_t s32i;
+		int32_t  s32i;
 		uint16_t u16i;
-		int16_t s16i;
-		uint8_t u8i;
-		int8_t s8i;
+		int16_t  s16i;
+		uint8_t  u8i;
+		int8_t   s8i;
 	};
-	
-	in_shader_data &operator =(const double &rhs)
+
+	in_shader_data &operator=(const double &rhs)
 	{
 		d = rhs;
 		return *this;
 	}
 
-	operator double() const
-	{
-		return d;
-	}
+	operator double() const { return d; }
 };
 
 struct out_shader_data {
 	union {
-		float f;
+		float    f;
 		uint32_t u32i;
-		int32_t s32i;
+		int32_t  s32i;
 		uint16_t u16i;
-		int16_t s16i;
-		uint8_t u8i;
-		int8_t s8i;
+		int16_t  s16i;
+		uint8_t  u8i;
+		int8_t   s8i;
 	};
 
-	out_shader_data &operator =(const float &rhs)
+	out_shader_data &operator=(const float &rhs)
 	{
 		f = rhs;
 		return *this;
 	}
 
-	operator float() const
-	{
-		return f;
-	}
+	operator float() const { return f; }
 
-	operator uint32_t() const
-	{
-		return u32i;
-	}
+	operator uint32_t() const { return u32i; }
 
-	operator int32_t() const
-	{
-		return s32i;
-	}
+	operator int32_t() const { return s32i; }
 };
 
 struct bind2 {
 	union {
 		in_shader_data x, y;
-		double ptr[2];
+		double         ptr[2];
 	};
-	
-	bind2 &operator =(const vec2 &rhs)
+
+	bind2 &operator=(const vec2 &rhs)
 	{
 		x = rhs.x;
 		y = rhs.y;
@@ -105,38 +93,24 @@ struct bind2 {
 	}
 };
 
-template <class T, class Alloc = allocator<T>>
-class circlevector : public std::vector<T> {
+template<class T, class Alloc = allocator<T>> class circlevector : public std::vector<T> {
 public:
-	iterator push_front(const T& value)
-	{
-		return insert(begin(), value);
-	}
+	iterator push_front(const T &value) { return insert(begin(), value); }
 
-	iterator push_front(const T&& value)
-	{
-		return insert(begin(), value);
-	}
+	iterator push_front(const T &&value) { return insert(begin(), value); }
 
-	void push_front(size_t count, const T& value)
-	{
-		insert(begin(), count, value);
-	}
+	void push_front(size_t count, const T &value) { insert(begin(), count, value); }
 };
 
 class TinyExpr : public std::vector<te_variable> {
 	std::string _expr;
-	te_expr *_compiled = nullptr;
-	int _err = 0;
+	te_expr    *_compiled  = nullptr;
+	int         _err       = 0;
 	std::string _errString = "";
+
 public:
-	TinyExpr()
-	{
-	};
-	~TinyExpr()
-	{
-		releaseExpression();
-	};
+	TinyExpr(){};
+	~TinyExpr() { releaseExpression(); };
 	void releaseExpression()
 	{
 		if (_compiled) {
@@ -144,8 +118,7 @@ public:
 			_compiled = nullptr;
 		}
 	};
-	template <class DataType>
-	DataType evaluate(DataType default_value = 0)
+	template<class DataType> DataType evaluate(DataType default_value = 0)
 	{
 		DataType ret = default_value;
 		if (_compiled)
@@ -160,30 +133,23 @@ public:
 			releaseExpression();
 		_compiled = te_compile(expression.c_str(), data(), (int)size(), &_err);
 		if (!_compiled) {
-			_errString = "Expression Error At [" + std::to_string(_err) + "]:\n" + expression.substr(0, _err) + "[ERROR HERE]" + expression.substr(_err);
+			_errString = "Expression Error At [" + std::to_string(_err) + "]:\n" +
+				     expression.substr(0, _err) + "[ERROR HERE]" + expression.substr(_err);
 			blog(LOG_WARNING, _errString.c_str());
 		} else {
 			_errString = "";
-			_expr = expression;
+			_expr      = expression;
 		}
 	};
-	bool success()
-	{
-		return _err == 0;
-	}
-	std::string errorString()
-	{
-		return _errString;
-	}
-	operator bool()
-	{
-		return success();
-	}
+	bool        success() { return _err == 0; }
+	std::string errorString() { return _errString; }
+		    operator bool() { return success(); }
 };
 
 class PThreadMutex {
-	bool _mutexCreated;
+	bool            _mutexCreated;
 	pthread_mutex_t _mutex;
+
 public:
 	PThreadMutex(int PTHREAD_MUTEX_TYPE = PTHREAD_MUTEX_RECURSIVE)
 	{
@@ -203,12 +169,12 @@ public:
 	}
 	~PThreadMutex()
 	{
-		if(_mutexCreated)
+		if (_mutexCreated)
 			pthread_mutex_destroy(&_mutex);
 	}
 	void lock()
 	{
-		if(_mutexCreated)
+		if (_mutexCreated)
 			pthread_mutex_lock(&_mutex);
 	}
 	void unlock()
@@ -225,7 +191,7 @@ class ShaderData;
 
 class ShaderParameter {
 protected:
-	EParam *_param = nullptr;
+	EParam     *_param = nullptr;
 	std::string _name;
 	std::string _description;
 
@@ -233,9 +199,10 @@ protected:
 
 	gs_shader_param_type _paramType;
 
-	ShaderData *_shaderData = nullptr;
-	obs_property_t *_property = nullptr;
-	ShaderFilter *_filter = nullptr;
+	ShaderData     *_shaderData = nullptr;
+	obs_property_t *_property   = nullptr;
+	ShaderFilter   *_filter     = nullptr;
+
 public:
 	ShaderParameter(gs_eparam_t *param, ShaderFilter *filter);
 	~ShaderParameter();
@@ -244,7 +211,7 @@ public:
 
 	std::string getName();
 	std::string getDescription();
-	EParam *getParameter();
+	EParam     *getParameter();
 
 	void lock();
 	void unlock();
@@ -259,30 +226,31 @@ protected:
 	uint32_t total_width;
 	uint32_t total_height;
 
-	std::vector<ShaderParameter*> paramList = {};
-	std::vector<ShaderParameter*> evaluationList = {};
+	std::vector<ShaderParameter *> paramList      = {};
+	std::vector<ShaderParameter *> evaluationList = {};
 
 	std::string _effect_path;
 	std::string _effect_string;
 
-	gs_effect_t *effect = nullptr;
-	obs_data_t *_settings = nullptr;
+	gs_effect_t *effect    = nullptr;
+	obs_data_t * _settings = nullptr;
 
-	PThreadMutex *_mutex = nullptr;
-	bool _reload_effect = true;
+	PThreadMutex *_mutex         = nullptr;
+	bool          _reload_effect = true;
 
 	TinyExpr expression;
+
 public:
 	std::string resizeExpressions[4];
-	int resizeLeft = 0;
-	int resizeRight = 0;
-	int resizeTop = 0;
-	int resizeBottom = 0;
+	int         resizeLeft   = 0;
+	int         resizeRight  = 0;
+	int         resizeTop    = 0;
+	int         resizeBottom = 0;
 
-	float elapsedTime = 0;
-	in_shader_data elapsedTimeBinding = { 0 };
+	float          elapsedTime        = 0;
+	in_shader_data elapsedTimeBinding = {0};
 
-	std::vector<std::pair<gs_eparam_t*, float*>> float_pairs;
+	std::vector<std::pair<gs_eparam_t *, float *>> float_pairs;
 
 	vec2 uvScale;
 	vec2 uvOffset;
@@ -292,28 +260,27 @@ public:
 	bind2 uvOffsetBinding;
 	bind2 uvPixelIntervalBinding;
 
-	std::vector<std::pair<gs_eparam_t*, vec2*>> vec2_pairs;
+	std::vector<std::pair<gs_eparam_t *, vec2 *>> vec2_pairs;
 
-	matrix4 view_proj;
-	std::vector<std::pair<gs_eparam_t*, matrix4*>> matrix4_pairs;
+	matrix4                                          view_proj;
+	std::vector<std::pair<gs_eparam_t *, matrix4 *>> matrix4_pairs;
 
 	obs_source_t *context = nullptr;
 
-	obs_data_t *getSettings();
-	std::string getPath();
-	void setPath(std::string path);
-	void prepReload();
-	bool needsReloading();
-	std::vector<ShaderParameter*> parameters();
-	void clearExpression();
-	void appendVariable(te_variable var);
+	obs_data_t                    *getSettings();
+	std::string                    getPath();
+	void                           setPath(std::string path);
+	void                           prepReload();
+	bool                           needsReloading();
+	std::vector<ShaderParameter *> parameters();
+	void                           clearExpression();
+	void                           appendVariable(te_variable var);
 
 	void compileExpression(std::string expresion = "");
 
-	template <class DataType>
-	DataType evaluateExpression(DataType default_value = 0);
-	bool expressionCompiled();
-	std::string expressionError();
+	template<class DataType> DataType evaluateExpression(DataType default_value = 0);
+	bool                              expressionCompiled();
+	std::string                       expressionError();
 
 	ShaderFilter(obs_data_t *settings, obs_source_t *source);
 	~ShaderFilter();
@@ -327,14 +294,14 @@ public:
 	void updateCache(gs_eparam_t *param);
 	void reload();
 
-	static void *create(obs_data_t *settings, obs_source_t *source);
-	static void destroy(void *data);
-	static const char *getName(void *unused);
-	static void videoTick(void *data, float seconds);
-	static void videoRender(void *data, gs_effect_t *effect);
-	static void update(void *data, obs_data_t *settings);
+	static void             *create(obs_data_t *settings, obs_source_t *source);
+	static void              destroy(void *data);
+	static const char       *getName(void *unused);
+	static void              videoTick(void *data, float seconds);
+	static void              videoRender(void *data, gs_effect_t *effect);
+	static void              update(void *data, obs_data_t *settings);
 	static obs_properties_t *getProperties(void *data);
-	static uint32_t getWidth(void *data);
-	static uint32_t getHeight(void *data);
-	static void getDefaults(obs_data_t *settings);
+	static uint32_t          getWidth(void *data);
+	static uint32_t          getHeight(void *data);
+	static void              getDefaults(obs_data_t *settings);
 };
