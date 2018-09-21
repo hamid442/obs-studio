@@ -1,22 +1,5 @@
 project(win-asio)
 
-##########################################
-# set architecture                       #
-##########################################
-if(CMAKE_SIZEOF_VOID_P EQUAL 8)
-	set(ARCH 64)
-else()
-	set(ARCH 32)
-endif()
-
-if(ARCH EQUAL 64)
-	set(OBS_ARCH_NAME "64bit")
-	set(OBS_BUILDDIR_ARCH "build64")
-else()
-	set(OBS_ARCH_NAME "32bit")
-	set(OBS_BUILDDIR_ARCH "build32")
-endif()
-
 set(CMAKE_PREFIX_PATH "${QTDIR}")
 set(CMAKE_INCLUDE_CURRENT_DIR ON)
 set(CMAKE_AUTOMOC ON)
@@ -28,7 +11,6 @@ find_package(Qt5Widgets REQUIRED)
 
 include_directories(
 	${CMAKE_SOURCE_DIR}/UI/obs-frontend-api
-	${CMAKE_SOURCE_DIR}/build/UI
 	${PORTAUDIO_INCLUDE_DIR}
 	${Qt5Core_INCLUDES}
 	${Qt5Widgets_INCLUDES}
@@ -49,9 +31,6 @@ set(win-asio_SOURCES
 set(win-asio_QRC
 	asio-input.qrc
 	)
-
-set(win-asio_UI
-	asioselector.ui)
 
 qt5_add_resources(win-asio_QRC_SOURCES ${win-asio_QRC})
 
