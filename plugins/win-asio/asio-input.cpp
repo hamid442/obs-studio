@@ -992,8 +992,12 @@ bool obs_module_load(void)
 	if (main_window) {
 		QAction *menu_action =
 				(QAction *)obs_frontend_add_tools_menu_qaction(obs_module_text("DeviceSettings"));
-
-		auto menu_cb = [] { device_selector->show(); };
+		
+		auto menu_cb = [] {
+			if (device_selector) {
+				device_selector->show();
+			}
+		};
 
 		menu_action->connect(menu_action, &QAction::triggered, menu_cb);
 	}
