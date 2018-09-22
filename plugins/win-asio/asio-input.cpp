@@ -210,8 +210,9 @@ int get_device_index(const char *device)
 // utility function checking if sample rate is supported by device
 bool canSamplerate(int device_index, int sample_rate)
 {
-	const PaDeviceInfo *deviceInfo = new PaDeviceInfo;
-	deviceInfo                     = Pa_GetDeviceInfo(device_index);
+	if (device_index < 0 || device_index >= getDeviceCount())
+		return false;
+	const PaDeviceInfo *deviceInfo = Pa_GetDeviceInfo(device_index);
 	PaStreamParameters outputParameters;
 	PaStreamParameters inputParameters;
 	PaError            err;
@@ -234,6 +235,7 @@ bool canSamplerate(int device_index, int sample_rate)
 	outputParameters.hostApiSpecificStreamInfo = NULL;
 
 	err = Pa_IsFormatSupported(&inputParameters, &outputParameters, (double)sample_rate);
+
 	return (err == paFormatIsSupported) ? true : false;
 }
 
