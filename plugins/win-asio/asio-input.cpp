@@ -36,6 +36,8 @@ along with this program.  If not, see <http://www.gnu.org/licenses/>.
 #include "portaudio.h"
 #include "pa_asio.h"
 #include <QWidget>
+#include <QMenu>
+#include <QMenuBar>
 #include <QMainWindow>
 #include <QWindow>
 #include <QAction>
@@ -565,6 +567,14 @@ void asio_get_defaults(obs_data_t *settings)
 	}
 }
 
+static bool device_menu(obs_properties_t *props, obs_property_t *property, void *data)
+{
+	if (device_selector) {
+		device_selector->show();
+	}
+	return false;
+};
+
 obs_properties_t *asio_get_properties(void *unused)
 {
 	obs_properties_t *props;
@@ -609,7 +619,8 @@ obs_properties_t *asio_get_properties(void *unused)
 	free(route_name);
 	free(route_obs);
 
-	console = obs_properties_add_button(props, "console", obs_module_text("ASIO driver control panel"),
+	obs_properties_add_button(props, "device_settings", obs_module_text("ASIO Device Settings"), device_menu);
+	console = obs_properties_add_button(props, "console", obs_module_text("ASIO Driver Control Panel"),
 			DeviceControlPanel);
 	std::string console_descr = "Make sure your settings in the Driver Control Panel\n"
 				    "for sample rate and buffer are consistent with what you\n"
@@ -788,6 +799,9 @@ static void startup_asio_device(uint32_t index, uint64_t buffer_size, double sam
 	device_list[index]->set_user_data(info);
 }
 
+// static std::vector<QAction*> device_switch_actions;
+static QActionGroup *device_switch_actions;
+
 static void update_device_selection(AsioSelector *selector)
 {
 	uint64_t index;
@@ -829,6 +843,11 @@ static void update_device_selection(AsioSelector *selector)
 					startup_asio_device(active_devices_tmp[0], buffer_size, sample_rate,
 							string_format);
 					active_devices_tmp.erase(active_devices_tmp.begin());
+					if (index < device_switch_actions->actions().count())
+						device_switch_actions->actions()[index]->setChecked(true);
+				} else {
+					if (index < device_switch_actions->actions().count())
+						device_switch_actions->actions()[index]->setChecked(false);
 				}
 			} else {
 				blog(LOG_INFO, "device info was null (line %i)", __LINE__);
@@ -838,6 +857,8 @@ static void update_device_selection(AsioSelector *selector)
 			paasio_data *info = (paasio_data *)device_list[index]->get_user_data();
 			if (info != NULL) {
 				close_asio_devices(info);
+				if (index < device_switch_actions->actions().count())
+					device_switch_actions->actions()[index]->setChecked(false);
 			} else {
 				blog(LOG_INFO, "device info was null (line %i)", __LINE__);
 			}
@@ -847,6 +868,8 @@ static void update_device_selection(AsioSelector *selector)
 			paasio_data *info = (paasio_data *)device_list[index]->get_user_data();
 			if (info != NULL) {
 				close_asio_devices(info);
+				if (index < device_switch_actions->actions().count())
+					device_switch_actions->actions()[index]->setChecked(false);
 			} else {
 				blog(LOG_INFO, "device info was null (line %i)", __LINE__);
 			}
@@ -990,9 +1013,10 @@ bool obs_module_load(void)
 	QMainWindow *main_window = (QMainWindow *)obs_frontend_get_main_window();
 
 	if (main_window) {
-		QAction *menu_action =
-				(QAction *)obs_frontend_add_tools_menu_qaction(obs_module_text("DeviceSettings"));
-		
+		QMenu   *asioMenu        = main_window->menuBar()->addMenu(obs_module_text("ASIO"));
+		QMenu   *deviceSelection = asioMenu->addMenu(obs_module_text("Active Device"));
+		QAction *menu_action     = asioMenu->addAction(obs_module_text("Settings"));
+
 		auto menu_cb = [] {
 			if (device_selector) {
 				device_selector->show();
@@ -1000,6 +1024,25 @@ bool obs_module_load(void)
 		};
 
 		menu_action->connect(menu_action, &QAction::triggered, menu_cb);
+		device_switch_actions = new QActionGroup(main_window);
+
+		for (int i = 0; i < numOfDevices; i++) {
+			deviceInfo             = Pa_GetDeviceInfo(i);
+			QAction *switch_device = deviceSelection->addAction(deviceInfo->name);
+			switch_device->setCheckable(true);
+			switch_device->setData(i);
+			device_switch_actions->addAction(switch_device);
+		}
+
+		auto switch_device_cb = [] {
+			QAction *device = device_switch_actions->checkedAction();
+			int      i      = device->data().toInt();
+			for (int index = 0; index < device_switch_actions->actions().count(); index++) {
+				device_selector->setDeviceActive(index, i == index);
+			}
+			update_device_selection(device_selector);
+		};
+		device_switch_actions->connect(device_switch_actions, &QActionGroup::triggered, switch_device_cb);
 	}
 
 	obs_register_source(&asio_input_capture);
