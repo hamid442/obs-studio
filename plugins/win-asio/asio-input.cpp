@@ -52,25 +52,6 @@ OBS_MODULE_USE_DEFAULT_LOCALE("win-asio", "en-US")
 
 #define blog(level, msg, ...) blog(level, "asio-input: " msg, ##__VA_ARGS__)
 
-#define NSEC_PER_SEC 1000000000LL
-
-#define TEXT_BUFFER_SIZE obs_module_text("BufferSize")
-#define TEXT_BUFFER_64_SAMPLES obs_module_text("64_samples")
-#define TEXT_BUFFER_128_SAMPLES obs_module_text("128_samples")
-#define TEXT_BUFFER_256_SAMPLES obs_module_text("256_samples")
-#define TEXT_BUFFER_512_SAMPLES obs_module_text("512_samples")
-#define TEXT_BUFFER_1024_SAMPLES obs_module_text("1024_samples")
-#define TEXT_BITDEPTH obs_module_text("BitDepth")
-
-/* The plugin is built on a client server architecture. The clients (listeners)
- * correspond to each asio source created by the user.
- * Since asio supports a single driver, all the clients must capture from the
- * same device. Whenever the device is changed for one client, it changes for all
- * clients. An important customization of the clients is that they can capture
- * different channels. For instance, say a device has 8 inputs; client 1 might
- * capture ch1 + ch2 and client 2 might instead capture ch5 + ch8.
- * The number of channels captured is set by obs output speaker layout. */
-
 static obs_data_t *module_settings;
 static char       *module_settings_path;
 AsioSelector      *device_selector;
@@ -195,18 +176,17 @@ int get_obs_output_channels()
 	// get channel number from output speaker layout set by obs
 	struct obs_audio_info aoi;
 	obs_get_audio_info(&aoi);
-	int recorded_channels = get_audio_channels(aoi.speakers);
-	return recorded_channels;
+	return (int)get_audio_channels(aoi.speakers);
 }
 
 // get asio device count: portaudio needs to be compiled with only asio support
 // or it will report more devices
 int getDeviceCount()
 {
-	int numDevices;
-	numDevices = Pa_GetDeviceCount();
+	int numDevices = Pa_GetDeviceCount();
 	if (numDevices < 0) {
-		blog(LOG_ERROR, "ERROR: Pa_CountDevices returned 0x%x\n", numDevices);
+		blog(LOG_ERROR, "Pa_CountDevices returned error code 0x%x\n", numDevices);
+		blog(LOG_ERROR, "PortAudio Error (line %i): %s\n", __LINE__, Pa_GetErrorText(numDevices));
 	}
 	return numDevices;
 }
@@ -294,7 +274,7 @@ static bool DeviceControlPanel(obs_properties_t *props, obs_property_t *property
 		if (err == 1) {
 			err = Pa_CloseStream(*(paasiodata->stream));
 			if (err != paNoError)
-				blog(LOG_ERROR, "PortAudio error : %s\n", Pa_GetErrorText(err));
+				blog(LOG_ERROR, "PortAudio Error (line %i): %s\n", __LINE__, Pa_GetErrorText(err));
 		}
 	}
 	err = Pa_Terminate();
@@ -307,14 +287,11 @@ static bool DeviceControlPanel(obs_properties_t *props, obs_property_t *property
 
 	err = PaAsio_ShowControlPanel(listener->device_index, asio_main_hwnd);
 
-	if (err == paNoError)
-		blog(LOG_INFO, "Console loaded for device %s with index %i\n", listener->get_id(),
-				listener->device_index);
-	else
-		blog(LOG_ERROR, "Could not load the Console panel; PortAudio error : %s\n", Pa_GetErrorText(err));
+	if (err != paNoError) {
+		blog(LOG_ERROR, "Could not open ASIO control panel");
+		blog(LOG_ERROR, "PortAudio Error (line %i): %s\n", __LINE__, Pa_GetErrorText(err));
+	}
 
-	// update round
-	// asio_update((void *)listener, paasiodata->settings);
 	update_device_selection(device_selector);
 
 	return true;
@@ -326,20 +303,11 @@ void fill_out_devices(obs_property_t *list)
 
 	const PaDeviceInfo *deviceInfo   = NULL;
 	int                 numOfDevices = getDeviceCount();
-	blog(LOG_INFO, "ASIO Devices: %i\n", numOfDevices);
 	// Scan through devices for various capabilities
 	for (int i = 0; i < numOfDevices; i++) {
 		deviceInfo = Pa_GetDeviceInfo(i);
-		if (deviceInfo) {
-			blog(LOG_INFO, "device  %i = %s\n", i, deviceInfo->name);
-			blog(LOG_INFO, ": maximum input channels = %i\n", deviceInfo->maxInputChannels);
-			blog(LOG_INFO, ": maximum output channels = %i\n", deviceInfo->maxInputChannels);
-			blog(LOG_INFO, "list ASIO Devices: %i\n", numOfDevices);
-			blog(LOG_INFO, "device %i  = %s added successfully.\n", i, deviceInfo->name);
+		if (deviceInfo)
 			obs_property_list_add_string(list, deviceInfo->name, deviceInfo->name);
-		} else {
-			blog(LOG_INFO, "device %i  = %s could not be added: driver issue.\n", i, deviceInfo->name);
-		}
 	}
 }
 
@@ -468,7 +436,6 @@ static void *asio_create(obs_data_t *settings, obs_source_t *source)
 	data->source      = source;
 	data->first_ts    = 0;
 	data->device_name = "";
-	//	data->parameters = NULL;
 	/* The listener created by the asio source is added to the global listener
 	 * vector. */
 
@@ -506,7 +473,6 @@ void asio_update(void *vptr, obs_data_t *settings)
 	asio_listener *listener  = (asio_listener *)vptr;
 	paasio_data   *user_data = (paasio_data *)listener->get_user_data();
 	const char    *device;
-	// const PaDeviceInfo *deviceInfo = NULL;
 	int cur_index;
 	int route[MAX_AUDIO_CHANNELS];
 
@@ -519,8 +485,6 @@ void asio_update(void *vptr, obs_data_t *settings)
 
 	device    = obs_data_get_string(settings, "device_id");
 	cur_index = get_device_index(device);
-
-	// deviceInfo = Pa_GetDeviceInfo(selected_device);
 
 	// if we have a valid selected index for a device, connect a listener thread
 	if (cur_index != -1 && cur_index < getDeviceCount()) {
@@ -559,7 +523,6 @@ const char *asio_get_name(void *unused)
 void asio_get_defaults(obs_data_t *settings)
 {
 	// For the second and later clients, use the first listener settings as defaults.
-
 	int recorded_channels = get_obs_output_channels();
 	for (unsigned int i = 0; i < recorded_channels; i++) {
 		std::string name = "route " + std::to_string(i);
@@ -584,7 +547,6 @@ obs_properties_t *asio_get_properties(void *unused)
 	obs_property_t   *buffer_size;
 	obs_property_t   *console;
 	obs_property_t   *route[MAX_AUDIO_CHANNELS];
-	int               pad_digits = (int)floor(log10(abs(MAX_AUDIO_CHANNELS))) + 1;
 
 	UNUSED_PARAMETER(unused);
 
@@ -594,38 +556,22 @@ obs_properties_t *asio_get_properties(void *unused)
 			OBS_COMBO_FORMAT_STRING);
 	obs_property_set_modified_callback(devices, asio_device_changed);
 	fill_out_devices(devices);
-	std::string dev_descr = "ASIO devices.\n"
-				"OBS-Studio supports for now a single ASIO source.\n"
-				"But duplication of an ASIO source in different scenes is still possible";
-	obs_property_set_long_description(devices, dev_descr.c_str());
+	obs_property_set_long_description(devices, obs_module_text("ASIO Devices"));
 
 	unsigned int recorded_channels = get_obs_output_channels();
 
-	std::string route_descr =
-			"For each OBS output channel, pick one\n of the input channels of your ASIO device.\n";
-	const char *route_name_format = "route %i";
-	char       *route_name        = new char[strlen(route_name_format) + pad_digits];
-
-	const char *route_obs_format = "Route.%i";
-	char       *route_obs        = new char[strlen(route_obs_format) + pad_digits];
 	for (size_t i = 0; i < recorded_channels; i++) {
-		sprintf(route_name, route_name_format, i);
-		sprintf(route_obs, route_obs_format, i);
-		route[i] = obs_properties_add_list(props, route_name, obs_module_text(route_obs), OBS_COMBO_TYPE_LIST,
+		route[i] = obs_properties_add_list(props, ("route " + std::to_string(i)).c_str(),
+				obs_module_text(("Route." + std::to_string(i)).c_str()), OBS_COMBO_TYPE_LIST,
 				OBS_COMBO_FORMAT_INT);
-		obs_property_set_long_description(route[i], route_descr.c_str());
+		obs_property_set_long_description(route[i], obs_module_text(("Route.Desc." + std::to_string(i)).c_str()));
 	}
 
-	free(route_name);
-	free(route_obs);
-
 	obs_properties_add_button(props, "device_settings", obs_module_text("ASIO Device Settings"), device_menu);
-	console = obs_properties_add_button(props, "console", obs_module_text("ASIO Driver Control Panel"),
+	console = obs_properties_add_button(props, "console", obs_module_text("ASIO Device Control Panel"),
 			DeviceControlPanel);
-	std::string console_descr = "Make sure your settings in the Driver Control Panel\n"
-				    "for sample rate and buffer are consistent with what you\n"
-				    "have set in OBS.";
-	obs_property_set_long_description(console, console_descr.c_str());
+
+	obs_property_set_long_description(console, obs_module_text("Console.Desc"));
 	obs_property_t *button = obs_properties_add_button(props, "credits", obs_module_text("Credits"), credits);
 
 	return props;
@@ -643,12 +589,10 @@ std::vector<uint64_t> get_buffer_sizes(int index)
 
 	err = PaAsio_GetAvailableBufferSizes(index, &minBuf, &maxBuf, &BufPref, &gran);
 	if (err != paNoError) {
-		blog(LOG_ERROR,
-				"Could not retrieve Buffer sizes.\n"
-				"PortAudio error: %s\n",
-				Pa_GetErrorText(err));
+		blog(LOG_ERROR, "Could not retrieve Buffer sizes.");
+		blog(LOG_ERROR, "PortAudio Error (line %i): %s\n", __LINE__, Pa_GetErrorText(err));
 	} else {
-		blog(LOG_INFO, "minBuf = %i; maxbuf = %i; bufPref = %i ; gran = %i\n", minBuf, maxBuf, BufPref, gran);
+		blog(LOG_DEBUG, "Device %i [minBuf: %i, maxbuf: %i, bufPref: %i, gran: %i]", index, minBuf, maxBuf, BufPref, gran);
 	}
 
 	if (gran == -1) {
@@ -750,8 +694,7 @@ static void close_asio_devices(paasio_data *paasiodata)
 	if (paasiodata && paasiodata->stream && *(paasiodata->stream)) {
 		if (needsClosing) {
 			err = Pa_CloseStream(*(paasiodata->stream));
-			while ((err = Pa_IsStreamActive(*(paasiodata->stream))) == 1)
-				;
+			while ((err = Pa_IsStreamActive(*(paasiodata->stream))) == 1);
 		}
 	}
 }
@@ -850,7 +793,7 @@ static void update_device_selection(AsioSelector *selector)
 						device_switch_actions->actions()[index]->setChecked(false);
 				}
 			} else {
-				blog(LOG_INFO, "device info was null (line %i)", __LINE__);
+				blog(LOG_WARNING, "Device info was null (line %i)", __LINE__);
 			}
 		}
 		for (; index < selector->getNumberOfDevices(); index++) {
@@ -860,7 +803,7 @@ static void update_device_selection(AsioSelector *selector)
 				if (index < device_switch_actions->actions().count())
 					device_switch_actions->actions()[index]->setChecked(false);
 			} else {
-				blog(LOG_INFO, "device info was null (line %i)", __LINE__);
+				blog(LOG_WARNING, "Device info was null (line %i)", __LINE__);
 			}
 		}
 	} else {
@@ -871,7 +814,7 @@ static void update_device_selection(AsioSelector *selector)
 				if (index < device_switch_actions->actions().count())
 					device_switch_actions->actions()[index]->setChecked(false);
 			} else {
-				blog(LOG_INFO, "device info was null (line %i)", __LINE__);
+				blog(LOG_WARNING, "Device info was null (line %i)", __LINE__);
 			}
 		}
 		obs_data_set_string(module_settings, "device_id", "");
@@ -957,7 +900,7 @@ bool obs_module_load(void)
 	device_selector->set_use_minimal_latency_visibliity(false);
 	device_selector->set_use_optimal_format_visibility(false);
 	device_selector->set_device_timing_visibility(false);
-	device_selector->setWindowTitle(obs_module_text("DeviceSettings"));
+	device_selector->setWindowTitle(obs_module_text("ASIO Device Settings"));
 
 	if (module_settings_path == NULL) {
 		char *tmp            = obs_module_config_path("asio_device.json");
@@ -976,13 +919,11 @@ bool obs_module_load(void)
 	for (int i = 0; i < numOfDevices; i++) {
 		deviceInfo = Pa_GetDeviceInfo(i);
 		if (deviceInfo) {
-			blog(LOG_INFO, "device %i = %s\n", i, deviceInfo->name);
-			blog(LOG_INFO, ": maximum input channels = %i\n", deviceInfo->maxInputChannels);
-			blog(LOG_INFO, ": maximum output channels = %i\n", deviceInfo->maxInputChannels);
-			blog(LOG_INFO, "list ASIO Devices: %i\n", numOfDevices);
-			blog(LOG_INFO, "device %i  = %s added successfully.\n", i, deviceInfo->name);
+			blog(LOG_INFO, "Device %i = %s [inputs: %i, outputs: %i]", i, deviceInfo->name,
+					deviceInfo->maxInputChannels, deviceInfo->maxInputChannels);
 		} else {
-			blog(LOG_INFO, "device %i = %s could not be added: driver issue.\n", i, deviceInfo->name);
+			blog(LOG_INFO, "Device %i could not be added.\n", i);
+			blog(LOG_WARNING, "Device info was null (line %i)", __LINE__);
 		}
 		device_buffer *device                = new device_buffer();
 		device->device_index                 = i;
@@ -1095,7 +1036,7 @@ void obs_module_unload(void)
 
 	bool saved = obs_data_save_json_safe(module_settings, module_settings_path, ".tmp", ".bak");
 	if (!saved)
-		blog(LOG_INFO, "Asio Settings were not saved to %s", module_settings_path);
+		blog(LOG_INFO, "ASIO Settings were not saved to %s", module_settings_path);
 	if (module_settings_path != NULL)
 		bfree(module_settings_path);
 	module_settings_path = NULL;

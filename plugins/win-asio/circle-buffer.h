@@ -517,8 +517,14 @@ public:
 
 		audio_format planar_format = get_planar_format(format);
 		//deinterleave directly into buffer (planar)
-		for (size_t j = 0; j < device_options.channel_count; j++) {
-			memcpy(_source_audio->data[j], input_buffer[j], ch_buffer_size);		
+		if (input_buffer) {
+			for (size_t j = 0; j < device_options.channel_count; j++) {
+				memcpy(_source_audio->data[j], input_buffer[j], ch_buffer_size);
+			}
+		} else {
+			for (size_t j = 0; j < device_options.channel_count; j++) {
+				memset(_source_audio->data[j], 0, ch_buffer_size);
+			}
 		}
 
 		_source_audio->format = planar_format;

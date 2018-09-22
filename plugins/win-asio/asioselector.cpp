@@ -7,6 +7,9 @@ AsioSelector::AsioSelector(QWidget* parent) : QMainWindow(parent), ui(new Ui::As
 	this->load_callback    = NULL;
 	this->save_as_callback = NULL;
 	this->save_callback    = NULL;
+	menuBar()->hide();
+	ui->mainToolBar->hide();
+	ui->statusBar->hide();
 }
 
 AsioSelector::~AsioSelector()
@@ -139,8 +142,6 @@ void AsioSelector::on_okButton_clicked()
 		this->_use_minimal_latency[selected_device] = ui->lowestLatency->isChecked();
 	}
 	ui->actionSave->trigger();
-	// if(this->save_callback != NULL)
-	// this->save_callback(this);
 	this->close();
 }
 
@@ -174,8 +175,6 @@ void AsioSelector::on_applyButton_clicked()
 		this->_use_minimal_latency[selected_device] = ui->lowestLatency->isChecked();
 	}
 	ui->actionSave->trigger();
-	// if(this->save_callback != NULL)
-	// this->save_callback(this);
 }
 
 void AsioSelector::on_defaultsButton_clicked()
