@@ -239,28 +239,6 @@ bool canSamplerate(int device_index, int sample_rate)
 	return (err == paFormatIsSupported) ? true : false;
 }
 
-/* ========================================================================== */
-/*     callbacks called from asio_get_properties when a setting is changed    */
-/*     as well as methods for filling the properties asio menu                */
-/* ========================================================================== */
-
-// version of plugin
-static bool credits(obs_properties_t *props, obs_property_t *property, void *data)
-{
-	QMainWindow *main_window = (QMainWindow *)obs_frontend_get_main_window();
-	QMessageBox  mybox(main_window);
-	QString      text = "(c) 2018, license GPL v2 or later:\r\n"
-		       "v.1.0.0\r\n"
-		       "Andersama <anderson.john.alexander@gmail.com>\r\n"
-		       "pkv \r\n <pkv.stream@gmail.com>\r\n";
-	mybox.setText(text);
-	mybox.setIconPixmap(QPixmap(":/res/images/asiologo.png"));
-	mybox.setWindowTitle(QString("Credits: obs-asio"));
-	mybox.exec();
-
-	return true;
-}
-
 // calls the driver control panel; Portaudio code is quite contrived btw.
 static bool DeviceControlPanel(obs_properties_t *props, obs_property_t *property, void *data)
 {
@@ -574,7 +552,6 @@ obs_properties_t *asio_get_properties(void *unused)
 			DeviceControlPanel);
 
 	obs_property_set_long_description(console, obs_module_text("Console.Desc"));
-	obs_property_t *button = obs_properties_add_button(props, "credits", obs_module_text("Credits"), credits);
 
 	return props;
 }
@@ -959,6 +936,7 @@ bool obs_module_load(void)
 		QMenu   *asioMenu        = main_window->menuBar()->addMenu(obs_module_text("ASIO"));
 		QMenu   *deviceSelection = asioMenu->addMenu(obs_module_text("Active Device"));
 		QAction *menu_action     = asioMenu->addAction(obs_module_text("Settings"));
+		QAction *creditsAction   = asioMenu->addAction(obs_module_text("About"));
 
 		auto menu_cb = [] {
 			if (device_selector) {
@@ -966,7 +944,22 @@ bool obs_module_load(void)
 			}
 		};
 
+		auto about_cb = [] {
+			QMainWindow *main_window = (QMainWindow *)obs_frontend_get_main_window();
+			QMessageBox  mybox(main_window);
+			QString      text = "(c) 2018, license GPL v2 or later:\r\n"
+					"v.1.0.0\r\n"
+					"Plugin Authors:\r\n"
+					"Andersama\r\n<anderson.john.alexander@gmail.com>\r\n"
+					"pkv\r\n<pkv.stream@gmail.com>\r\n";
+			mybox.setText(text);
+			mybox.setIconPixmap(QPixmap(":/res/images/asiologo.png"));
+			mybox.setWindowTitle(QString("About"));
+			mybox.exec();
+		};
+
 		menu_action->connect(menu_action, &QAction::triggered, menu_cb);
+		creditsAction->connect(creditsAction, &QAction::triggered, about_cb);
 		device_switch_actions = new QActionGroup(main_window);
 
 		for (int i = 0; i < numOfDevices; i++) {
