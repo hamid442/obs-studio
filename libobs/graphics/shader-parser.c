@@ -18,32 +18,67 @@
 #include "../util/platform.h"
 #include "shader-parser.h"
 
+static enum gs_shader_param_type gs_shader_param_range(const char *type,
+		const char *search, enum gs_shader_param_type invalid,
+		enum gs_shader_param_type single,
+		enum gs_shader_param_type range_1,
+		enum gs_shader_param_type range_2)
+{
+	if (!type || !search)
+		return invalid;
+	size_t len = strlen(search);
+	if (astrcmp_n(type, search, len) == 0) {
+		uint32_t x;
+		uint32_t y;
+		char *check = type + len;
+		while (check && *check != '\0') {
+			if (*check == '+' || *check == '-')
+				return invalid;
+			check++;
+		}
+		int read = sscanf(type + len, "%ux%u", &x, &y);
+		if (read == EOF)
+			return single;
+		if (read == 1) {
+			if (x < 1 || x > 4)
+				return invalid;
+			if (x == 1)
+				return single;
+			else
+				return range_1 + (x - 2);
+		} else if (read == 2) {
+			if (x < 1 || x > 4 || y < 1 || y > 4)
+				return invalid;
+			x = x * y;
+			if (x == 1)
+				return single;
+			else if (x <= 4)
+				return range_1 + (x - 2);
+			else if (x == 16)
+				return range_2;
+		}
+		return invalid;
+	}
+	return invalid;
+}
+
 enum gs_shader_param_type get_shader_param_type(const char *type)
 {
-	if (strcmp(type, "float") == 0)
-		return GS_SHADER_PARAM_FLOAT;
-	else if (strcmp(type, "float2") == 0)
-		return GS_SHADER_PARAM_VEC2;
-	else if (strcmp(type, "float3") == 0)
-		return GS_SHADER_PARAM_VEC3;
-	else if (strcmp(type, "float4") == 0)
-		return GS_SHADER_PARAM_VEC4;
-	else if (strcmp(type, "int2") == 0)
-		return GS_SHADER_PARAM_INT2;
-	else if (strcmp(type, "int3") == 0)
-		return GS_SHADER_PARAM_INT3;
-	else if (strcmp(type, "int4") == 0)
-		return GS_SHADER_PARAM_INT4;
-	else if (astrcmp_n(type, "texture", 7) == 0)
+	if (astrcmp_n(type, "float", 5) == 0) {
+		return gs_shader_param_range(type, "float",
+			GS_SHADER_PARAM_UNKNOWN, GS_SHADER_PARAM_FLOAT,
+			GS_SHADER_PARAM_VEC2, GS_SHADER_PARAM_MATRIX4X4);
+	} else if (astrcmp_n(type, "int", 3) == 0) {
+		return gs_shader_param_range(type, "int",
+			GS_SHADER_PARAM_UNKNOWN, GS_SHADER_PARAM_INT,
+			GS_SHADER_PARAM_INT2, GS_SHADER_PARAM_UNKNOWN);
+	} else if (astrcmp_n(type, "texture", 7) == 0) {
 		return GS_SHADER_PARAM_TEXTURE;
-	else if (strcmp(type, "float4x4") == 0)
-		return GS_SHADER_PARAM_MATRIX4X4;
-	else if (strcmp(type, "bool") == 0)
+	} else if (strcmp(type, "bool") == 0) {
 		return GS_SHADER_PARAM_BOOL;
-	else if (strcmp(type, "int") == 0)
-		return GS_SHADER_PARAM_INT;
-	else if (strcmp(type, "string") == 0)
+	} else if (strcmp(type, "string") == 0) {
 		return GS_SHADER_PARAM_STRING;
+	}
 
 	return GS_SHADER_PARAM_UNKNOWN;
 }
