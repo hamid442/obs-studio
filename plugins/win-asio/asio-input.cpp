@@ -60,7 +60,7 @@ static void       update_device_selection(AsioSelector *selector);
 void              listener_update(void *vptr, obs_data_t *settings);
 void              asio_update(void *vptr, obs_data_t *settings);
 void              asio_destroy(void *vptr);
-obs_properties_t *asio_get_properties(void *unused);
+obs_properties_t *asio_get_properties(void *unused, void *type_data);
 void              asio_get_defaults(obs_data_t *settings);
 
 /* main structs */
@@ -534,15 +534,19 @@ void asio_get_defaults(obs_data_t *settings)
 	}
 }
 
-static bool device_menu(obs_properties_t *props, obs_property_t *property, void *data)
+static bool device_menu(obs_properties_t *props, obs_property_t *property, void *vptr)
 {
+	asio_listener *listener = (asio_listener *)vptr;
 	if (device_selector) {
+		device_selector->setSelectedDevice(listener->device_index);
 		device_selector->show();
+		device_selector->activateWindow();
+		device_selector->raise();
 	}
 	return false;
 };
 
-obs_properties_t *asio_get_properties(void *unused)
+obs_properties_t *asio_get_properties(void *vptr)
 {
 	obs_properties_t *props;
 	obs_property_t   *devices;
@@ -551,8 +555,6 @@ obs_properties_t *asio_get_properties(void *unused)
 	obs_property_t   *buffer_size;
 	obs_property_t   *console;
 	obs_property_t   *route[MAX_AUDIO_CHANNELS];
-
-	UNUSED_PARAMETER(unused);
 
 	props = obs_properties_create();
 	obs_properties_set_flags(props, OBS_PROPERTIES_DEFER_UPDATE);
@@ -571,7 +573,7 @@ obs_properties_t *asio_get_properties(void *unused)
 		obs_property_set_long_description(route[i], obs_module_text(("Route.Desc." + std::to_string(i)).c_str()));
 	}
 
-	obs_properties_add_button(props, "device_settings", obs_module_text("ASIO Device Settings"), device_menu);
+	obs_properties_add_button2(props, "device_settings", obs_module_text("ASIO Device Settings"), device_menu, vptr);
 	console = obs_properties_add_button(props, "console", obs_module_text("ASIO Device Control Panel"),
 			DeviceControlPanel);
 
@@ -787,17 +789,17 @@ static void update_device_selection(AsioSelector *selector)
 			if (info != NULL) {
 				close_asio_devices(info);
 				uint32_t channels = (uint32_t)info->info->commonDeviceInfo.maxInputChannels;
-				if (buffer_size > 0 && channels > 0) {
+				if (buffer_size > 0 && channels > 0 && sample_rate > 0) {
 					device_list[index]->prep_circle_buffer(buffer_size);
 					device_list[index]->prep_buffers(buffer_size,
 							channels, t, (uint32_t)sample_rate);
 
-					startup_asio_device(active_devices_tmp[0], buffer_size, sample_rate, format);
+					startup_asio_device(index, buffer_size, sample_rate, format);
 				}
 				if (index < device_switch_actions->actions().count())
 					device_switch_actions->actions()[index]->setChecked(true);
 			} else {
-
+				blog(LOG_WARNING, "Device info was null (line %i)", __LINE__);
 			}
 		} else {
 			obs_data_set_bool(item, "_device_active", false);

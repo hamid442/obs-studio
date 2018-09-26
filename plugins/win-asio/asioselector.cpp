@@ -114,34 +114,7 @@ void AsioSelector::addDevice(std::string device_name, std::vector<double> sample
 
 void AsioSelector::on_okButton_clicked()
 {
-	if (selected_device >= 0 && selected_device < ui->asioDevicesList->count()) {
-		this->current_sample_rate[selected_device] = ui->asioSampleRate->currentData().toDouble();
-		this->current_buffer_size[selected_device] = ui->asioBufferSize->currentData().toULongLong();
-		this->current_audio_format[selected_device] =
-				ui->asioDataFormat->currentData().toString().toUtf8().constData();
-
-		if (unique_active_device) {
-			if (ui->activeDevice->isChecked()) {
-				size_t i = 0;
-				for (; i < selected_device; i++) {
-					this->_device_active[i] = false;
-				}
-				this->_device_active[selected_device] = true;
-				i++;
-				for (; i < this->_device_active.size(); i++) {
-					this->_device_active[i] = false;
-				}
-			} else {
-				this->_device_active[selected_device] = false;
-			}
-		} else {
-			this->_device_active[selected_device] = ui->activeDevice->isChecked();
-		}
-		this->_use_optimal_format[selected_device]  = ui->optimalFormat->isChecked();
-		this->_use_device_timing[selected_device]   = ui->deviceTiming->isChecked();
-		this->_use_minimal_latency[selected_device] = ui->lowestLatency->isChecked();
-	}
-	ui->actionSave->trigger();
+	on_applyButton_clicked();
 	this->close();
 }
 
@@ -196,6 +169,11 @@ void AsioSelector::on_defaultsButton_clicked()
 		ui->optimalFormat->setChecked(true);
 		ui->deviceTiming->setChecked(false);
 	}
+}
+
+void AsioSelector::setSelectedDevice(uint32_t index)
+{
+	ui->asioDevicesList->setCurrentRow(index);
 }
 
 void AsioSelector::on_asioDevicesList_currentRowChanged(int currentRow)

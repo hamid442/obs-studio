@@ -51,6 +51,8 @@ public:
 		return selected_device;
 	}
 
+	void setSelectedDevice(uint32_t index);
+
 	std::vector<uint32_t> getActiveDevices();
 
 	size_t getNumberOfDevices();
@@ -77,49 +79,66 @@ public:
 
 	double getSampleRateForDevice(uint32_t index)
 	{
-		return current_sample_rate[index];
+		if (index >= 0 && index < getNumberOfDevices())
+			return current_sample_rate[index];
+		return 0.0;
 	}
 
 	uint64_t getBufferSizeForDevice(uint32_t index)
 	{
-		return current_buffer_size[index];
+		if (index >= 0 && index < getNumberOfDevices())
+			return current_buffer_size[index];
+		return 0;
 	}
 
 	std::string getAudioFormatForDevice(uint32_t index)
 	{
-		return current_audio_format[index];
+		if (index >= 0 && index < getNumberOfDevices())
+			return current_audio_format[index];
+		return "";
 	}
 
 	double getDefaultSampleRateForDevice(uint32_t index)
 	{
-		return default_sample_rate[index];
+		if (index >= 0 && index < getNumberOfDevices())
+			return default_sample_rate[index];
+		return 0.0;
 	}
 
 	uint64_t getDefaultBufferSizeForDevice(uint32_t index)
 	{
-		return default_buffer_size[index];
+		if (index >= 0 && index < getNumberOfDevices())
+			return default_buffer_size[index];
 	}
 
 	bool getUseOptimalFormat(uint32_t index)
 	{
-		return _use_optimal_format[index];
+		if (index >= 0 && index < getNumberOfDevices())
+			return _use_optimal_format[index];
+		return true;
 	}
 
 	bool getUseDeviceTiming(uint32_t index)
 	{
-		return _use_device_timing[index];
+		if (index >= 0 && index < getNumberOfDevices())
+			return _use_device_timing[index];
+		return true;
 	}
 
 	bool getUseMinimalLatency(uint32_t index)
 	{
-		return _use_minimal_latency[index];
+		if (index >= 0 && index < getNumberOfDevices())
+			return _use_minimal_latency[index];
+		return true;
 	}
 
 	std::string getDeviceName(uint32_t index);
 
 	std::string getDefaultAudioFormatForDevice(uint32_t index)
 	{
-		return default_audio_format[index];
+		if (index >= 0 && index < getNumberOfDevices())
+			return default_audio_format[index];
+		return "";
 	}
 
 	std::vector<double> getSampleRatesForDevice(uint32_t index)
