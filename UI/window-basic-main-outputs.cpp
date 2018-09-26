@@ -1,6 +1,7 @@
 #include <string>
 #include <algorithm>
 #include <QMessageBox>
+#include <qdesktopservices.h>
 #include "qt-wrappers.hpp"
 #include "audio-encoders.hpp"
 #include "window-basic-main.hpp"
