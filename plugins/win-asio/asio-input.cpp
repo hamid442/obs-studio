@@ -57,6 +57,7 @@ static char       *module_settings_path;
 AsioSelector      *device_selector;
 
 static void       update_device_selection(AsioSelector *selector);
+void              listener_update(void *vptr, obs_data_t *settings);
 void              asio_update(void *vptr, obs_data_t *settings);
 void              asio_destroy(void *vptr);
 obs_properties_t *asio_get_properties(void *unused);
@@ -426,7 +427,8 @@ static void *asio_create(obs_data_t *settings, obs_source_t *source)
 
 	listener_list.push_back(data);
 
-	asio_update(data, settings);
+	listener_update(data, settings);
+	//asio_update(data, settings);
 
 	return data;
 }
@@ -447,14 +449,12 @@ void asio_destroy(void *vptr)
 	delete data;
 }
 
-/* set all settings to listener, update global settings, open and start audio stream */
-void asio_update(void *vptr, obs_data_t *settings)
+void listener_update(void *vptr, obs_data_t *settings)
 {
 	asio_listener *listener  = (asio_listener *)vptr;
-	paasio_data   *user_data = (paasio_data *)listener->get_user_data();
-	const char    *device;
-	int cur_index;
-	int route[MAX_AUDIO_CHANNELS];
+	paasio_data *  user_data = (paasio_data *)listener->get_user_data();
+	const char *   device;
+	int            route[MAX_AUDIO_CHANNELS];
 
 	// get channel number from output speaker layout set by obs
 	int recorded_channels    = get_obs_output_channels();
@@ -463,8 +463,8 @@ void asio_update(void *vptr, obs_data_t *settings)
 	device                   = obs_data_get_string(module_settings, "device_id");
 	uint64_t selected_device = get_device_index(device);
 
-	device    = obs_data_get_string(settings, "device_id");
-	cur_index = get_device_index(device);
+	device        = obs_data_get_string(settings, "device_id");
+	int cur_index = get_device_index(device);
 
 	// if we have a valid selected index for a device, connect a listener thread
 	if (cur_index != -1 && cur_index < getDeviceCount()) {
@@ -488,9 +488,33 @@ void asio_update(void *vptr, obs_data_t *settings)
 		listener->disconnect();
 		/* connects the listener to the server */
 		devicebuf->add_listener(listener);
+		std::vector<uint32_t> active_devices = device_selector->getActiveDevices();
 	} else {
 		listener->device_index = selected_device;
 		listener->disconnect();
+	}
+}
+
+/* set all settings to listener, update global settings, open and start audio stream */
+void asio_update(void *vptr, obs_data_t *settings)
+{
+	asio_listener *listener  = (asio_listener *)vptr;
+	paasio_data   *user_data = (paasio_data *)listener->get_user_data();
+	const char    *device;
+
+	device    = obs_data_get_string(settings, "device_id");
+	int cur_index = get_device_index(device);
+
+	listener_update(vptr, settings);
+
+	// if we have a valid selected index for a device, connect a listener thread
+	if (cur_index >= 0 && cur_index < getDeviceCount()) {
+		std::vector<uint32_t> active_devices = device_selector->getActiveDevices();
+		if (!active_devices.size()) {
+			for (size_t i = 0; i < device_selector->getNumberOfDevices(); i++)
+				device_selector->setDeviceActive(i, i == cur_index);
+			update_device_selection(device_selector);
+		}
 	}
 }
 
@@ -740,83 +764,50 @@ static void update_device_selection(AsioSelector *selector)
 	if (err != paNoError)
 		blog(LOG_ERROR, "PortAudio Error (line %i): %s\n", __LINE__, Pa_GetErrorText(err));
 
-	// we have a selected device, update it
-	if (active_devices_tmp.size() > 0) {
-		for (index = 0; index < selector->getNumberOfDevices() && active_devices_tmp.size() > 0; index++) {
-			std::string active_device = selector->getDeviceName(active_devices_tmp[0]);
-			obs_data_set_string(module_settings, "device_id", active_device.c_str());
-
-			uint64_t    buffer_size   = selector->getBufferSizeForDevice(active_devices_tmp[0]);
-			double      sample_rate   = selector->getSampleRateForDevice(active_devices_tmp[0]);
-			std::string string_format = selector->getAudioFormatForDevice(active_devices_tmp[0]);
-
-			paasio_data *info = (paasio_data *)device_list[index]->get_user_data();
-
-			if (info != NULL) {
-				close_asio_devices(info);
-				if (active_devices_tmp.size() > 0 && active_devices_tmp[0] == index) {
-					audio_format t = string_to_obs_audio_format(string_format);
-					device_list[index]->prep_circle_buffer(buffer_size);
-					device_list[index]->prep_buffers(buffer_size,
-							(uint32_t)info->info->commonDeviceInfo.maxInputChannels,
-							string_to_obs_audio_format(string_format),
-							(uint32_t)sample_rate);
-
-					startup_asio_device(active_devices_tmp[0], buffer_size, sample_rate,
-							string_format);
-					active_devices_tmp.erase(active_devices_tmp.begin());
-					if (index < device_switch_actions->actions().count())
-						device_switch_actions->actions()[index]->setChecked(true);
-				} else {
-					if (index < device_switch_actions->actions().count())
-						device_switch_actions->actions()[index]->setChecked(false);
-				}
-			} else {
-				blog(LOG_WARNING, "Device info was null (line %i)", __LINE__);
-			}
-		}
-		for (; index < selector->getNumberOfDevices(); index++) {
-			paasio_data *info = (paasio_data *)device_list[index]->get_user_data();
-			if (info != NULL) {
-				close_asio_devices(info);
-				if (index < device_switch_actions->actions().count())
-					device_switch_actions->actions()[index]->setChecked(false);
-			} else {
-				blog(LOG_WARNING, "Device info was null (line %i)", __LINE__);
-			}
-		}
-	} else {
-		for (index = 0; index < selector->getNumberOfDevices(); index++) {
-			paasio_data *info = (paasio_data *)device_list[index]->get_user_data();
-			if (info != NULL) {
-				close_asio_devices(info);
-				if (index < device_switch_actions->actions().count())
-					device_switch_actions->actions()[index]->setChecked(false);
-			} else {
-				blog(LOG_WARNING, "Device info was null (line %i)", __LINE__);
-			}
-		}
-		obs_data_set_string(module_settings, "device_id", "");
-	}
-
 	active_devices_tmp      = active_devices;
 	obs_data_array_t *array = obs_data_array_create();
 	for (index = 0; index < selector->getNumberOfDevices(); index++) {
 		obs_data_t *item         = obs_data_create();
 		uint64_t    buffer_size  = selector->getBufferSizeForDevice(index);
 		double      sample_rate  = selector->getSampleRateForDevice(index);
-		std::string audio_format = selector->getAudioFormatForDevice(index);
+		std::string format = selector->getAudioFormatForDevice(index);
 		std::string device_name  = selector->getDeviceName(index);
+
+		paasio_data *info = (paasio_data *)device_list[index]->get_user_data();
 
 		obs_data_set_string(item, "device_id", device_name.c_str());
 		obs_data_set_int(item, "buffer_size", buffer_size);
 		obs_data_set_double(item, "sample_rate", sample_rate);
-		obs_data_set_string(item, "audio_format", audio_format.c_str());
+		obs_data_set_string(item, "audio_format", format.c_str());
+
 		if (active_devices_tmp.size() > 0 && active_devices_tmp[0] == index) {
 			obs_data_set_bool(item, "_device_active", true);
 			active_devices_tmp.erase(active_devices_tmp.begin());
+			audio_format t = string_to_obs_audio_format(format);
+			if (info != NULL) {
+				close_asio_devices(info);
+				uint32_t channels = (uint32_t)info->info->commonDeviceInfo.maxInputChannels;
+				if (buffer_size > 0 && channels > 0) {
+					device_list[index]->prep_circle_buffer(buffer_size);
+					device_list[index]->prep_buffers(buffer_size,
+							channels, t, (uint32_t)sample_rate);
+
+					startup_asio_device(active_devices_tmp[0], buffer_size, sample_rate, format);
+				}
+				if (index < device_switch_actions->actions().count())
+					device_switch_actions->actions()[index]->setChecked(true);
+			} else {
+
+			}
 		} else {
 			obs_data_set_bool(item, "_device_active", false);
+			if (info != NULL) {
+				close_asio_devices(info);
+				if (index < device_switch_actions->actions().count())
+					device_switch_actions->actions()[index]->setChecked(false);
+			} else {
+				blog(LOG_WARNING, "Device info was null (line %i)", __LINE__);
+			}
 		}
 		obs_data_array_push_back(array, item);
 		obs_data_release(item);
@@ -829,7 +820,7 @@ static void update_device_selection(AsioSelector *selector)
 
 	for (size_t i = 0; i < listener_list.size(); i++) {
 		paasio_data *info = (paasio_data *)listener_list[i]->get_user_data();
-		asio_update(listener_list[i], info->settings);
+		listener_update(listener_list[i], info->settings);
 	}
 }
 
