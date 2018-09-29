@@ -93,15 +93,6 @@ struct bind2 {
 	}
 };
 
-template<class T, class Alloc = allocator<T>> class circlevector : public std::vector<T> {
-public:
-	iterator push_front(const T &value) { return insert(begin(), value); }
-
-	iterator push_front(const T &&value) { return insert(begin(), value); }
-
-	void push_front(size_t count, const T &value) { insert(begin(), count, value); }
-};
-
 class TinyExpr : public std::vector<te_variable> {
 	std::string _expr;
 	te_expr    *_compiled  = nullptr;
@@ -162,7 +153,7 @@ public:
 			_mutexCreated = false;
 			return;
 		}
-		if (pthread_mutex_init(&_mutex, NULL) != 0)
+		if (pthread_mutex_init(&_mutex, &attr) != 0)
 			_mutexCreated = false;
 		else
 			_mutexCreated = true;
@@ -226,9 +217,6 @@ protected:
 	uint32_t total_width;
 	uint32_t total_height;
 
-	std::vector<ShaderParameter *> paramList      = {};
-	std::vector<ShaderParameter *> evaluationList = {};
-
 	std::string _effect_path;
 	std::string _effect_string;
 
@@ -241,6 +229,9 @@ protected:
 	TinyExpr expression;
 
 public:
+	std::vector<ShaderParameter *> paramList      = {};
+	std::vector<ShaderParameter *> evaluationList = {};
+
 	std::string resizeExpressions[4];
 	int         resizeLeft   = 0;
 	int         resizeRight  = 0;
