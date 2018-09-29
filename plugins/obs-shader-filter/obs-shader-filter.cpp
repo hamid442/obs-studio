@@ -148,7 +148,7 @@ public:
 	float defaultFloat = 0.0;
 	int   defaultInt   = 0;
 
-	void                *data = nullptr;
+	void *               data = nullptr;
 	size_t               size = 0;
 	gs_shader_param_type type = GS_SHADER_PARAM_UNKNOWN;
 	EVal(){};
@@ -163,9 +163,9 @@ public:
 		std::vector<float> d_float;
 		std::vector<int>   d_int;
 		std::vector<bool>  d_bool;
-		float             *ptr_float = static_cast<float *>(data);
-		int               *ptr_int   = static_cast<int *>(data);
-		bool              *ptr_bool  = static_cast<bool *>(data);
+		float *            ptr_float = static_cast<float *>(data);
+		int *              ptr_int   = static_cast<int *>(data);
+		bool *             ptr_bool  = static_cast<bool *>(data);
 
 		size_t i;
 		size_t len;
@@ -205,9 +205,9 @@ public:
 		std::vector<float> d_float;
 		std::vector<int>   d_int;
 		std::vector<bool>  d_bool;
-		float             *ptr_float = static_cast<float *>(data);
-		int               *ptr_int   = static_cast<int *>(data);
-		bool              *ptr_bool  = static_cast<bool *>(data);
+		float *            ptr_float = static_cast<float *>(data);
+		int *              ptr_int   = static_cast<int *>(data);
+		bool *             ptr_bool  = static_cast<bool *>(data);
 
 		size_t i;
 		size_t len;
@@ -247,9 +247,9 @@ public:
 		std::vector<float> d_float;
 		std::vector<int>   d_int;
 		std::vector<bool>  d_bool;
-		float             *ptr_float = static_cast<float *>(data);
-		int               *ptr_int   = static_cast<int *>(data);
-		bool              *ptr_bool  = static_cast<bool *>(data);
+		float *            ptr_float = static_cast<float *>(data);
+		int *              ptr_int   = static_cast<int *>(data);
+		bool *             ptr_bool  = static_cast<bool *>(data);
 
 		size_t i;
 		size_t len;
@@ -286,7 +286,7 @@ public:
 	operator std::string()
 	{
 		std::string str      = "";
-		char       *ptr_char = static_cast<char *>(data);
+		char *      ptr_char = static_cast<char *>(data);
 
 		switch (type) {
 		case GS_SHADER_PARAM_STRING:
@@ -296,9 +296,15 @@ public:
 		return str;
 	}
 
-	std::string getString() { return *this; }
+	std::string getString()
+	{
+		return *this;
+	}
 
-	const char *c_str() { return ((std::string) * this).c_str(); }
+	const char *c_str()
+	{
+		return ((std::string) * this).c_str();
+	}
 };
 
 class EParam {
@@ -321,24 +327,42 @@ private:
 	}
 
 protected:
-	gs_eparam_t                              *_param      = nullptr;
+	gs_eparam_t *                             _param      = nullptr;
 	gs_effect_param_info                      _param_info = {0};
-	EVal                                     *_value      = nullptr;
+	EVal *                                    _value      = nullptr;
 	std::unordered_map<std::string, EParam *> _annotations_map;
 	size_t                                    _annotationCount;
 
 public:
-	std::unordered_map<std::string, EParam *> *getAnnootations() { return &_annotations_map; }
+	std::unordered_map<std::string, EParam *> *getAnnootations()
+	{
+		return &_annotations_map;
+	}
 
-	gs_effect_param_info info() const { return _param_info; }
+	gs_effect_param_info info() const
+	{
+		return _param_info;
+	}
 
-	EVal *getValue() { return _value ? _value : (_value = getValue(_param)); }
+	EVal *getValue()
+	{
+		return _value ? _value : (_value = getValue(_param));
+	}
 
-	gs_eparam_t *getParam() { return _param; }
+	gs_eparam_t *getParam()
+	{
+		return _param;
+	}
 
-	operator gs_eparam_t *() { return _param; }
+	operator gs_eparam_t *()
+	{
+		return _param;
+	}
 
-	size_t getAnnotationCount() { return _annotations_map.size(); }
+	size_t getAnnotationCount()
+	{
+		return _annotations_map.size();
+	}
 
 	/* Hash Map Search */
 	EParam *getAnnotation(std::string name)
@@ -349,7 +373,10 @@ public:
 			return nullptr;
 	}
 
-	EParam *operator[](std::string name) { return getAnnotation(name); }
+	EParam *operator[](std::string name)
+	{
+		return getAnnotation(name);
+	}
 
 	EVal *getAnnotationValue(std::string name)
 	{
@@ -363,7 +390,7 @@ public:
 	template<class DataType> std::vector<DataType> getAnnotationValue(std::string name)
 	{
 		std::vector<DataType> ret;
-		EParam               *note = getAnnotation(name);
+		EParam *              note = getAnnotation(name);
 		if (note)
 			ret = *(note->getValue());
 		return ret;
@@ -372,7 +399,7 @@ public:
 	template<class DataType> DataType getAnnotationValue(std::string name, DataType defaultValue, int index = 0)
 	{
 		std::vector<DataType> ret;
-		EParam               *note = getAnnotation(name);
+		EParam *              note = getAnnotation(name);
 		if (note)
 			ret = *(note->getValue());
 		if (index < ret.size())
@@ -381,7 +408,10 @@ public:
 			return defaultValue;
 	}
 
-	bool hasAnnotation(std::string name) { return _annotations_map.find(name) != _annotations_map.end(); }
+	bool hasAnnotation(std::string name)
+	{
+		return _annotations_map.find(name) != _annotations_map.end();
+	}
 
 	EParam(gs_eparam_t *param)
 	{
@@ -393,13 +423,13 @@ public:
 		_annotationCount = gs_param_get_num_annotations(_param);
 		_annotations_map.reserve(_annotationCount);
 
-		gs_eparam_t                                *p = nullptr;
+		gs_eparam_t *                               p = nullptr;
 		std::vector<EParam *>::iterator             annotation_it;
 		std::vector<gs_effect_param_info>::iterator info_it;
 
 		for (i = 0; i < _annotationCount; i++) {
 			p                       = gs_param_get_annotation_by_idx(_param, i);
-			EParam              *ep = new EParam(p);
+			EParam *             ep = new EParam(p);
 			gs_effect_param_info _info;
 			gs_effect_get_param_info(p, &_info);
 
@@ -434,9 +464,9 @@ class ShaderData {
 protected:
 	gs_shader_param_type _paramType;
 
-	ShaderFilter    *_filter;
+	ShaderFilter *   _filter;
 	ShaderParameter *_parent;
-	EParam          *_param;
+	EParam *         _param;
 
 	std::vector<out_shader_data> _values;
 	std::vector<in_shader_data>  _bindings;
@@ -450,9 +480,15 @@ protected:
 	size_t _dataCount;
 
 public:
-	gs_shader_param_type getParamType() const { return _paramType; }
+	gs_shader_param_type getParamType() const
+	{
+		return _paramType;
+	}
 
-	ShaderParameter *getParent() { return _parent; }
+	ShaderParameter *getParent()
+	{
+		return _parent;
+	}
 
 	ShaderData(ShaderParameter *parent = nullptr, ShaderFilter *filter = nullptr) : _parent(parent), _filter(filter)
 	{
@@ -462,7 +498,9 @@ public:
 			_param = nullptr;
 	}
 
-	virtual ~ShaderData(){};
+	virtual ~ShaderData()
+	{
+	};
 
 	virtual void init(gs_shader_param_type paramType)
 	{
@@ -484,7 +522,7 @@ public:
 		std::string n      = _parent->getName();
 		std::string d      = _parent->getDescription();
 		std::string strNum = "";
-		EVal       *val    = nullptr;
+		EVal *      val    = nullptr;
 		for (i = 0; i < _dataCount; i++) {
 			if (_dataCount > 1)
 				strNum = "_" + std::to_string(i);
@@ -538,9 +576,15 @@ public:
 		UNUSED_PARAMETER(seconds);
 	};
 
-	virtual void videoRender(ShaderFilter *filter) { UNUSED_PARAMETER(filter); };
+	virtual void videoRender(ShaderFilter *filter)
+	{
+		UNUSED_PARAMETER(filter);
+	};
 
-	virtual void update(ShaderFilter *filter) { UNUSED_PARAMETER(filter); };
+	virtual void update(ShaderFilter *filter)
+	{
+		UNUSED_PARAMETER(filter);
+	};
 };
 
 class NumericalData : public ShaderData {
@@ -550,14 +594,14 @@ private:
 		std::unordered_map<std::string, EParam *> *notations = e->getAnnootations();
 		for (std::unordered_map<std::string, EParam *>::iterator it = notations->begin();
 				it != notations->end(); it++) {
-			EParam     *eparam = (*it).second;
-			EVal       *eval   = eparam->getValue();
+			EParam *    eparam = (*it).second;
+			EVal *      eval   = eparam->getValue();
 			std::string name   = eparam->info().name;
 
 			if (name.compare(0, 9, "list_item") == 0 && name.compare(name.size() - 6, 5, "_name") != 0) {
 				std::vector<int> iList = *eval;
 				if (iList.size()) {
-					EVal       *evalname = e->getAnnotationValue((name + "_name"));
+					EVal *      evalname = e->getAnnotationValue((name + "_name"));
 					std::string itemname = *evalname;
 					int         d        = iList[0];
 					if (itemname.empty())
@@ -573,15 +617,15 @@ private:
 		std::unordered_map<std::string, EParam *> *notations = e->getAnnootations();
 		for (std::unordered_map<std::string, EParam *>::iterator it = notations->begin();
 				it != notations->end(); it++) {
-			EParam              *eparam = (*it).second;
-			EVal                *eval   = eparam->getValue();
-			std::string          name   = eparam->info().name;
-			gs_shader_param_type type   = eparam->info().type;
+			EParam *    eparam = (*it).second;
+			EVal *      eval   = eparam->getValue();
+			std::string name   = eparam->info().name;
+			// gs_shader_param_type type   = eparam->info().type;
 
 			if (name.compare(0, 9, "list_item") == 0 && name.compare(name.size() - 6, 5, "_name") != 0) {
 				std::vector<float> fList = *eval;
 				if (fList.size()) {
-					EVal       *evalname = e->getAnnotationValue((name + "_name"));
+					EVal *      evalname = e->getAnnotationValue((name + "_name"));
 					std::string itemname = *evalname;
 					double      d        = fList[0];
 					if (itemname.empty())
@@ -594,8 +638,8 @@ private:
 
 	void fillComboBox(EParam *e, obs_property_t *p)
 	{
-		EVal       *enabledval  = e->getAnnotationValue("enabled_desc");
-		EVal       *disabledval = e->getAnnotationValue("disabled_desc");
+		EVal *      enabledval  = e->getAnnotationValue("enabled_desc");
+		EVal *      disabledval = e->getAnnotationValue("disabled_desc");
 		std::string enabled     = _OMT("On");
 		std::string disabled    = _OMT("Off");
 		if (enabledval) {
@@ -625,7 +669,7 @@ protected:
 	double            _max;
 	double            _step;
 	enum BindType { unspecified, none, byte, short_integer, integer, floating_point, double_point };
-	void    *_bind = nullptr;
+	void *   _bind = nullptr;
 	BindType bindType;
 	enum NumericalType { combobox, list, num, slider, color };
 	NumericalType _numType;
@@ -633,7 +677,7 @@ protected:
 public:
 	NumericalData(ShaderParameter *parent, ShaderFilter *filter) : ShaderData(parent, filter)
 	{
-		gs_eparam_t                *param = parent->getParameter()->getParam();
+		gs_eparam_t *               param = parent->getParameter()->getParam();
 		struct gs_effect_param_info info;
 		gs_effect_get_param_info(param, &info);
 		/* std::vector<DataType> *bind */
@@ -946,7 +990,10 @@ public:
 
 	~StringData(){};
 
-	void init(gs_shader_param_type paramType) { ShaderData::init(paramType); }
+	void init(gs_shader_param_type paramType)
+	{
+		ShaderData::init(paramType);
+	}
 };
 
 /* functions to add sources to a list for use as textures */
@@ -954,7 +1001,7 @@ static bool fillPropertiesSourceList(void *param, obs_source_t *source)
 {
 	obs_property_t *p           = (obs_property_t *)param;
 	uint32_t        flags       = obs_source_get_output_flags(source);
-	const char     *source_name = obs_source_get_name(source);
+	const char *    source_name = obs_source_get_name(source);
 
 	if ((flags & OBS_SOURCE_VIDEO) != 0 && obs_source_active(source))
 		obs_property_list_add_string(p, source_name, source_name);
@@ -972,7 +1019,7 @@ static bool fillPropertiesAudioSourceList(void *param, obs_source_t *source)
 {
 	obs_property_t *p           = (obs_property_t *)param;
 	uint32_t        flags       = obs_source_get_output_flags(source);
-	const char     *source_name = obs_source_get_name(source);
+	const char *    source_name = obs_source_get_name(source);
 
 	if ((flags & OBS_SOURCE_AUDIO) != 0 && obs_source_active(source))
 		obs_property_list_add_string(p, source_name, source_name);
@@ -1039,7 +1086,7 @@ private:
 		if (!_data)
 			_data = (uint8_t *)bzalloc(_maxAudioSize * _channels * sizeof(float));
 		size_t px_width = samples;
-		lock();
+		audiolock();
 		size_t i = 0;
 		for (i = 0; i < _channels; i++) {
 			if (_audio[i].data())
@@ -1047,8 +1094,8 @@ private:
 			else
 				memset((float *)_data + (samples * i), 0, samples * sizeof(float));
 		}
+		audiounlock();
 
-		unlock();
 		if (_isFFT)
 			px_width = processAudio(samples);
 
@@ -1062,37 +1109,39 @@ private:
 
 	void updateAudioSource(std::string name)
 	{
-		lock();
-		obs_source_t *sidechain = nullptr;
-		if (!name.empty())
+		if (!name.empty()) {
+			obs_source_t *sidechain = nullptr;
 			sidechain = obs_get_source_by_name(name.c_str());
-		obs_source_t *old_sidechain = _mediaSource;
-
-		if (old_sidechain) {
-			obs_source_remove_audio_capture_callback(old_sidechain, sidechain_capture, this);
-			obs_source_release(old_sidechain);
-			for (size_t i = 0; i < MAX_AV_PLANES; i++)
-				_audio[i].clear();
+			obs_source_t *old_sidechain = _mediaSource;
+			lock();
+			if (old_sidechain) {
+				obs_source_remove_audio_capture_callback(old_sidechain, sidechain_capture, this);
+				obs_source_release(old_sidechain);
+				for (size_t i = 0; i < MAX_AV_PLANES; i++)
+					_audio[i].clear();
+			}
+			if (sidechain)
+				obs_source_add_audio_capture_callback(sidechain, sidechain_capture, this);
+			_mediaSource = sidechain;
+			unlock();
 		}
-		if (sidechain)
-			obs_source_add_audio_capture_callback(sidechain, sidechain_capture, this);
-		_mediaSource = sidechain;
-		unlock();
 	}
 
-	PThreadMutex *_mutex = nullptr;
+	PThreadMutex *_mutex      = nullptr;
+	PThreadMutex *_audioMutex = nullptr;
 
 protected:
-	gs_texrender_t    *_texrender = nullptr;
-	gs_texture_t      *_tex       = nullptr;
-	gs_image_file_t   *_image     = nullptr;
+	gs_texrender_t *   _texrender = nullptr;
+	gs_texture_t *     _tex       = nullptr;
+	gs_image_file_t *  _image     = nullptr;
 	std::vector<float> _audio[MAX_AV_PLANES];
+	std::vector<float> _tempAudio[MAX_AV_PLANES];
 	bool               _isFFT = false;
 	std::vector<float> _fft_data[MAX_AV_PLANES];
 	size_t             _channels     = 0;
 	size_t             _maxAudioSize = AUDIO_OUTPUT_FRAMES * 2;
-	uint8_t           *_data         = nullptr;
-	obs_source_t      *_mediaSource  = nullptr;
+	uint8_t *          _data         = nullptr;
+	obs_source_t *     _mediaSource  = nullptr;
 	std::string        _sourceName   = "";
 	size_t             _size;
 	uint8_t            _range_0;
@@ -1100,6 +1149,7 @@ protected:
 	enum TextureType { ignored, unspecified, source, audio, image, media, random };
 	fft_windowing_type _window;
 	TextureType        _texType;
+	std::string        _filePath;
 
 public:
 	TextureData(ShaderParameter *parent, ShaderFilter *filter)
@@ -1107,33 +1157,68 @@ public:
 	{
 		_maxAudioSize = AUDIO_OUTPUT_FRAMES * 2;
 		_mutex        = new PThreadMutex();
+		_audioMutex   = new PThreadMutex();
 	};
 
 	~TextureData()
 	{
-		if (_texType == audio)
+		if (_texType == audio) {
 			obs_source_remove_audio_capture_callback(_mediaSource, sidechain_capture, this);
+		}
+		if (_mediaSource)
+			obs_source_release(_mediaSource);
+		_mediaSource = nullptr;
+
 		obs_enter_graphics();
 		gs_texrender_destroy(_texrender);
 		gs_image_file_free(_image);
-		gs_texture_destroy(_tex);
+		if (_tex)
+			gs_texture_destroy(_tex);
 		obs_leave_graphics();
+		_texrender = nullptr;
+		_tex       = nullptr;
+		if (_image)
+			bfree(_image);
+		_image = nullptr;
+
 		if (_data)
 			bfree(_data);
 		if (_mutex)
 			delete _mutex;
+		if (_audioMutex)
+			delete _audioMutex;
 	};
 
-	void lock() { _mutex->lock(); }
+	void lock()
+	{
+		_mutex->lock();
+	}
 
-	void unlock() { _mutex->unlock(); }
+	void unlock()
+	{
+		_mutex->unlock();
+	}
 
-	size_t getAudioChannels() { return _channels; }
+	void audiolock()
+	{
+		_audioMutex->lock();
+	}
+
+	void audiounlock()
+	{
+		_audioMutex->unlock();
+	}
+
+	size_t getAudioChannels()
+	{
+		return _channels;
+	}
 
 	void insertAudio(float *data, size_t samples, size_t index)
 	{
 		if (!samples || index > (MAX_AV_PLANES - 1))
 			return;
+		audiolock();
 		size_t old_size    = _audio[index].size() * sizeof(float);
 		size_t insert_size = samples * sizeof(float);
 		float *old_data    = nullptr;
@@ -1153,6 +1238,7 @@ public:
 			else
 				memset(&_audio[index][0], 0, _maxAudioSize * sizeof(float));
 		}
+		audiounlock();
 		bfree(old_data);
 	}
 
@@ -1162,7 +1248,7 @@ public:
 		_names.push_back(_parent->getName());
 		_descs.push_back(_parent->getDescription());
 
-		EVal                                     *texType = _param->getAnnotationValue("texture_type");
+		EVal *                                    texType = _param->getAnnotationValue("texture_type");
 		std::unordered_map<std::string, uint32_t> types   = {{"source", source}, {"audio", audio},
                                 {"image", image}, {"media", media}, {"random", random}};
 
@@ -1214,6 +1300,7 @@ public:
 		case image:
 			p = obs_properties_add_path(props, _names[0].c_str(), _descs[0].c_str(), OBS_PATH_FILE,
 					shader_filter_texture_file_filter, NULL);
+			break;
 		case random:
 			obs_properties_add_int(props, (_names[0] + "_range_0").c_str(), _descs[0].c_str(), 0, 255, 1);
 			obs_properties_add_int(props, (_names[0] + "_range_1").c_str(), _descs[0].c_str(), 0, 255, 1);
@@ -1225,6 +1312,7 @@ public:
 	{
 		obs_data_t *settings = filter->getSettings();
 		_channels            = audio_output_get_channels(obs_get_audio());
+		const char *file_path;
 		switch (_texType) {
 		case source:
 			if (!_texrender)
@@ -1243,14 +1331,19 @@ public:
 				gs_image_file_free(_image);
 				obs_leave_graphics();
 			}
-			gs_image_file_init(_image, obs_data_get_string(settings, _names[0].c_str()));
-			obs_enter_graphics();
-			gs_image_file_init_texture(_image);
-			obs_leave_graphics();
+
+			file_path = obs_data_get_string(settings, _names[0].c_str());
+			_filePath = file_path;
+			if (file_path && file_path[0] != '\0') {
+				gs_image_file_init(_image, file_path);
+				obs_enter_graphics();
+				gs_image_file_init_texture(_image);
+				obs_leave_graphics();
+			}
 			break;
 		case random:
-			_range_0 = obs_data_get_int(settings, (_names[0] + "_range_0").c_str());
-			_range_1 = obs_data_get_int(settings, (_names[0] + "_range_1").c_str());
+			_range_0 = (uint8_t)obs_data_get_int(settings, (_names[0] + "_range_0").c_str());
+			_range_1 = (uint8_t)obs_data_get_int(settings, (_names[0] + "_range_1").c_str());
 			break;
 		}
 	}
@@ -1260,7 +1353,6 @@ public:
 		ShaderData::videoRender(filter);
 		uint32_t      src_cx = obs_source_get_width(filter->context);
 		uint32_t      src_cy = obs_source_get_height(filter->context);
-		EParam       *e      = _parent->getParameter();
 		gs_texture_t *t;
 		size_t        pixels;
 		size_t        i;
@@ -1268,17 +1360,15 @@ public:
 		switch (_texType) {
 		case media:
 		case source:
-			renderSource(e, src_cx, src_cy);
+			renderSource(_param, src_cx, src_cy);
 			break;
 		case audio:
-			renderAudioSource(e, AUDIO_OUTPUT_FRAMES);
+			renderAudioSource(_param, AUDIO_OUTPUT_FRAMES);
 			break;
 		case image:
-			if (_image)
-				t = _image->texture;
-			else
-				t = nullptr;
-			e->setValue<gs_texture_t *>(&t, sizeof(gs_texture_t *));
+			t = _image ? _image->texture : NULL;
+			if (_param)
+				_param->setValue<gs_texture_t *>(&t, sizeof(gs_texture_t *));
 			break;
 		case random:
 			pixels = src_cy * src_cx;
@@ -1287,7 +1377,7 @@ public:
 
 			if (_range_0 < _range_1) {
 				for (i = 0; i < pixels; i++)
-					_data[i] = random_int(_range_0, _range_1);
+					_data[i] = (uint8_t)random_int(_range_0, _range_1);
 			} else {
 				for (i = 0; i < pixels; i++) {
 					u = random_int(0, _range_1 + (255 - _range_0));
@@ -1302,7 +1392,8 @@ public:
 			_tex = gs_texture_create(
 					(uint32_t)src_cx, (uint32_t)src_cy, GS_R8, 1, (const uint8_t **)&_data, 0);
 			obs_leave_graphics();
-			gs_effect_set_texture(*e, _tex);
+			gs_effect_set_texture(*_param, _tex);
+			break;
 		default:
 			break;
 		}
@@ -1312,11 +1403,10 @@ public:
 static void sidechain_capture(void *p, obs_source_t *source, const struct audio_data *audio_data, bool muted)
 {
 	TextureData *data = static_cast<TextureData *>(p);
-
 	UNUSED_PARAMETER(source);
-
+	if (!audio_data->frames)
+		return;
 	size_t i;
-	data->lock();
 	if (muted) {
 		for (i = 0; i < data->getAudioChannels(); i++)
 			data->insertAudio(nullptr, audio_data->frames, i);
@@ -1324,14 +1414,16 @@ static void sidechain_capture(void *p, obs_source_t *source, const struct audio_
 		for (i = 0; i < data->getAudioChannels(); i++)
 			data->insertAudio((float *)audio_data->data[i], audio_data->frames, i);
 	}
-	data->unlock();
 }
 
 class NullData : public ShaderData {
 public:
 	NullData(ShaderParameter *parent, ShaderFilter *filter) : ShaderData(parent, filter){};
 	~NullData(){};
-	void init(gs_shader_param_type paramType) { UNUSED_PARAMETER(paramType); }
+	void init(gs_shader_param_type paramType)
+	{
+		UNUSED_PARAMETER(paramType);
+	}
 };
 
 std::string ShaderParameter::getName()
@@ -1364,7 +1456,6 @@ ShaderParameter::ShaderParameter(gs_eparam_t *param, ShaderFilter *filter) : _fi
 
 void ShaderParameter::init(gs_shader_param_type paramType)
 {
-	lock();
 	_paramType = paramType;
 	switch (paramType) {
 	case GS_SHADER_PARAM_BOOL:
@@ -1391,61 +1482,57 @@ void ShaderParameter::init(gs_shader_param_type paramType)
 	}
 	if (_shaderData)
 		_shaderData->init(paramType);
-	unlock();
 }
 
 ShaderParameter::~ShaderParameter()
 {
-	if (_mutex)
-		delete _mutex;
-
 	if (_param)
 		delete _param;
+	_param = nullptr;
 
 	if (_shaderData)
 		delete _shaderData;
+	_shaderData = nullptr;
+
+	if (_mutex)
+		delete _mutex;
+	_mutex = nullptr;
 }
 
 void ShaderParameter::lock()
 {
-	_mutex->lock();
+	if (_mutex)
+		_mutex->lock();
 }
 
 void ShaderParameter::unlock()
 {
-	_mutex->unlock();
+	if (_mutex)
+		_mutex->unlock();
 }
 
 void ShaderParameter::videoTick(ShaderFilter *filter, float elapsed_time, float seconds)
 {
-	lock();
 	if (_shaderData)
 		_shaderData->videoTick(filter, elapsed_time, seconds);
-	unlock();
 }
 
 void ShaderParameter::videoRender(ShaderFilter *filter)
 {
-	lock();
 	if (_shaderData)
 		_shaderData->videoRender(filter);
-	unlock();
 }
 
 void ShaderParameter::update(ShaderFilter *filter)
 {
-	lock();
 	if (_shaderData)
 		_shaderData->update(filter);
-	unlock();
 }
 
 void ShaderParameter::getProperties(ShaderFilter *filter, obs_properties_t *props)
 {
-	lock();
 	if (_shaderData)
 		_shaderData->getProperties(filter, props);
-	unlock();
 }
 
 obs_data_t *ShaderFilter::getSettings()
@@ -1537,12 +1624,14 @@ ShaderFilter::~ShaderFilter()
 
 void ShaderFilter::lock()
 {
-	_mutex->lock();
+	if (_mutex)
+		_mutex->lock();
 }
 
 void ShaderFilter::unlock()
 {
-	_mutex->unlock();
+	if (_mutex)
+		_mutex->unlock();
 }
 
 uint32_t ShaderFilter::getWidth()
@@ -1557,8 +1646,10 @@ uint32_t ShaderFilter::getHeight()
 void ShaderFilter::updateCache(gs_eparam_t *param)
 {
 	ShaderParameter *p = new ShaderParameter(param, this);
-	if (p)
+	if (p) {
 		paramList.push_back(p);
+		blog(LOG_INFO, "%s", p->getName().c_str());
+	}
 }
 
 void ShaderFilter::reload()
@@ -1572,8 +1663,8 @@ void ShaderFilter::reload()
 		ShaderParameter *p = paramList.back();
 		paramList.pop_back();
 		delete p;
+		p = nullptr;
 	}
-
 	evaluationList.clear();
 	expression.clear();
 
@@ -1632,10 +1723,9 @@ void ShaderFilter::videoTick(void *data, float seconds)
 	filter->elapsedTime += seconds;
 
 	size_t                         i;
-	std::vector<ShaderParameter *> parameters = filter->parameters();
-	for (i = 0; i < parameters.size(); i++) {
-		if (parameters[i])
-			parameters[i]->videoTick(filter, filter->elapsedTime, seconds);
+	for (i = 0; i < filter->paramList.size(); i++) {
+		if (filter->paramList[i])
+			filter->paramList[i]->videoTick(filter, filter->elapsedTime, seconds);
 	}
 
 	int *resize[4] = {&filter->resizeLeft, &filter->resizeRight, &filter->resizeTop, &filter->resizeBottom};
@@ -1676,11 +1766,9 @@ void ShaderFilter::videoRender(void *data, gs_effect_t *effect)
 		if (!obs_source_process_filter_begin(filter->context, GS_RGBA, OBS_NO_DIRECT_RENDERING))
 			return;
 
-		std::vector<ShaderParameter *> parameters = filter->parameters();
-
-		for (i = 0; i < parameters.size(); i++) {
-			if (parameters[i])
-				parameters[i]->videoRender(filter);
+		for (i = 0; i < filter->paramList.size(); i++) {
+			if (filter->paramList[i])
+				filter->paramList[i]->videoRender(filter);
 		}
 
 		obs_source_process_filter_end(
@@ -1698,17 +1786,16 @@ void ShaderFilter::update(void *data, obs_data_t *settings)
 		filter->reload();
 		obs_source_update_properties(filter->context);
 	}
-	size_t                         i;
-	std::vector<ShaderParameter *> parameters = filter->parameters();
-	for (i = 0; i < parameters.size(); i++) {
-		if (parameters[i])
-			parameters[i]->update(filter);
+	size_t i;
+	for (i = 0; i < filter->paramList.size(); i++) {
+		if (filter->paramList[i])
+			filter->paramList[i]->update(filter);
 	}
 }
 
 obs_properties_t *ShaderFilter::getProperties(void *data)
 {
-	ShaderFilter     *filter = static_cast<ShaderFilter *>(data);
+	ShaderFilter *    filter = static_cast<ShaderFilter *>(data);
 	size_t            i;
 	obs_properties_t *props = obs_properties_create();
 	obs_properties_set_param(props, filter, NULL);
@@ -1724,10 +1811,9 @@ obs_properties_t *ShaderFilter::getProperties(void *data)
 
 	obs_property_set_modified_callback(file_name, shader_filter_file_name_changed);
 
-	std::vector<ShaderParameter *> parameters = filter->parameters();
-	for (i = 0; i < parameters.size(); i++) {
-		if (parameters[i])
-			parameters[i]->getProperties(filter, props);
+	for (i = 0; i < filter->paramList.size(); i++) {
+		if (filter->paramList[i])
+			filter->paramList[i]->getProperties(filter, props);
 	}
 	return props;
 }
@@ -1801,4 +1887,6 @@ bool obs_module_load(void)
 	return true;
 }
 
-void obs_module_unload(void) {}
+void obs_module_unload(void)
+{
+}
