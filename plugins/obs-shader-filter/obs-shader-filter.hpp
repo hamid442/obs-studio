@@ -229,6 +229,15 @@ protected:
 	TinyExpr expression;
 
 public:
+	double                         _clickCount;
+	double                         _mouseUp;
+	double                         _mouseType;
+	double                         _mouseX;
+	double                         _mouseY;
+	double                         _mouseLeave;
+	double                         _mouseWheelX;
+	double                         _mouseWheelY;
+
 	std::vector<ShaderParameter *> paramList      = {};
 	std::vector<ShaderParameter *> evaluationList = {};
 
@@ -295,4 +304,8 @@ public:
 	static uint32_t          getWidth(void *data);
 	static uint32_t          getHeight(void *data);
 	static void              getDefaults(obs_data_t *settings);
+	static void mouseClick(void *data, const struct obs_mouse_event *event, int32_t type, bool mouse_up,
+			uint32_t click_count);
+	static void mouseMove(void *data, const struct obs_mouse_event *event, bool mouse_leave);
+	static void mouseWheel(void *data, const struct obs_mouse_event *event, int x_delta, int y_delta);
 };
