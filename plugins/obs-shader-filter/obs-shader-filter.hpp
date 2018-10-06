@@ -229,6 +229,8 @@ protected:
 	TinyExpr expression;
 
 public:
+	gs_texrender_t *filter_texrender = nullptr;
+
 	double                         _clickCount;
 	double                         _mouseUp;
 	double                         _mouseType;
@@ -239,6 +241,7 @@ public:
 	double                         _mouseWheelY;
 
 	std::vector<ShaderParameter *> paramList      = {};
+	std::unordered_map<std::string, ShaderParameter *> paramMap;
 	std::vector<ShaderParameter *> evaluationList = {};
 
 	std::string resizeExpressions[4];
