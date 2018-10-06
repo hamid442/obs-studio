@@ -1833,6 +1833,46 @@ void ShaderFilter::videoTick(void *data, float seconds)
 	filter->uvOffsetBinding = filter->uvOffset;
 }
 
+void ShaderFilter::videoTickSource(void *data, float seconds)
+{
+	ShaderFilter *filter = static_cast<ShaderFilter *>(data);
+	filter->elapsedTimeBinding.d += seconds;
+	filter->elapsedTime += seconds;
+
+	size_t i;
+	for (i = 0; i < filter->paramList.size(); i++) {
+		if (filter->paramList[i])
+			filter->paramList[i]->videoTick(filter, filter->elapsedTime, seconds);
+	}
+
+	int *resize[4] = {&filter->resizeLeft, &filter->resizeRight, &filter->resizeTop, &filter->resizeBottom};
+	for (i = 0; i < 4; i++) {
+		if (filter->resizeExpressions[i].empty())
+			continue;
+		filter->compileExpression(filter->resizeExpressions[i]);
+		if (filter->expressionCompiled())
+			*resize[i] = filter->evaluateExpression<int>(0);
+	}
+
+	obs_source_t *target = obs_filter_get_target(filter->context);
+	/* Determine offsets from expansion values. */
+	int baseWidth  = filter->baseWidth;
+	int baseHeight = filter->baseHeight;
+
+	filter->total_width  = filter->resizeLeft + baseWidth + filter->resizeRight;
+	filter->total_height = filter->resizeTop + baseHeight + filter->resizeBottom;
+
+	filter->uvScale.x         = (float)filter->total_width / baseWidth;
+	filter->uvScale.y         = (float)filter->total_height / baseHeight;
+	filter->uvOffset.x        = (float)(-filter->resizeLeft) / baseWidth;
+	filter->uvOffset.y        = (float)(-filter->resizeTop) / baseHeight;
+	filter->uvPixelInterval.x = 1.0f / baseWidth;
+	filter->uvPixelInterval.y = 1.0f / baseHeight;
+
+	filter->uvScaleBinding  = filter->uvScale;
+	filter->uvOffsetBinding = filter->uvOffset;
+}
+
 void ShaderFilter::videoRender(void *data, gs_effect_t *effect)
 {
 	UNUSED_PARAMETER(effect);
@@ -1840,29 +1880,27 @@ void ShaderFilter::videoRender(void *data, gs_effect_t *effect)
 	size_t        passes, i;
 
 	if (filter->effect != nullptr) {
-		/*
-		if (!obs_source_process_filter_begin(filter->context, GS_RGBA, OBS_NO_DIRECT_RENDERING))
-			return;
-		*/
 		obs_source_t *target, *parent, *source;
 		gs_texture_t *texture;
 		uint32_t      parent_flags;
 
-		source       = filter->context;
-		target       = obs_filter_get_target(filter->context);
-		parent       = obs_filter_get_parent(filter->context);
+		source = filter->context;
+		target = obs_filter_get_target(filter->context);
+		parent = obs_filter_get_parent(filter->context);
 
 		if (!target) {
-			blog(LOG_INFO, "filter '%s' being processed with no target!", obs_source_get_name(filter->context));
+			blog(LOG_INFO, "filter '%s' being processed with no target!",
+					obs_source_get_name(filter->context));
 			return;
 		}
 		if (!parent) {
-			blog(LOG_INFO, "filter '%s' being processed with no parent!", obs_source_get_name(filter->context));
+			blog(LOG_INFO, "filter '%s' being processed with no parent!",
+					obs_source_get_name(filter->context));
 			return;
 		}
 
-		size_t cx = obs_source_get_base_width(target);
-		size_t cy = obs_source_get_base_height(target);
+		size_t cx = filter->total_width;
+		size_t cy = filter->total_height;
 
 		if (!cx || !cy) {
 			obs_source_skip_video_filter(filter->context);
@@ -1900,7 +1938,7 @@ void ShaderFilter::videoRender(void *data, gs_effect_t *effect)
 		gs_blend_state_pop();
 
 		const char *id = obs_source_get_id(parent);
-		parent_flags = obs_get_source_output_flags(id);
+		parent_flags   = obs_get_source_output_flags(id);
 
 		enum obs_allow_direct_render allow_bypass = OBS_NO_DIRECT_RENDERING;
 		bool canBypass = (target == parent) && (allow_bypass == OBS_ALLOW_DIRECT_RENDERING) &&
@@ -1923,10 +1961,10 @@ void ShaderFilter::videoRender(void *data, gs_effect_t *effect)
 			texture = gs_texrender_get_texture(filter->filter_texrender);
 			gs_eparam_t *image;
 			if (texture) {
-				gs_technique_t *tech  = gs_effect_get_technique(filter->effect, tech_name);
+				gs_technique_t *tech = gs_effect_get_technique(filter->effect, tech_name);
 				try {
 					ShaderParameter *p = filter->paramMap.at("image");
-					image = p->getParameter()->getParam();
+					image              = p->getParameter()->getParam();
 				} catch (std::out_of_range) {
 					image = NULL;
 				}
@@ -1936,7 +1974,7 @@ void ShaderFilter::videoRender(void *data, gs_effect_t *effect)
 				passes = gs_technique_begin(tech);
 				for (i = 0; i < passes; i++) {
 					gs_technique_begin_pass(tech, i);
-					gs_draw_sprite(texture, 0, filter->total_width, filter->total_height);
+					gs_draw_sprite(texture, 0, cx, cy);
 					gs_technique_end_pass(tech);
 				}
 				gs_technique_end(tech);
@@ -1944,6 +1982,104 @@ void ShaderFilter::videoRender(void *data, gs_effect_t *effect)
 		}
 	} else {
 		obs_source_skip_video_filter(filter->context);
+	}
+}
+
+void ShaderFilter::videoRenderSource(void *data, gs_effect_t *effect)
+{
+	UNUSED_PARAMETER(effect);
+	ShaderFilter *filter = static_cast<ShaderFilter *>(data);
+	size_t        passes, i;
+
+	obs_source_t *source;
+	gs_texture_t *texture;
+	uint32_t      parent_flags;
+
+	source = filter->context;
+
+	if (!source) {
+		blog(LOG_INFO, "no source?");
+		return;
+	}
+
+	size_t cx = obs_source_get_base_width(source);
+	size_t cy = obs_source_get_base_height(source);
+
+	if (!cx || !cy) {
+		return;
+	}
+
+	if (filter->effect != nullptr) {
+		for (i = 0; i < filter->paramList.size(); i++) {
+			if (filter->paramList[i])
+				filter->paramList[i]->videoRender(filter);
+		}
+
+		if (!filter->filter_texrender)
+			filter->filter_texrender = gs_texrender_create(GS_RGBA, GS_ZS_NONE);
+
+		gs_blend_state_push();
+		gs_blend_function(GS_BLEND_ONE, GS_BLEND_ZERO);
+
+		if (gs_texrender_begin(filter->filter_texrender, cx, cy)) {
+			bool        custom_draw = (parent_flags & OBS_SOURCE_CUSTOM_DRAW) != 0;
+			bool        async       = (parent_flags & OBS_SOURCE_ASYNC) != 0;
+			struct vec4 clear_color;
+
+			vec4_zero(&clear_color);
+			gs_clear(GS_CLEAR_COLOR, &clear_color, 0.0f, 0);
+			gs_ortho(0.0f, (float)cx, 0.0f, (float)cy, -100.0f, 100.0f);
+
+			gs_texrender_end(filter->filter_texrender);
+		}
+
+		gs_blend_state_pop();
+
+		const char *id = obs_source_get_id(source);
+		parent_flags   = obs_get_source_output_flags(id);
+
+		const char *tech_name = "Draw";
+
+		texture = gs_texrender_get_texture(filter->filter_texrender);
+		gs_eparam_t *image;
+		if (texture) {
+			gs_technique_t *tech = gs_effect_get_technique(filter->effect, tech_name);
+			try {
+				ShaderParameter *p = filter->paramMap.at("image");
+				image              = p->getParameter()->getParam();
+			} catch (std::out_of_range) {
+				image = NULL;
+			}
+
+			gs_effect_set_texture(image, texture);
+
+			passes = gs_technique_begin(tech);
+			for (i = 0; i < passes; i++) {
+				gs_technique_begin_pass(tech, i);
+				gs_draw_sprite(texture, 0, filter->total_width, filter->total_height);
+				gs_technique_end_pass(tech);
+			}
+			gs_technique_end(tech);
+		}
+	} else {
+		gs_blend_state_push();
+		gs_blend_function(GS_BLEND_ONE, GS_BLEND_ZERO);
+
+		if (gs_texrender_begin(filter->filter_texrender, cx, cy)) {
+			bool        custom_draw = (parent_flags & OBS_SOURCE_CUSTOM_DRAW) != 0;
+			bool        async       = (parent_flags & OBS_SOURCE_ASYNC) != 0;
+			struct vec4 clear_color;
+
+			vec4_zero(&clear_color);
+			gs_clear(GS_CLEAR_COLOR, &clear_color, 0.0f, 0);
+			gs_ortho(0.0f, (float)cx, 0.0f, (float)cy, -100.0f, 100.0f);
+
+			gs_texrender_end(filter->filter_texrender);
+		}
+
+		gs_blend_state_pop();
+
+		//obs_source_skip_video_filter(filter->context);
 	}
 }
 
@@ -1960,6 +2096,8 @@ void ShaderFilter::update(void *data, obs_data_t *settings)
 		if (filter->paramList[i])
 			filter->paramList[i]->update(filter);
 	}
+	filter->baseHeight = obs_data_get_int(settings, "size.height");
+	filter->baseWidth  = obs_data_get_int(settings, "size.width");
 }
 
 obs_properties_t *ShaderFilter::getProperties(void *data)
@@ -1979,6 +2117,35 @@ obs_properties_t *ShaderFilter::getProperties(void *data)
 			props, "shader_file_name", obs_module_text("File"), OBS_PATH_FILE, NULL, shaderPath.c_str());
 
 	obs_property_set_modified_callback(file_name, shader_filter_file_name_changed);
+
+	for (i = 0; i < filter->paramList.size(); i++) {
+		if (filter->paramList[i])
+			filter->paramList[i]->getProperties(filter, props);
+	}
+	return props;
+}
+
+obs_properties_t *ShaderFilter::getPropertiesSource(void *data)
+{
+	ShaderFilter *    filter = static_cast<ShaderFilter *>(data);
+	size_t            i;
+	obs_properties_t *props = obs_properties_create();
+	obs_properties_set_param(props, filter, NULL);
+
+	std::string shaderPath = obs_get_module_data_path(obs_current_module());
+	shaderPath += "/shaders";
+
+	obs_properties_add_button(
+			props, "reload_effect", obs_module_text("Reload"), shader_filter_reload_effect_clicked);
+
+	obs_property_t *file_name = obs_properties_add_path(
+			props, "shader_file_name", obs_module_text("File"), OBS_PATH_FILE, NULL, shaderPath.c_str());
+
+	obs_property_set_modified_callback(file_name, shader_filter_file_name_changed);
+
+	obs_properties_add_int(props, "size.width", obs_module_text("Width"), 0, 4096, 1);
+
+	obs_properties_add_int(props, "size.height", obs_module_text("Height"), 0, 4096, 1);
 
 	for (i = 0; i < filter->paramList.size(); i++) {
 		if (filter->paramList[i])
@@ -2027,6 +2194,22 @@ void ShaderFilter::mouseWheel(void *data, const struct obs_mouse_event *event, i
 	filter->_mouseWheelY = y_delta;
 }
 
+void ShaderFilter::focus(void *data, bool focus)
+{
+	ShaderFilter *filter = static_cast<ShaderFilter *>(data);
+	filter->_focus       = focus ? 1.0 : 0.0;
+}
+
+void ShaderFilter::keyClick(void *data, const struct obs_key_event *event, bool key_up)
+{
+	//ShaderFilter *filter = static_cast<ShaderFilter *>(data);
+	UNUSED_PARAMETER(data);
+	UNUSED_PARAMETER(event);
+	UNUSED_PARAMETER(key_up);
+}
+
+
+
 void ShaderFilter::getDefaults(obs_data_t *settings)
 {
 	UNUSED_PARAMETER(settings);
@@ -2073,12 +2256,31 @@ bool obs_module_load(void)
 	shader_filter.get_width              = ShaderFilter::getWidth;
 	shader_filter.get_height             = ShaderFilter::getHeight;
 	shader_filter.get_properties         = ShaderFilter::getProperties;
-	/*
-	shader_filter.mouse_click            = ShaderFilter::mouseClick;
-	shader_filter.mouse_move             = ShaderFilter::mouseMove;
-	shader_filter.mouse_wheel            = ShaderFilter::mouseWheel;
-	*/
+
 	obs_register_source(&shader_filter);
+
+	struct obs_source_info shader_source = {0};
+	shader_source.id                     = "obs_shader_source";
+	shader_source.type                   = OBS_SOURCE_TYPE_INPUT;
+	shader_source.output_flags           = OBS_SOURCE_VIDEO | OBS_SOURCE_INTERACTION;
+	shader_source.get_name               = ShaderFilter::getName;
+	shader_source.create                 = ShaderFilter::create;
+	shader_source.destroy                = ShaderFilter::destroy;
+	shader_source.update                 = ShaderFilter::update;
+	shader_source.video_tick             = ShaderFilter::videoTickSource;
+	shader_source.video_render           = ShaderFilter::videoRenderSource;
+	shader_source.get_defaults           = ShaderFilter::getDefaults;
+	shader_source.get_width              = ShaderFilter::getWidth;
+	shader_source.get_height             = ShaderFilter::getHeight;
+	shader_source.get_properties         = ShaderFilter::getPropertiesSource;
+
+	shader_source.mouse_click            = ShaderFilter::mouseClick;
+	shader_source.mouse_move             = ShaderFilter::mouseMove;
+	shader_source.mouse_wheel            = ShaderFilter::mouseWheel;
+	shader_source.focus                  = ShaderFilter::focus;
+	shader_source.key_click              = ShaderFilter::keyClick;
+
+	obs_register_source(&shader_source);
 
 	struct obs_audio_info aoi;
 	obs_get_audio_info(&aoi);
