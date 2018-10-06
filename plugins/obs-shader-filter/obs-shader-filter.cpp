@@ -62,9 +62,11 @@ void prepFunctions(std::vector<te_variable> *vars, ShaderFilter *filter)
 			{"sample_rate", &sample_rate}, {"channels", &output_channels},
 			{"mel_from_hz", audio_mel_from_hz, TE_FUNCTION1},
 			{"hz_from_mel", audio_hz_from_mel, TE_FUNCTION1}, {"degrees", hlsl_degrees, TE_FUNCTION1},
-			{"radians", hlsl_rad, TE_FUNCTION1}, {"random", random_double, TE_FUNCTION2}, {"mouse_pos_x", &filter->_mouseX}, {"mouse_pos_y", &filter->_mouseY},
-			{"mouse_type", &filter->_mouseType}, {"mouse_wheel_x", &filter->_mouseWheelX}, {"mouse_wheel_y", &filter->_mouseWheelY},
-			{"mouse_leave", &filter->_mouseLeave}, {"mouse_up", &filter->_mouseUp}};
+			{"radians", hlsl_rad, TE_FUNCTION1}, {"random", random_double, TE_FUNCTION2},
+			{"mouse_pos_x", &filter->_mouseX}, {"mouse_pos_y", &filter->_mouseY},
+			{"mouse_type", &filter->_mouseType}, {"mouse_wheel_x", &filter->_mouseWheelX},
+			{"mouse_wheel_y", &filter->_mouseWheelY}, {"mouse_leave", &filter->_mouseLeave},
+			{"mouse_up", &filter->_mouseUp}};
 	vars->reserve(vars->size() + funcs.size());
 	vars->insert(vars->end(), funcs.begin(), funcs.end());
 }
@@ -1686,6 +1688,8 @@ ShaderFilter::~ShaderFilter()
 	obs_enter_graphics();
 	gs_effect_destroy(effect);
 	effect = nullptr;
+	gs_texrender_destroy(filter_texrender);
+	filter_texrender = nullptr;
 	obs_leave_graphics();
 
 	if (_mutex)
@@ -1718,6 +1722,7 @@ void ShaderFilter::updateCache(gs_eparam_t *param)
 	ShaderParameter *p = new ShaderParameter(param, this);
 	if (p) {
 		paramList.push_back(p);
+		paramMap.insert(std::pair<std::string, ShaderParameter *>(p->getName(), p));
 		blog(LOG_INFO, "%s", p->getName().c_str());
 	}
 }
@@ -1735,6 +1740,7 @@ void ShaderFilter::reload()
 		delete p;
 		p = nullptr;
 	}
+	paramMap.clear();
 	evaluationList.clear();
 	expression.clear();
 
@@ -1763,6 +1769,7 @@ void ShaderFilter::reload()
 	/* Create new parameters */
 	size_t effect_count = gs_effect_get_num_params(effect);
 	paramList.reserve(effect_count + paramList.size());
+	paramMap.reserve(effect_count + paramList.size());
 	for (i = 0; i < effect_count; i++) {
 		gs_eparam_t *param = gs_effect_get_param_by_idx(effect, i);
 		updateCache(param);
@@ -1830,19 +1837,111 @@ void ShaderFilter::videoRender(void *data, gs_effect_t *effect)
 {
 	UNUSED_PARAMETER(effect);
 	ShaderFilter *filter = static_cast<ShaderFilter *>(data);
-	size_t        i;
+	size_t        passes, i;
 
 	if (filter->effect != nullptr) {
+		/*
 		if (!obs_source_process_filter_begin(filter->context, GS_RGBA, OBS_NO_DIRECT_RENDERING))
 			return;
+		*/
+		obs_source_t *target, *parent, *source;
+		gs_texture_t *texture;
+		uint32_t      parent_flags;
+
+		source       = filter->context;
+		target       = obs_filter_get_target(filter->context);
+		parent       = obs_filter_get_parent(filter->context);
+
+		if (!target) {
+			blog(LOG_INFO, "filter '%s' being processed with no target!", obs_source_get_name(filter->context));
+			return;
+		}
+		if (!parent) {
+			blog(LOG_INFO, "filter '%s' being processed with no parent!", obs_source_get_name(filter->context));
+			return;
+		}
+
+		size_t cx = obs_source_get_base_width(target);
+		size_t cy = obs_source_get_base_height(target);
+
+		if (!cx || !cy) {
+			obs_source_skip_video_filter(filter->context);
+			return;
+		}
 
 		for (i = 0; i < filter->paramList.size(); i++) {
 			if (filter->paramList[i])
 				filter->paramList[i]->videoRender(filter);
 		}
 
-		obs_source_process_filter_end(
-				filter->context, filter->effect, filter->total_width, filter->total_height);
+		if (!filter->filter_texrender)
+			filter->filter_texrender = gs_texrender_create(GS_RGBA, GS_ZS_NONE);
+
+		gs_blend_state_push();
+		gs_blend_function(GS_BLEND_ONE, GS_BLEND_ZERO);
+
+		if (gs_texrender_begin(filter->filter_texrender, cx, cy)) {
+			bool        custom_draw = (parent_flags & OBS_SOURCE_CUSTOM_DRAW) != 0;
+			bool        async       = (parent_flags & OBS_SOURCE_ASYNC) != 0;
+			struct vec4 clear_color;
+
+			vec4_zero(&clear_color);
+			gs_clear(GS_CLEAR_COLOR, &clear_color, 0.0f, 0);
+			gs_ortho(0.0f, (float)cx, 0.0f, (float)cy, -100.0f, 100.0f);
+
+			if (target == parent && !custom_draw && !async)
+				obs_source_default_render(target);
+			else
+				obs_source_video_render(target);
+
+			gs_texrender_end(filter->filter_texrender);
+		}
+
+		gs_blend_state_pop();
+
+		const char *id = obs_source_get_id(parent);
+		parent_flags = obs_get_source_output_flags(id);
+
+		enum obs_allow_direct_render allow_bypass = OBS_NO_DIRECT_RENDERING;
+		bool canBypass = (target == parent) && (allow_bypass == OBS_ALLOW_DIRECT_RENDERING) &&
+				((parent_flags & OBS_SOURCE_CUSTOM_DRAW) == 0) &&
+				((parent_flags & OBS_SOURCE_ASYNC) == 0);
+
+		const char *tech_name = "Draw";
+
+		if (canBypass) {
+			gs_technique_t *tech = gs_effect_get_technique(filter->effect, tech_name);
+
+			passes = gs_technique_begin(tech);
+			for (i = 0; i < passes; i++) {
+				gs_technique_begin_pass(tech, i);
+				obs_source_video_render(target);
+				gs_technique_end_pass(tech);
+			}
+			gs_technique_end(tech);
+		} else {
+			texture = gs_texrender_get_texture(filter->filter_texrender);
+			gs_eparam_t *image;
+			if (texture) {
+				gs_technique_t *tech  = gs_effect_get_technique(filter->effect, tech_name);
+				try {
+					ShaderParameter *p = filter->paramMap.at("image");
+					image = p->getParameter()->getParam();
+				} catch (std::out_of_range) {
+					image = NULL;
+				}
+
+				gs_effect_set_texture(image, texture);
+
+				passes = gs_technique_begin(tech);
+				for (i = 0; i < passes; i++) {
+					gs_technique_begin_pass(tech, i);
+					gs_draw_sprite(texture, 0, filter->total_width, filter->total_height);
+					gs_technique_end_pass(tech);
+				}
+				gs_technique_end(tech);
+			}
+		}
 	} else {
 		obs_source_skip_video_filter(filter->context);
 	}
