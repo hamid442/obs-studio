@@ -52,7 +52,10 @@ struct in_shader_data {
 		return *this;
 	}
 
-	operator double() const { return d; }
+	operator double() const
+	{
+		return d;
+	}
 };
 
 struct out_shader_data {
@@ -72,11 +75,20 @@ struct out_shader_data {
 		return *this;
 	}
 
-	operator float() const { return f; }
+	operator float() const
+	{
+		return f;
+	}
 
-	operator uint32_t() const { return u32i; }
+	operator uint32_t() const
+	{
+		return u32i;
+	}
 
-	operator int32_t() const { return s32i; }
+	operator int32_t() const
+	{
+		return s32i;
+	}
 };
 
 struct bind2 {
@@ -95,13 +107,16 @@ struct bind2 {
 
 class TinyExpr : public std::vector<te_variable> {
 	std::string _expr;
-	te_expr    *_compiled  = nullptr;
+	te_expr *   _compiled  = nullptr;
 	int         _err       = 0;
 	std::string _errString = "";
 
 public:
 	TinyExpr(){};
-	~TinyExpr() { releaseExpression(); };
+	~TinyExpr()
+	{
+		releaseExpression();
+	};
 	void releaseExpression()
 	{
 		if (_compiled) {
@@ -125,16 +140,25 @@ public:
 		_compiled = te_compile(expression.c_str(), data(), (int)size(), &_err);
 		if (!_compiled) {
 			_errString = "Expression Error At [" + std::to_string(_err) + "]:\n" +
-				     expression.substr(0, _err) + "[ERROR HERE]" + expression.substr(_err);
+					expression.substr(0, _err) + "[ERROR HERE]" + expression.substr(_err);
 			blog(LOG_WARNING, _errString.c_str());
 		} else {
 			_errString = "";
 			_expr      = expression;
 		}
 	};
-	bool        success() { return _err == 0; }
-	std::string errorString() { return _errString; }
-		    operator bool() { return success(); }
+	bool success()
+	{
+		return _err == 0;
+	}
+	std::string errorString()
+	{
+		return _errString;
+	}
+	operator bool()
+	{
+		return success();
+	}
 };
 
 class PThreadMutex {
@@ -182,7 +206,7 @@ class ShaderData;
 
 class ShaderParameter {
 protected:
-	EParam     *_param = nullptr;
+	EParam *    _param = nullptr;
 	std::string _name;
 	std::string _description;
 
@@ -190,9 +214,9 @@ protected:
 
 	gs_shader_param_type _paramType;
 
-	ShaderData     *_shaderData = nullptr;
+	ShaderData *    _shaderData = nullptr;
 	obs_property_t *_property   = nullptr;
-	ShaderFilter   *_filter     = nullptr;
+	ShaderFilter *  _filter     = nullptr;
 
 public:
 	ShaderParameter(gs_eparam_t *param, ShaderFilter *filter);
@@ -202,7 +226,7 @@ public:
 
 	std::string getName();
 	std::string getDescription();
-	EParam     *getParameter();
+	EParam *    getParameter();
 
 	void lock();
 	void unlock();
@@ -231,24 +255,29 @@ protected:
 public:
 	gs_texrender_t *filter_texrender = nullptr;
 
-	double                         _clickCount;
-	double                         _mouseUp;
-	double                         _mouseType;
-	double                         _mouseX;
-	double                         _mouseY;
-	double                         _mouseLeave;
-	double                         _mouseWheelX;
-	double                         _mouseWheelY;
+	double _clickCount;
+	double _mouseUp;
+	double _mouseType;
+	double _mouseX;
+	double _mouseY;
+	double _mouseLeave;
+	double _mouseWheelX;
+	double _mouseWheelY;
 
-	std::vector<ShaderParameter *> paramList      = {};
+	double _focus;
+
+	std::vector<ShaderParameter *>                     paramList = {};
 	std::unordered_map<std::string, ShaderParameter *> paramMap;
-	std::vector<ShaderParameter *> evaluationList = {};
+	std::vector<ShaderParameter *>                     evaluationList = {};
 
 	std::string resizeExpressions[4];
 	int         resizeLeft   = 0;
 	int         resizeRight  = 0;
 	int         resizeTop    = 0;
 	int         resizeBottom = 0;
+
+	int baseWidth = 0;
+	int baseHeight = 0;
 
 	float          elapsedTime        = 0;
 	in_shader_data elapsedTimeBinding = {0};
@@ -270,7 +299,7 @@ public:
 
 	obs_source_t *context = nullptr;
 
-	obs_data_t                    *getSettings();
+	obs_data_t *                   getSettings();
 	std::string                    getPath();
 	void                           setPath(std::string path);
 	void                           prepReload();
@@ -297,13 +326,16 @@ public:
 	void updateCache(gs_eparam_t *param);
 	void reload();
 
-	static void             *create(obs_data_t *settings, obs_source_t *source);
+	static void *            create(obs_data_t *settings, obs_source_t *source);
 	static void              destroy(void *data);
-	static const char       *getName(void *unused);
+	static const char *      getName(void *unused);
 	static void              videoTick(void *data, float seconds);
+	static void              videoTickSource(void *data, float seconds);
 	static void              videoRender(void *data, gs_effect_t *effect);
+	static void              videoRenderSource(void *data, gs_effect_t *effect);
 	static void              update(void *data, obs_data_t *settings);
 	static obs_properties_t *getProperties(void *data);
+	static obs_properties_t *getPropertiesSource(void *data);
 	static uint32_t          getWidth(void *data);
 	static uint32_t          getHeight(void *data);
 	static void              getDefaults(obs_data_t *settings);
@@ -311,4 +343,6 @@ public:
 			uint32_t click_count);
 	static void mouseMove(void *data, const struct obs_mouse_event *event, bool mouse_leave);
 	static void mouseWheel(void *data, const struct obs_mouse_event *event, int x_delta, int y_delta);
+	static void focus(void *data, bool focus);
+	static void keyClick(void *data, const struct obs_key_event *event, bool key_up);
 };
