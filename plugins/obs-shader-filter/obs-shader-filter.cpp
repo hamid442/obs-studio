@@ -64,9 +64,12 @@ void prepFunctions(std::vector<te_variable> *vars, ShaderFilter *filter)
 			{"hz_from_mel", audio_hz_from_mel, TE_FUNCTION1}, {"degrees", hlsl_degrees, TE_FUNCTION1},
 			{"radians", hlsl_rad, TE_FUNCTION1}, {"random", random_double, TE_FUNCTION2},
 			{"mouse_pos_x", &filter->_mouseX}, {"mouse_pos_y", &filter->_mouseY},
-			{"mouse_type", &filter->_mouseType}, {"mouse_wheel_x", &filter->_mouseWheelX},
+			{"mouse_type", &filter->_mouseType}, {"mouse_wheel_delta_x", &filter->_mouseWheelDeltaX},
+			{"mouse_wheel_delta_y", &filter->_mouseWheelDeltaY}, {"mouse_wheel_x", &filter->_mouseWheelX},
 			{"mouse_wheel_y", &filter->_mouseWheelY}, {"mouse_leave", &filter->_mouseLeave},
-			{"mouse_up", &filter->_mouseUp}};
+			{"mouse_up", &filter->_mouseUp}, {"mouse_click_x", &filter->_mouseClickX},
+			{"mouse_click_y", &filter->_mouseClickY}, {"key", &filter->_key},
+			{"key_pressed", &filter->_keyUp}};
 	vars->reserve(vars->size() + funcs.size());
 	vars->insert(vars->end(), funcs.begin(), funcs.end());
 }
@@ -1915,6 +1918,9 @@ void ShaderFilter::videoRender(void *data, gs_effect_t *effect)
 		if (!filter->filter_texrender)
 			filter->filter_texrender = gs_texrender_create(GS_RGBA, GS_ZS_NONE);
 
+		const char *id = obs_source_get_id(parent);
+		parent_flags   = obs_get_source_output_flags(id);
+
 		gs_blend_state_push();
 		gs_blend_function(GS_BLEND_ONE, GS_BLEND_ZERO);
 
@@ -1936,9 +1942,6 @@ void ShaderFilter::videoRender(void *data, gs_effect_t *effect)
 		}
 
 		gs_blend_state_pop();
-
-		const char *id = obs_source_get_id(parent);
-		parent_flags   = obs_get_source_output_flags(id);
 
 		enum obs_allow_direct_render allow_bypass = OBS_NO_DIRECT_RENDERING;
 		bool canBypass = (target == parent) && (allow_bypass == OBS_ALLOW_DIRECT_RENDERING) &&
@@ -2018,6 +2021,9 @@ void ShaderFilter::videoRenderSource(void *data, gs_effect_t *effect)
 		if (!filter->filter_texrender)
 			filter->filter_texrender = gs_texrender_create(GS_RGBA, GS_ZS_NONE);
 
+		const char *id = obs_source_get_id(source);
+		parent_flags   = obs_get_source_output_flags(id);
+
 		gs_blend_state_push();
 		gs_blend_function(GS_BLEND_ONE, GS_BLEND_ZERO);
 
@@ -2034,9 +2040,6 @@ void ShaderFilter::videoRenderSource(void *data, gs_effect_t *effect)
 		}
 
 		gs_blend_state_pop();
-
-		const char *id = obs_source_get_id(source);
-		parent_flags   = obs_get_source_output_flags(id);
 
 		const char *tech_name = "Draw";
 
@@ -2078,8 +2081,25 @@ void ShaderFilter::videoRenderSource(void *data, gs_effect_t *effect)
 		}
 
 		gs_blend_state_pop();
+		texture = gs_texrender_get_texture(filter->filter_texrender);
+		if (texture) {
+			const char *tech_name = "Draw";
 
-		//obs_source_skip_video_filter(filter->context);
+			obs_base_effect f;
+			gs_effect_t *   effect = obs_get_base_effect(OBS_EFFECT_DEFAULT);
+			gs_eparam_t *   image  = gs_effect_get_param_by_name(effect, "image");
+			gs_technique_t *tech   = gs_effect_get_technique(filter->effect, tech_name);
+
+			gs_effect_set_texture(image, texture);
+
+			passes = gs_technique_begin(tech);
+			for (i = 0; i < passes; i++) {
+				gs_technique_begin_pass(tech, i);
+				gs_draw_sprite(texture, 0, filter->total_width, filter->total_height);
+				gs_technique_end_pass(tech);
+			}
+			gs_technique_end(tech);
+		}
 	}
 }
 
@@ -2175,6 +2195,8 @@ void ShaderFilter::mouseClick(
 	filter->_clickCount  = click_count;
 	filter->_mouseX      = event->x;
 	filter->_mouseY      = event->y;
+	filter->_mouseClickX = event->x;
+	filter->_mouseClickY = event->y;
 }
 
 void ShaderFilter::mouseMove(void *data, const struct obs_mouse_event *event, bool mouse_leave)
@@ -2182,16 +2204,19 @@ void ShaderFilter::mouseMove(void *data, const struct obs_mouse_event *event, bo
 	ShaderFilter *filter = static_cast<ShaderFilter *>(data);
 	filter->_mouseX      = event->x;
 	filter->_mouseY      = event->y;
+	filter->_clickCount  = 0;
 	filter->_mouseLeave  = mouse_leave;
 }
 
 void ShaderFilter::mouseWheel(void *data, const struct obs_mouse_event *event, int x_delta, int y_delta)
 {
-	ShaderFilter *filter = static_cast<ShaderFilter *>(data);
-	filter->_mouseX      = event->x;
-	filter->_mouseY      = event->y;
-	filter->_mouseWheelX = x_delta;
-	filter->_mouseWheelY = y_delta;
+	ShaderFilter *filter      = static_cast<ShaderFilter *>(data);
+	filter->_mouseX           = event->x;
+	filter->_mouseY           = event->y;
+	filter->_mouseWheelDeltaX = x_delta;
+	filter->_mouseWheelDeltaY = y_delta;
+	filter->_mouseWheelX += x_delta;
+	filter->_mouseWheelY += y_delta;
 }
 
 void ShaderFilter::focus(void *data, bool focus)
@@ -2202,13 +2227,13 @@ void ShaderFilter::focus(void *data, bool focus)
 
 void ShaderFilter::keyClick(void *data, const struct obs_key_event *event, bool key_up)
 {
-	//ShaderFilter *filter = static_cast<ShaderFilter *>(data);
-	UNUSED_PARAMETER(data);
-	UNUSED_PARAMETER(event);
-	UNUSED_PARAMETER(key_up);
+	ShaderFilter *filter        = static_cast<ShaderFilter *>(data);
+	filter->_keyModifiers       = event->modifiers;
+	filter->_nativeKeyModifiers = event->native_modifiers;
+	if (event->text)
+		filter->_key = (double)event->text[0];
+	filter->_keyUp = key_up;
 }
-
-
 
 void ShaderFilter::getDefaults(obs_data_t *settings)
 {
@@ -2274,11 +2299,11 @@ bool obs_module_load(void)
 	shader_source.get_height             = ShaderFilter::getHeight;
 	shader_source.get_properties         = ShaderFilter::getPropertiesSource;
 
-	shader_source.mouse_click            = ShaderFilter::mouseClick;
-	shader_source.mouse_move             = ShaderFilter::mouseMove;
-	shader_source.mouse_wheel            = ShaderFilter::mouseWheel;
-	shader_source.focus                  = ShaderFilter::focus;
-	shader_source.key_click              = ShaderFilter::keyClick;
+	shader_source.mouse_click = ShaderFilter::mouseClick;
+	shader_source.mouse_move  = ShaderFilter::mouseMove;
+	shader_source.mouse_wheel = ShaderFilter::mouseWheel;
+	shader_source.focus       = ShaderFilter::focus;
+	shader_source.key_click   = ShaderFilter::keyClick;
 
 	obs_register_source(&shader_source);
 

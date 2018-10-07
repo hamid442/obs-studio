@@ -251,7 +251,6 @@ protected:
 	bool          _reload_effect = true;
 
 	TinyExpr expression;
-
 public:
 	gs_texrender_t *filter_texrender = nullptr;
 
@@ -260,9 +259,18 @@ public:
 	double _mouseType;
 	double _mouseX;
 	double _mouseY;
+	double _mouseClickX;
+	double _mouseClickY;
 	double _mouseLeave;
 	double _mouseWheelX;
 	double _mouseWheelY;
+	double _mouseWheelDeltaX;
+	double _mouseWheelDeltaY;
+
+	double _keyModifiers;
+	double _keyUp;
+	double _nativeKeyModifiers;
+	double _key;
 
 	double _focus;
 
