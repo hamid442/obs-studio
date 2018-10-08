@@ -227,6 +227,7 @@ public:
 	std::string getName();
 	std::string getDescription();
 	EParam *    getParameter();
+	gs_shader_param_type getParameterType();
 
 	void lock();
 	void unlock();
@@ -234,6 +235,8 @@ public:
 	void videoRender(ShaderFilter *filter);
 	void update(ShaderFilter *filter);
 	void getProperties(ShaderFilter *filter, obs_properties_t *props);
+	void onPass(ShaderFilter *filter, const char *technique, size_t pass, gs_texture_t *texture);
+	void onTechniqueEnd(ShaderFilter *filter, const char *technique, gs_texture_t *texture);
 };
 
 class ShaderFilter {

@@ -585,6 +585,21 @@ public:
 	{
 		UNUSED_PARAMETER(filter);
 	};
+
+	virtual void onPass(ShaderFilter *filter, const char *technique, size_t pass, gs_texture_t *texture)
+	{
+		UNUSED_PARAMETER(filter);
+		UNUSED_PARAMETER(technique);
+		UNUSED_PARAMETER(pass);
+		UNUSED_PARAMETER(texture);
+	}
+
+	virtual void onTechniqueEnd(ShaderFilter *filter, const char *technique, gs_texture_t *texture)
+	{
+		UNUSED_PARAMETER(filter);
+		UNUSED_PARAMETER(technique);
+		UNUSED_PARAMETER(texture);
+	}
 };
 
 class NumericalData : public ShaderData {
@@ -1166,13 +1181,15 @@ protected:
 	size_t             _size;
 	uint8_t            _range_0;
 	uint8_t            _range_1;
-	enum TextureType { ignored, unspecified, source, audio, image, media, random };
+	enum TextureType { ignored, unspecified, source, audio, image, media, random, buffer };
 	fft_windowing_type _window;
 	TextureType        _texType;
 	std::string        _filePath;
 
 	std::string _size_w_binding;
 	std::string _size_h_binding;
+	std::string _tech;
+	size_t      _pass;
 	double      _src_cx;
 	double      _src_cy;
 
@@ -1275,7 +1292,7 @@ public:
 
 		EVal *                                    texType = _param->getAnnotationValue("texture_type");
 		std::unordered_map<std::string, uint32_t> types   = {{"source", source}, {"audio", audio},
-                                {"image", image}, {"media", media}, {"random", random}};
+                                {"image", image}, {"media", media}, {"random", random}, {"buffer", buffer}};
 
 		if (texType && types.find(texType->getString()) != types.end()) {
 			_texType = (TextureType)types.at(texType->getString());
@@ -1287,7 +1304,11 @@ public:
 			_texType = ignored;
 
 		_channels = audio_output_get_channels(obs_get_audio());
-		if (_texType == audio) {
+
+		EVal *techAnnotion = _param->getAnnotationValue("technique");
+		EVal *window       = nullptr; 
+		switch (_texType) {
+		case audio:
 			_channels = _param->getAnnotationValue<int>("channels", 0);
 
 			for (size_t i = 0; i < MAX_AV_PLANES; i++)
@@ -1295,11 +1316,18 @@ public:
 
 			_isFFT = _param->getAnnotationValue<bool>("is_fft", false);
 
-			EVal *window = _param->getAnnotationValue("window");
+			window = _param->getAnnotationValue("window");
 			if (window)
 				_window = get_window_type(window->c_str());
 			else
 				_window = none;
+			break;
+		case buffer:
+			_tech = techAnnotion->getString();
+			_pass = _param->getAnnotationValue<int>("pass", -1);
+			break;
+		default:
+			break;
 		}
 
 		_binding_names.push_back(toSnakeCase(_names[0]));
@@ -1468,8 +1496,37 @@ public:
 			obs_leave_graphics();
 			gs_effect_set_texture(*_param, _tex);
 			break;
+		case buffer:
+			_param->setValue<gs_texture_t *>(&_tex, sizeof(gs_texture *));
+			break;
 		default:
 			break;
+		}
+	}
+
+	void onPass(ShaderFilter *filter, const char *technique, size_t pass, gs_texture_t *texture)
+	{
+		if (_texType == buffer) {
+			std::string tech = technique;
+			if (tech == _tech && pass == _pass) {
+				obs_enter_graphics();
+				gs_texture_destroy(_tex);
+				gs_copy_texture(_tex, texture);
+				obs_enter_graphics();
+			}
+		}
+	}
+
+	void onTechniqueEnd(ShaderFilter *filter, const char *technique, gs_texture_t *texture)
+	{
+		if (_texType == buffer) {
+			std::string tech = technique;
+			if (tech == _tech && _pass == -1) {
+				obs_enter_graphics();
+				gs_texture_destroy(_tex);
+				gs_copy_texture(_tex, texture);
+				obs_enter_graphics();
+			}
 		}
 	}
 };
@@ -1513,6 +1570,11 @@ std::string ShaderParameter::getDescription()
 EParam *ShaderParameter::getParameter()
 {
 	return _param;
+}
+
+gs_shader_param_type ShaderParameter::getParameterType()
+{
+	return _paramType;
 }
 
 ShaderParameter::ShaderParameter(gs_eparam_t *param, ShaderFilter *filter) : _filter(filter)
@@ -1607,6 +1669,18 @@ void ShaderParameter::getProperties(ShaderFilter *filter, obs_properties_t *prop
 {
 	if (_shaderData)
 		_shaderData->getProperties(filter, props);
+}
+
+void ShaderParameter::onPass(ShaderFilter *filter, const char *technique, size_t pass, gs_texture_t *texture)
+{
+	if (_shaderData)
+		_shaderData->onPass(filter, technique, pass, texture);
+}
+
+void ShaderParameter::onTechniqueEnd(ShaderFilter *filter, const char *technique, gs_texture_t *texture)
+{
+	if (_shaderData)
+		_shaderData->onTechniqueEnd(filter, technique, texture);
 }
 
 obs_data_t *ShaderFilter::getSettings()
@@ -1726,6 +1800,11 @@ void ShaderFilter::updateCache(gs_eparam_t *param)
 	if (p) {
 		paramList.push_back(p);
 		paramMap.insert(std::pair<std::string, ShaderParameter *>(p->getName(), p));
+		switch (p->getParameterType()) {
+		case GS_SHADER_PARAM_TEXTURE:
+			//textureList.push_back(p);
+			break;
+		}
 		blog(LOG_INFO, "%s", p->getName().c_str());
 	}
 }
@@ -1880,7 +1959,7 @@ void ShaderFilter::videoRender(void *data, gs_effect_t *effect)
 {
 	UNUSED_PARAMETER(effect);
 	ShaderFilter *filter = static_cast<ShaderFilter *>(data);
-	size_t        passes, i;
+	size_t        passes, i, j;
 
 	if (filter->effect != nullptr) {
 		obs_source_t *target, *parent, *source;
@@ -1960,6 +2039,9 @@ void ShaderFilter::videoRender(void *data, gs_effect_t *effect)
 				gs_technique_end_pass(tech);
 			}
 			gs_technique_end(tech);
+			for (j = 0; j < filter->paramList.size(); j++) {
+				filter->paramList[j]->onTechniqueEnd(filter, tech_name, texture);
+			}
 		} else {
 			texture = gs_texrender_get_texture(filter->filter_texrender);
 			gs_eparam_t *image;
@@ -1979,8 +2061,15 @@ void ShaderFilter::videoRender(void *data, gs_effect_t *effect)
 					gs_technique_begin_pass(tech, i);
 					gs_draw_sprite(texture, 0, cx, cy);
 					gs_technique_end_pass(tech);
+					/*Handle Buffers*/
+					for (j = 0; j < filter->paramList.size(); j++) {
+						filter->paramList[j]->onPass(filter, tech_name, j, texture);
+					}
 				}
 				gs_technique_end(tech);
+				for (j = 0; j < filter->paramList.size(); j++) {
+					filter->paramList[j]->onTechniqueEnd(filter, tech_name, texture);
+				}
 			}
 		}
 	} else {
@@ -1992,7 +2081,7 @@ void ShaderFilter::videoRenderSource(void *data, gs_effect_t *effect)
 {
 	UNUSED_PARAMETER(effect);
 	ShaderFilter *filter = static_cast<ShaderFilter *>(data);
-	size_t        passes, i;
+	size_t        passes, i, j;
 
 	obs_source_t *source;
 	gs_texture_t *texture;
@@ -2061,8 +2150,15 @@ void ShaderFilter::videoRenderSource(void *data, gs_effect_t *effect)
 				gs_technique_begin_pass(tech, i);
 				gs_draw_sprite(texture, 0, filter->total_width, filter->total_height);
 				gs_technique_end_pass(tech);
+				/*Handle Buffers*/
+				for (j = 0; j < filter->paramList.size(); j++) {
+					filter->paramList[j]->onPass(filter, tech_name, j, texture);
+				}
 			}
 			gs_technique_end(tech);
+			for (j = 0; j < filter->paramList.size(); j++) {
+				filter->paramList[j]->onTechniqueEnd(filter, tech_name, texture);
+			}
 		}
 	} else {
 		gs_blend_state_push();
@@ -2097,8 +2193,15 @@ void ShaderFilter::videoRenderSource(void *data, gs_effect_t *effect)
 				gs_technique_begin_pass(tech, i);
 				gs_draw_sprite(texture, 0, filter->total_width, filter->total_height);
 				gs_technique_end_pass(tech);
+				/*Handle Buffers*/
+				for (j = 0; j < filter->paramList.size(); j++) {
+					filter->paramList[j]->onPass(filter, tech_name, j, texture);
+				}
 			}
 			gs_technique_end(tech);
+			for (j = 0; j < filter->paramList.size(); j++) {
+				filter->paramList[j]->onTechniqueEnd(filter, tech_name, texture);
+			}
 		}
 	}
 }
