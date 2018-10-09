@@ -1356,11 +1356,35 @@ public:
 			p = obs_properties_add_list(props, _names[0].c_str(), _descs[0].c_str(), OBS_COMBO_TYPE_LIST,
 					OBS_COMBO_FORMAT_STRING);
 			fillSourceList(p);
+			for (size_t i = 0; i < obs_property_list_item_count(p); i++) {
+				std::string l = obs_property_list_item_string(p, i);
+				std::string src = obs_source_get_name(_filter->context);
+				if (l == src)
+					obs_property_list_item_remove(p, i--);
+				obs_source_t *parent = obs_filter_get_parent(_filter->context);
+				std::string   parentName = "";
+				if (parent)
+					parentName = obs_source_get_name(parent);
+				if (!parentName.empty() && l == parentName)
+					obs_property_list_item_remove(p, i--);
+			}
 			break;
 		case audio:
 			p = obs_properties_add_list(props, _names[0].c_str(), _descs[0].c_str(), OBS_COMBO_TYPE_LIST,
 					OBS_COMBO_FORMAT_STRING);
 			fillAudioSourceList(p);
+			for (size_t i = 0; i < obs_property_list_item_count(p); i++) {
+				std::string l   = obs_property_list_item_string(p, i);
+				std::string src = obs_source_get_name(_filter->context);
+				if (l == src)
+					obs_property_list_item_remove(p, i--);
+				obs_source_t *parent     = obs_filter_get_parent(_filter->context);
+				std::string   parentName = "";
+				if (parent)
+					parentName = obs_source_get_name(parent);
+				if (!parentName.empty() && l == parentName)
+					obs_property_list_item_remove(p, i--);
+			}
 			break;
 		case media:
 			p = obs_properties_add_path(props, _names[0].c_str(), _descs[0].c_str(), OBS_PATH_FILE,
