@@ -1028,10 +1028,10 @@ static bool fillPropertiesSourceList(void *param, obs_source_t *source)
 {
 	obs_property_t *p           = (obs_property_t *)param;
 	uint32_t        flags       = obs_source_get_output_flags(source);
-	const char *    source_name = obs_source_get_name(source);
+	const char *    sourceName = obs_source_get_name(source);
 
 	if ((flags & OBS_SOURCE_VIDEO) != 0 && obs_source_active(source))
-		obs_property_list_add_string(p, source_name, source_name);
+		obs_property_list_add_string(p, sourceName, sourceName);
 
 	return true;
 }
@@ -1046,10 +1046,10 @@ static bool fillPropertiesAudioSourceList(void *param, obs_source_t *source)
 {
 	obs_property_t *p           = (obs_property_t *)param;
 	uint32_t        flags       = obs_source_get_output_flags(source);
-	const char *    source_name = obs_source_get_name(source);
+	const char *    sourceName = obs_source_get_name(source);
 
 	if ((flags & OBS_SOURCE_AUDIO) != 0 && obs_source_active(source))
-		obs_property_list_add_string(p, source_name, source_name);
+		obs_property_list_add_string(p, sourceName, sourceName);
 
 	return true;
 }
@@ -1066,20 +1066,20 @@ private:
 	{
 		if (!param)
 			return;
-		uint32_t media_cx = obs_source_get_width(_mediaSource);
-		uint32_t media_cy = obs_source_get_height(_mediaSource);
+		uint32_t mediaWidth = obs_source_get_width(_mediaSource);
+		uint32_t mediaHeight = obs_source_get_height(_mediaSource);
 
-		if (!media_cx || !media_cy)
+		if (!mediaWidth || !mediaHeight)
 			return;
 
-		_sourceWidth = media_cx;
-		_sourceHeight = media_cy;
+		_sourceWidth = mediaWidth;
+		_sourceHeight = mediaHeight;
 
-		float scale_x = cx / (float)media_cx;
-		float scale_y = cy / (float)media_cy;
+		float scale_x = cx / (float)mediaWidth;
+		float scale_y = cy / (float)mediaHeight;
 
 		gs_texrender_reset(_texrender);
-		if (gs_texrender_begin(_texrender, media_cx, media_cy)) {
+		if (gs_texrender_begin(_texrender, mediaWidth, mediaHeight)) {
 			struct vec4 clearColor;
 			vec4_zero(&clearColor);
 
@@ -1099,16 +1099,16 @@ private:
 	uint32_t processAudio(size_t samples)
 	{
 		size_t i;
-		size_t h_samples     = samples / 2;
-		size_t h_sample_size = samples * 2;
+		size_t hSamples     = samples / 2;
+		size_t hSamplesSize = samples * 2;
 
 		for (i = 0; i < _channels; i++) {
 			audio_fft_complex(((float *)_data) + (i * samples), (uint32_t)samples);
 		}
 		for (i = 1; i < _channels; i++) {
-			memcpy(((float *)_data) + (i * h_samples), ((float *)_data) + (i * samples), h_sample_size);
+			memcpy(((float *)_data) + (i * hSamples), ((float *)_data) + (i * samples), hSamplesSize);
 		}
-		return (uint32_t)h_samples;
+		return (uint32_t)hSamples;
 	}
 
 	void renderAudioSource(EParam *param, uint64_t samples)
@@ -1142,19 +1142,19 @@ private:
 	void updateAudioSource(std::string name)
 	{
 		if (!name.empty()) {
-			obs_source_t *sidechain     = nullptr;
-			sidechain                   = obs_get_source_by_name(name.c_str());
-			obs_source_t *old_sidechain = _mediaSource;
+			obs_source_t *sideChain     = nullptr;
+			sideChain                   = obs_get_source_by_name(name.c_str());
+			obs_source_t *oldSideChain = _mediaSource;
 			lock();
-			if (old_sidechain) {
-				obs_source_remove_audio_capture_callback(old_sidechain, sidechain_capture, this);
-				obs_source_release(old_sidechain);
+			if (oldSideChain) {
+				obs_source_remove_audio_capture_callback(oldSideChain, sidechain_capture, this);
+				obs_source_release(oldSideChain);
 				for (size_t i = 0; i < MAX_AV_PLANES; i++)
 					_audio[i].clear();
 			}
-			if (sidechain)
-				obs_source_add_audio_capture_callback(sidechain, sidechain_capture, this);
-			_mediaSource = sidechain;
+			if (sideChain)
+				obs_source_add_audio_capture_callback(sideChain, sidechain_capture, this);
+			_mediaSource = sideChain;
 			unlock();
 		}
 	}
