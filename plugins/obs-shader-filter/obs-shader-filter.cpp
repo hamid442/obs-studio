@@ -431,9 +431,7 @@ public:
 		_annotationCount = gs_param_get_num_annotations(_param);
 		_annotationsMap.reserve(_annotationCount);
 
-		gs_eparam_t *                               p = nullptr;
-		std::vector<EParam *>::iterator             annotation_it;
-		std::vector<gs_effect_param_info>::iterator info_it;
+		gs_eparam_t *p = nullptr;
 
 		for (i = 0; i < _annotationCount; i++) {
 			p                       = gs_param_get_annotation_by_idx(_param, i);
@@ -725,13 +723,13 @@ public:
 		_skipCalculations  = false;
 		size_t i;
 		if (_isFloat) {
-			_min  = _param->getAnnotationValue<float>("min", -FLT_MAX);
-			_max  = _param->getAnnotationValue<float>("max", FLT_MAX);
-			_step = _param->getAnnotationValue<float>("step", 1.0);
+			_min  = (double)_param->getAnnotationValue<float>("min", -FLT_MAX);
+			_max  = (double)_param->getAnnotationValue<float>("max", FLT_MAX);
+			_step = (double)_param->getAnnotationValue<float>("step", 1.0);
 		} else {
-			_min  = _param->getAnnotationValue<int>("min", INT_MIN);
-			_max  = _param->getAnnotationValue<int>("max", INT_MAX);
-			_step = _param->getAnnotationValue<int>("step", 1.0);
+			_min  = (double)_param->getAnnotationValue<int>("min", INT_MIN);
+			_max  = (double)_param->getAnnotationValue<int>("max", INT_MAX);
+			_step = (double)_param->getAnnotationValue<int>("step", 1);
 		}
 
 		EVal *guitype  = _param->getAnnotationValue("type");
@@ -1131,8 +1129,8 @@ private:
 		if (_isFFT)
 			pxWidth = processAudio(samples);
 
-		_sourceWidth = pxWidth;
-		_sourceHeight = _channels;
+		_sourceWidth = (double)pxWidth;
+		_sourceHeight = (double)_channels;
 		obs_enter_graphics();
 		gs_texture_destroy(_tex);
 		_tex = gs_texture_create(
@@ -1505,7 +1503,7 @@ public:
 					_data[i] = (uint8_t)random_int(_range_0, _range_1);
 			} else {
 				for (i = 0; i < pixels; i++) {
-					u = random_int(0, _range_1 + (255 - _range_0));
+					u = (uint8_t)random_int(0, _range_1 + (255 - _range_0));
 					if (u > _range_1)
 						u += _range_1 - _range_0;
 					_data[i] = u;
@@ -1529,6 +1527,7 @@ public:
 
 	void onPass(ShaderFilter *filter, const char *technique, size_t pass, gs_texture_t *texture)
 	{
+		UNUSED_PARAMETER(filter);
 		if (_texType == buffer) {
 			std::string tech = technique;
 			if (tech == _tech && pass == _pass) {
@@ -1542,6 +1541,7 @@ public:
 
 	void onTechniqueEnd(ShaderFilter *filter, const char *technique, gs_texture_t *texture)
 	{
+		UNUSED_PARAMETER(filter);
 		if (_texType == buffer) {
 			std::string tech = technique;
 			if (tech == _tech && _pass == -1) {
@@ -1965,7 +1965,6 @@ void ShaderFilter::videoTickSource(void *data, float seconds)
 			*resize[i] = filter->evaluateExpression<int>(0);
 	}
 
-	obs_source_t *target = obs_filter_get_target(filter->context);
 	/* Determine offsets from expansion values. */
 	int baseWidth  = filter->baseWidth;
 	int baseHeight = filter->baseHeight;
@@ -2010,8 +2009,8 @@ void ShaderFilter::videoRender(void *data, gs_effect_t *effect)
 			return;
 		}
 
-		size_t cx = filter->totalWidth;
-		size_t cy = filter->totalHeight;
+		uint32_t cx = filter->totalWidth;
+		uint32_t cy = filter->totalHeight;
 
 		if (!cx || !cy) {
 			obs_source_skip_video_filter(filter->context);
@@ -2061,12 +2060,17 @@ void ShaderFilter::videoRender(void *data, gs_effect_t *effect)
 
 		if (canBypass) {
 			gs_technique_t *tech = gs_effect_get_technique(filter->effect, techName);
+			texture              = gs_texrender_get_texture(filter->filterTexrender);
 
 			passes = gs_technique_begin(tech);
 			for (i = 0; i < passes; i++) {
 				gs_technique_begin_pass(tech, i);
 				obs_source_video_render(target);
 				gs_technique_end_pass(tech);
+				/*Handle Buffers*/
+				for (j = 0; j < filter->paramList.size(); j++) {
+					filter->paramList[j]->onPass(filter, techName, j, texture);
+				}
 			}
 			gs_technique_end(tech);
 			for (j = 0; j < filter->paramList.size(); j++) {
@@ -2117,8 +2121,8 @@ void ShaderFilter::videoRenderSource(void *data, gs_effect_t *effect)
 		return;
 	}
 
-	size_t cx = obs_source_get_base_width(source);
-	size_t cy = obs_source_get_base_height(source);
+	uint32_t cx = obs_source_get_base_width(source);
+	uint32_t cy = obs_source_get_base_height(source);
 
 	if (!cx || !cy) {
 		return;
@@ -2195,9 +2199,8 @@ void ShaderFilter::videoRenderSource(void *data, gs_effect_t *effect)
 		if (texture) {
 			const char *techName = "Draw";
 
-			obs_base_effect f;
 			gs_effect_t *   effect = obs_get_base_effect(OBS_EFFECT_DEFAULT);
-			gs_technique_t *tech   = gs_effect_get_technique(filter->effect, techName);
+			gs_technique_t *tech   = gs_effect_get_technique(effect, techName);
 
 			if (filter->image)
 				gs_effect_set_texture(filter->image, texture);
@@ -2233,8 +2236,8 @@ void ShaderFilter::update(void *data, obs_data_t *settings)
 		if (filter->paramList[i])
 			filter->paramList[i]->update(filter);
 	}
-	filter->baseHeight = obs_data_get_int(settings, "size.height");
-	filter->baseWidth  = obs_data_get_int(settings, "size.width");
+	filter->baseHeight = (int)obs_data_get_int(settings, "size.height");
+	filter->baseWidth  = (int)obs_data_get_int(settings, "size.width");
 }
 
 obs_properties_t *ShaderFilter::getProperties(void *data)
