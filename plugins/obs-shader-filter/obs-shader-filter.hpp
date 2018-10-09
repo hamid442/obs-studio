@@ -302,6 +302,7 @@ public:
 	bind2 uvPixelIntervalBinding;
 
 	matrix4 viewProj;
+	gs_eparam_t *image;
 
 	obs_source_t *context = nullptr;
 
