@@ -241,21 +241,21 @@ public:
 
 class ShaderFilter {
 protected:
-	uint32_t total_width;
-	uint32_t total_height;
+	uint32_t totalWidth;
+	uint32_t totalHeight;
 
-	std::string _effect_path;
-	std::string _effect_string;
+	std::string _effectPath;
+	std::string _effectString;
 
 	gs_effect_t *effect    = nullptr;
 	obs_data_t * _settings = nullptr;
 
 	PThreadMutex *_mutex         = nullptr;
-	bool          _reload_effect = true;
+	bool          _reloadEffect = true;
 
 	TinyExpr expression;
 public:
-	gs_texrender_t *filter_texrender = nullptr;
+	gs_texrender_t *filterTexrender = nullptr;
 
 	double _clickCount;
 	double _mouseUp;
@@ -293,8 +293,6 @@ public:
 	float          elapsedTime        = 0;
 	in_shader_data elapsedTimeBinding = {0};
 
-	std::vector<std::pair<gs_eparam_t *, float *>> float_pairs;
-
 	vec2 uvScale;
 	vec2 uvOffset;
 	vec2 uvPixelInterval;
@@ -303,10 +301,7 @@ public:
 	bind2 uvOffsetBinding;
 	bind2 uvPixelIntervalBinding;
 
-	std::vector<std::pair<gs_eparam_t *, vec2 *>> vec2_pairs;
-
-	matrix4                                          view_proj;
-	std::vector<std::pair<gs_eparam_t *, matrix4 *>> matrix4_pairs;
+	matrix4 viewProj;
 
 	obs_source_t *context = nullptr;
 
