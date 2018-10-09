@@ -167,12 +167,12 @@ public:
 
 	operator std::vector<float>()
 	{
-		std::vector<float> d_float;
-		std::vector<int>   d_int;
-		std::vector<bool>  d_bool;
-		float *            ptr_float = static_cast<float *>(data);
-		int *              ptr_int   = static_cast<int *>(data);
-		bool *             ptr_bool  = static_cast<bool *>(data);
+		std::vector<float> dFloat;
+		std::vector<int>   dInt;
+		std::vector<bool>  dBool;
+		float *            ptrFloat = static_cast<float *>(data);
+		int *              ptrInt   = static_cast<int *>(data);
+		bool *             ptrBool  = static_cast<bool *>(data);
 
 		size_t i;
 		size_t len;
@@ -180,10 +180,10 @@ public:
 		switch (type) {
 		case GS_SHADER_PARAM_BOOL:
 			len = size / sizeof(bool);
-			d_float.reserve(len);
-			d_bool.assign(ptr_bool, ptr_bool + len);
-			for (i = 0; i < d_bool.size(); i++)
-				d_float.push_back(d_bool[i]);
+			dFloat.reserve(len);
+			dBool.assign(ptrBool, ptrBool + len);
+			for (i = 0; i < dBool.size(); i++)
+				dFloat.push_back(dBool[i]);
 			break;
 		case GS_SHADER_PARAM_FLOAT:
 		case GS_SHADER_PARAM_VEC2:
@@ -191,30 +191,30 @@ public:
 		case GS_SHADER_PARAM_VEC4:
 		case GS_SHADER_PARAM_MATRIX4X4:
 			len = size / sizeof(float);
-			d_float.assign(ptr_float, ptr_float + len);
+			dFloat.assign(ptrFloat, ptrFloat + len);
 			break;
 		case GS_SHADER_PARAM_INT:
 		case GS_SHADER_PARAM_INT2:
 		case GS_SHADER_PARAM_INT3:
 		case GS_SHADER_PARAM_INT4:
 			len = size / sizeof(int);
-			d_float.reserve(len);
-			d_int.assign(ptr_int, ptr_int + len);
-			for (i = 0; i < d_int.size(); i++)
-				d_float.push_back((float)d_int[i]);
+			dFloat.reserve(len);
+			dInt.assign(ptrInt, ptrInt + len);
+			for (i = 0; i < dInt.size(); i++)
+				dFloat.push_back((float)dInt[i]);
 			break;
 		}
-		return d_float;
+		return dFloat;
 	}
 
 	operator std::vector<int>()
 	{
-		std::vector<float> d_float;
-		std::vector<int>   d_int;
-		std::vector<bool>  d_bool;
-		float *            ptr_float = static_cast<float *>(data);
-		int *              ptr_int   = static_cast<int *>(data);
-		bool *             ptr_bool  = static_cast<bool *>(data);
+		std::vector<float> dFloat;
+		std::vector<int>   dInt;
+		std::vector<bool>  dBool;
+		float *            ptrFloat = static_cast<float *>(data);
+		int *              ptrInt   = static_cast<int *>(data);
+		bool *             ptrBool  = static_cast<bool *>(data);
 
 		size_t i;
 		size_t len;
@@ -222,10 +222,10 @@ public:
 		switch (type) {
 		case GS_SHADER_PARAM_BOOL:
 			len = size / sizeof(bool);
-			d_int.reserve(len);
-			d_bool.assign(ptr_bool, ptr_bool + len);
-			for (i = 0; i < d_bool.size(); i++)
-				d_int.push_back(d_bool[i]);
+			dInt.reserve(len);
+			dBool.assign(ptrBool, ptrBool + len);
+			for (i = 0; i < dBool.size(); i++)
+				dInt.push_back(dBool[i]);
 			break;
 		case GS_SHADER_PARAM_FLOAT:
 		case GS_SHADER_PARAM_VEC2:
@@ -233,30 +233,30 @@ public:
 		case GS_SHADER_PARAM_VEC4:
 		case GS_SHADER_PARAM_MATRIX4X4:
 			len = size / sizeof(float);
-			d_int.reserve(len);
-			d_float.assign(ptr_float, ptr_float + len);
-			for (i = 0; i < d_float.size(); i++)
-				d_int.push_back((int)d_float[i]);
+			dInt.reserve(len);
+			dFloat.assign(ptrFloat, ptrFloat + len);
+			for (i = 0; i < dFloat.size(); i++)
+				dInt.push_back((int)dFloat[i]);
 			break;
 		case GS_SHADER_PARAM_INT:
 		case GS_SHADER_PARAM_INT2:
 		case GS_SHADER_PARAM_INT3:
 		case GS_SHADER_PARAM_INT4:
 			len = size / sizeof(int);
-			d_int.assign(ptr_int, ptr_int + len);
+			dInt.assign(ptrInt, ptrInt + len);
 			break;
 		}
-		return d_int;
+		return dInt;
 	}
 
 	operator std::vector<bool>()
 	{
-		std::vector<float> d_float;
-		std::vector<int>   d_int;
-		std::vector<bool>  d_bool;
-		float *            ptr_float = static_cast<float *>(data);
-		int *              ptr_int   = static_cast<int *>(data);
-		bool *             ptr_bool  = static_cast<bool *>(data);
+		std::vector<float> dFloat;
+		std::vector<int>   dInt;
+		std::vector<bool>  dBool;
+		float *            ptrFloat = static_cast<float *>(data);
+		int *              ptrInt   = static_cast<int *>(data);
+		bool *             ptrBool  = static_cast<bool *>(data);
 
 		size_t i;
 		size_t len;
@@ -264,7 +264,7 @@ public:
 		switch (type) {
 		case GS_SHADER_PARAM_BOOL:
 			len = size / sizeof(bool);
-			d_bool.assign(ptr_bool, ptr_bool + len);
+			dBool.assign(ptrBool, ptrBool + len);
 			break;
 		case GS_SHADER_PARAM_FLOAT:
 		case GS_SHADER_PARAM_VEC2:
@@ -272,33 +272,33 @@ public:
 		case GS_SHADER_PARAM_VEC4:
 		case GS_SHADER_PARAM_MATRIX4X4:
 			len = size / sizeof(float);
-			d_float.assign(ptr_float, ptr_float + len);
-			d_bool.reserve(len);
-			for (i = 0; i < d_float.size(); i++)
-				d_bool.push_back(d_float[i]);
+			dFloat.assign(ptrFloat, ptrFloat + len);
+			dBool.reserve(len);
+			for (i = 0; i < dFloat.size(); i++)
+				dBool.push_back(dFloat[i]);
 			break;
 		case GS_SHADER_PARAM_INT:
 		case GS_SHADER_PARAM_INT2:
 		case GS_SHADER_PARAM_INT3:
 		case GS_SHADER_PARAM_INT4:
 			len = size / sizeof(int);
-			d_int.assign(ptr_int, ptr_int + len);
-			d_bool.reserve(len);
-			for (i = 0; i < d_int.size(); i++)
-				d_bool.push_back(d_int[i]);
+			dInt.assign(ptrInt, ptrInt + len);
+			dBool.reserve(len);
+			for (i = 0; i < dInt.size(); i++)
+				dBool.push_back(dInt[i]);
 			break;
 		}
-		return d_bool;
+		return dBool;
 	}
 
 	operator std::string()
 	{
 		std::string str      = "";
-		char *      ptr_char = static_cast<char *>(data);
+		char *      ptrChar = static_cast<char *>(data);
 
 		switch (type) {
 		case GS_SHADER_PARAM_STRING:
-			str = ptr_char;
+			str = ptrChar;
 			break;
 		}
 		return str;
@@ -336,20 +336,20 @@ private:
 
 protected:
 	gs_eparam_t *                             _param      = nullptr;
-	gs_effect_param_info                      _param_info = {0};
+	gs_effect_param_info                      _paramInfo = {0};
 	EVal *                                    _value      = nullptr;
-	std::unordered_map<std::string, EParam *> _annotations_map;
+	std::unordered_map<std::string, EParam *> _annotationsMap;
 	size_t                                    _annotationCount;
 
 public:
 	std::unordered_map<std::string, EParam *> *getAnnootations()
 	{
-		return &_annotations_map;
+		return &_annotationsMap;
 	}
 
 	gs_effect_param_info info() const
 	{
-		return _param_info;
+		return _paramInfo;
 	}
 
 	EVal *getValue()
@@ -369,14 +369,14 @@ public:
 
 	size_t getAnnotationCount()
 	{
-		return _annotations_map.size();
+		return _annotationsMap.size();
 	}
 
 	/* Hash Map Search */
 	EParam *getAnnotation(std::string name)
 	{
-		if (_annotations_map.find(name) != _annotations_map.end())
-			return _annotations_map.at(name);
+		if (_annotationsMap.find(name) != _annotationsMap.end())
+			return _annotationsMap.at(name);
 		else
 			return nullptr;
 	}
@@ -418,18 +418,18 @@ public:
 
 	bool hasAnnotation(std::string name)
 	{
-		return _annotations_map.find(name) != _annotations_map.end();
+		return _annotationsMap.find(name) != _annotationsMap.end();
 	}
 
 	EParam(gs_eparam_t *param)
 	{
 		_param = param;
-		gs_effect_get_param_info(param, &_param_info);
+		gs_effect_get_param_info(param, &_paramInfo);
 		_value = getValue(param);
 
 		size_t i;
 		_annotationCount = gs_param_get_num_annotations(_param);
-		_annotations_map.reserve(_annotationCount);
+		_annotationsMap.reserve(_annotationCount);
 
 		gs_eparam_t *                               p = nullptr;
 		std::vector<EParam *>::iterator             annotation_it;
@@ -441,7 +441,7 @@ public:
 			gs_effect_param_info _info;
 			gs_effect_get_param_info(p, &_info);
 
-			_annotations_map.insert(std::pair<std::string, EParam *>(_info.name, ep));
+			_annotationsMap.insert(std::pair<std::string, EParam *>(_info.name, ep));
 		}
 	}
 
@@ -449,9 +449,9 @@ public:
 	{
 		if (_value)
 			delete _value;
-		for (const auto &annotation : _annotations_map)
+		for (const auto &annotation : _annotationsMap)
 			delete annotation.second;
-		_annotations_map.clear();
+		_annotationsMap.clear();
 	}
 
 	template<class DataType> void setValue(DataType *data, size_t size)
@@ -482,7 +482,7 @@ protected:
 	std::vector<std::string> _names;
 	std::vector<std::string> _descs;
 	std::vector<std::string> _tooltips;
-	std::vector<std::string> _binding_names;
+	std::vector<std::string> _bindingNames;
 	std::vector<std::string> _expressions;
 
 	size_t _dataCount;
@@ -518,7 +518,7 @@ public:
 		_values.reserve(_dataCount);
 		_bindings.reserve(_dataCount);
 		_expressions.reserve(_dataCount);
-		_binding_names.reserve(_dataCount);
+		_bindingNames.reserve(_dataCount);
 		_tooltips.reserve(_dataCount);
 
 		size_t          i;
@@ -538,12 +538,12 @@ public:
 				_descs.push_back(*val);
 			else
 				_descs.push_back(d + strNum);
-			_binding_names.push_back(toSnakeCase(_names[i]));
+			_bindingNames.push_back(toSnakeCase(_names[i]));
 			val = _param->getAnnotationValue("tooltiop" + strNum);
 			if (val)
 				_tooltips.push_back(*val);
 			else
-				_tooltips.push_back(_binding_names[i]);
+				_tooltips.push_back(_bindingNames[i]);
 			_values.push_back(empty);
 			_bindings.push_back(emptyBinding);
 
@@ -635,7 +635,6 @@ private:
 			EParam *    eparam = (*it).second;
 			EVal *      eval   = eparam->getValue();
 			std::string name   = eparam->info().name;
-			// gs_shader_param_type type   = eparam->info().type;
 
 			if (name.compare(0, 9, "list_item") == 0 && name.compare(name.size() - 6, 5, "_name") != 0) {
 				std::vector<float> fList = *eval;
@@ -699,7 +698,7 @@ public:
 		std::string n = info.name;
 		if (n == "ViewProj") {
 			bindType = floating_point;
-			_bind    = &_filter->view_proj;
+			_bind    = &_filter->viewProj;
 		} else if (n == "uv_offset") {
 			bindType = floating_point;
 			_bind    = &_filter->uvOffset;
@@ -754,7 +753,7 @@ public:
 		for (i = 0; i < _dataCount; i++) {
 			te_variable var = {0};
 			var.address     = &_bindings[i];
-			var.name        = _binding_names[i].c_str();
+			var.name        = _bindingNames[i].c_str();
 			if (_filter)
 				_filter->appendVariable(var);
 		}
@@ -1075,18 +1074,18 @@ private:
 		if (!media_cx || !media_cy)
 			return;
 
-		_src_cx = media_cx;
-		_src_cy = media_cy;
+		_sourceWidth = media_cx;
+		_sourceHeight = media_cy;
 
 		float scale_x = cx / (float)media_cx;
 		float scale_y = cy / (float)media_cy;
 
 		gs_texrender_reset(_texrender);
 		if (gs_texrender_begin(_texrender, media_cx, media_cy)) {
-			struct vec4 clear_color;
-			vec4_zero(&clear_color);
+			struct vec4 clearColor;
+			vec4_zero(&clearColor);
 
-			gs_clear(GS_CLEAR_COLOR, &clear_color, 1, 0);
+			gs_clear(GS_CLEAR_COLOR, &clearColor, 1, 0);
 			gs_matrix_scale3f(scale_x, scale_y, 1.0f);
 			obs_source_video_render(_mediaSource);
 
@@ -1118,7 +1117,7 @@ private:
 	{
 		if (!_data)
 			_data = (uint8_t *)bzalloc(_maxAudioSize * _channels * sizeof(float));
-		size_t px_width = samples;
+		size_t pxWidth = samples;
 		audiolock();
 		size_t i = 0;
 		for (i = 0; i < _channels; i++) {
@@ -1130,14 +1129,14 @@ private:
 		audiounlock();
 
 		if (_isFFT)
-			px_width = processAudio(samples);
+			pxWidth = processAudio(samples);
 
-		_src_cx = px_width;
-		_src_cy = _channels;
+		_sourceWidth = pxWidth;
+		_sourceHeight = _channels;
 		obs_enter_graphics();
 		gs_texture_destroy(_tex);
 		_tex = gs_texture_create(
-				(uint32_t)px_width, (uint32_t)_channels, GS_R32F, 1, (const uint8_t **)&_data, 0);
+				(uint32_t)pxWidth, (uint32_t)_channels, GS_R32F, 1, (const uint8_t **)&_data, 0);
 		obs_leave_graphics();
 		gs_effect_set_texture(*param, _tex);
 	}
@@ -1186,12 +1185,12 @@ protected:
 	TextureType        _texType;
 	std::string        _filePath;
 
-	std::string _size_w_binding;
-	std::string _size_h_binding;
+	std::string _sizeWBinding;
+	std::string _sizeHBinding;
 	std::string _tech;
 	size_t      _pass;
-	double      _src_cx;
-	double      _src_cy;
+	double      _sourceWidth;
+	double      _sourceHeight;
 
 public:
 	TextureData(ShaderParameter *parent, ShaderFilter *filter)
@@ -1261,19 +1260,19 @@ public:
 		if (!samples || index > (MAX_AV_PLANES - 1))
 			return;
 		audiolock();
-		size_t old_size    = _audio[index].size() * sizeof(float);
-		size_t insert_size = samples * sizeof(float);
-		float *old_data    = nullptr;
-		if (old_size)
-			old_data = (float *)bmemdup(_audio[index].data(), old_size);
+		size_t oldSize    = _audio[index].size() * sizeof(float);
+		size_t insertSize = samples * sizeof(float);
+		float *oldData    = nullptr;
+		if (oldSize)
+			oldData = (float *)bmemdup(_audio[index].data(), oldSize);
 		_audio[index].resize(_maxAudioSize);
 		if (samples < _maxAudioSize) {
-			if (old_data)
-				memcpy(&_audio[index][samples], old_data, old_size - insert_size);
+			if (oldData)
+				memcpy(&_audio[index][samples], oldData, oldSize - insertSize);
 			if (data)
-				memcpy(&_audio[index][0], data, insert_size);
+				memcpy(&_audio[index][0], data, insertSize);
 			else
-				memset(&_audio[index][0], 0, insert_size);
+				memset(&_audio[index][0], 0, insertSize);
 		} else {
 			if (data)
 				memcpy(&_audio[index][0], data, _maxAudioSize * sizeof(float));
@@ -1281,7 +1280,7 @@ public:
 				memset(&_audio[index][0], 0, _maxAudioSize * sizeof(float));
 		}
 		audiounlock();
-		bfree(old_data);
+		bfree(oldData);
 	}
 
 	void init(gs_shader_param_type paramType)
@@ -1330,16 +1329,16 @@ public:
 			break;
 		}
 
-		_binding_names.push_back(toSnakeCase(_names[0]));
-		_size_w_binding = _binding_names[0] + "_w";
-		_size_h_binding = _binding_names[0] + "_h";
+		_bindingNames.push_back(toSnakeCase(_names[0]));
+		_sizeWBinding = _bindingNames[0] + "_w";
+		_sizeHBinding = _bindingNames[0] + "_h";
 
 		te_variable size_w = {0};
-		size_w.address     = &_src_cx;
-		size_w.name        = _size_w_binding.c_str();
+		size_w.address     = &_sourceWidth;
+		size_w.name        = _sizeWBinding.c_str();
 		te_variable size_h = {0};
-		size_h.address     = &_src_cy;
-		size_h.name        = _size_h_binding.c_str();
+		size_h.address     = &_sourceHeight;
+		size_h.name        = _sizeHBinding.c_str();
 
 		if (_filter) {
 			_filter->appendVariable(size_w);
@@ -1405,7 +1404,7 @@ public:
 	{
 		obs_data_t *settings = filter->getSettings();
 		_channels            = audio_output_get_channels(obs_get_audio());
-		const char *file_path;
+		const char *filePath;
 		switch (_texType) {
 		case source:
 			if (!_texrender)
@@ -1425,10 +1424,10 @@ public:
 				obs_leave_graphics();
 			}
 
-			file_path = obs_data_get_string(settings, _names[0].c_str());
-			_filePath = file_path;
-			if (file_path && file_path[0] != '\0') {
-				gs_image_file_init(_image, file_path);
+			filePath = obs_data_get_string(settings, _names[0].c_str());
+			_filePath = filePath;
+			if (filePath && filePath[0] != '\0') {
+				gs_image_file_init(_image, filePath);
 				obs_enter_graphics();
 				gs_image_file_init_texture(_image);
 				obs_leave_graphics();
@@ -1456,17 +1455,17 @@ public:
 		case image:
 			t = _image ? _image->texture : NULL;
 			if (t) {
-				_src_cx = gs_texture_get_height(t);
-				_src_cy = gs_texture_get_width(t);
+				_sourceWidth = gs_texture_get_height(t);
+				_sourceHeight = gs_texture_get_width(t);
 			} else {
-				_src_cx = 0;
-				_src_cy = 0;
+				_sourceWidth = 0;
+				_sourceHeight = 0;
 			}
 			break;
 		case random:
 		case ignored:
-			_src_cx = obs_source_get_width(filter->context);
-			_src_cy = obs_source_get_height(filter->context);
+			_sourceWidth = obs_source_get_width(filter->context);
+			_sourceHeight = obs_source_get_height(filter->context);
 			break;
 		default:
 			break;
@@ -1477,8 +1476,8 @@ public:
 	void videoRender(ShaderFilter *filter)
 	{
 		ShaderData::videoRender(filter);
-		uint32_t      src_cx = obs_source_get_width(filter->context);
-		uint32_t      src_cy = obs_source_get_height(filter->context);
+		uint32_t      srcWidth = obs_source_get_width(filter->context);
+		uint32_t      srcHeight = obs_source_get_height(filter->context);
 		gs_texture_t *t;
 		size_t        pixels;
 		size_t        i;
@@ -1486,7 +1485,7 @@ public:
 		switch (_texType) {
 		case media:
 		case source:
-			renderSource(_param, src_cx, src_cy);
+			renderSource(_param, srcWidth, srcHeight);
 			break;
 		case audio:
 			renderAudioSource(_param, AUDIO_OUTPUT_FRAMES);
@@ -1497,7 +1496,7 @@ public:
 				_param->setValue<gs_texture_t *>(&t, sizeof(gs_texture_t *));
 			break;
 		case random:
-			pixels = src_cy * src_cx;
+			pixels = srcHeight * srcWidth;
 			if (!_data)
 				_data = (uint8_t *)bmalloc(pixels);
 
@@ -1516,7 +1515,7 @@ public:
 			obs_enter_graphics();
 			gs_texture_destroy(_tex);
 			_tex = gs_texture_create(
-					(uint32_t)src_cx, (uint32_t)src_cy, GS_R8, 1, (const uint8_t **)&_data, 0);
+					(uint32_t)srcWidth, (uint32_t)srcHeight, GS_R8, 1, (const uint8_t **)&_data, 0);
 			obs_leave_graphics();
 			gs_effect_set_texture(*_param, _tex);
 			break;
@@ -1714,22 +1713,22 @@ obs_data_t *ShaderFilter::getSettings()
 
 std::string ShaderFilter::getPath()
 {
-	return _effect_path;
+	return _effectPath;
 }
 
 void ShaderFilter::setPath(std::string path)
 {
-	_effect_path = path;
+	_effectPath = path;
 }
 
 void ShaderFilter::prepReload()
 {
-	_reload_effect = true;
+	_reloadEffect = true;
 }
 
 bool ShaderFilter::needsReloading()
 {
-	return _reload_effect;
+	return _reloadEffect;
 }
 
 std::vector<ShaderParameter *> ShaderFilter::parameters()
@@ -1789,8 +1788,8 @@ ShaderFilter::~ShaderFilter()
 	obs_enter_graphics();
 	gs_effect_destroy(effect);
 	effect = nullptr;
-	gs_texrender_destroy(filter_texrender);
-	filter_texrender = nullptr;
+	gs_texrender_destroy(filterTexrender);
+	filterTexrender = nullptr;
 	obs_leave_graphics();
 
 	if (_mutex)
@@ -1811,11 +1810,11 @@ void ShaderFilter::unlock()
 
 uint32_t ShaderFilter::getWidth()
 {
-	return total_width;
+	return totalWidth;
 }
 uint32_t ShaderFilter::getHeight()
 {
-	return total_height;
+	return totalHeight;
 }
 
 void ShaderFilter::updateCache(gs_eparam_t *param)
@@ -1835,7 +1834,7 @@ void ShaderFilter::updateCache(gs_eparam_t *param)
 
 void ShaderFilter::reload()
 {
-	_reload_effect = false;
+	_reloadEffect = false;
 	size_t i;
 	char * errors = NULL;
 
@@ -1857,11 +1856,11 @@ void ShaderFilter::reload()
 	effect = nullptr;
 	obs_leave_graphics();
 
-	_effect_path = obs_data_get_string(_settings, "shader_file_name");
+	_effectPath = obs_data_get_string(_settings, "shader_file_name");
 	/* Load default effect text if no file is selected */
 	char *effect_string = nullptr;
-	if (!_effect_path.empty())
-		effect_string = os_quick_read_utf8_file(_effect_path.c_str());
+	if (!_effectPath.empty())
+		effect_string = os_quick_read_utf8_file(_effectPath.c_str());
 	else
 		return;
 
@@ -1869,7 +1868,7 @@ void ShaderFilter::reload()
 	effect = gs_effect_create(effect_string, NULL, &errors);
 	obs_leave_graphics();
 
-	_effect_string = effect_string;
+	_effectString = effect_string;
 	bfree(effect_string);
 
 	/* Create new parameters */
@@ -1925,11 +1924,11 @@ void ShaderFilter::videoTick(void *data, float seconds)
 	int baseWidth  = obs_source_get_base_width(target);
 	int baseHeight = obs_source_get_base_height(target);
 
-	filter->total_width  = filter->resizeLeft + baseWidth + filter->resizeRight;
-	filter->total_height = filter->resizeTop + baseHeight + filter->resizeBottom;
+	filter->totalWidth  = filter->resizeLeft + baseWidth + filter->resizeRight;
+	filter->totalHeight = filter->resizeTop + baseHeight + filter->resizeBottom;
 
-	filter->uvScale.x         = (float)filter->total_width / baseWidth;
-	filter->uvScale.y         = (float)filter->total_height / baseHeight;
+	filter->uvScale.x         = (float)filter->totalWidth / baseWidth;
+	filter->uvScale.y         = (float)filter->totalHeight / baseHeight;
 	filter->uvOffset.x        = (float)(-filter->resizeLeft) / baseWidth;
 	filter->uvOffset.y        = (float)(-filter->resizeTop) / baseHeight;
 	filter->uvPixelInterval.x = 1.0f / baseWidth;
@@ -1965,11 +1964,11 @@ void ShaderFilter::videoTickSource(void *data, float seconds)
 	int baseWidth  = filter->baseWidth;
 	int baseHeight = filter->baseHeight;
 
-	filter->total_width  = filter->resizeLeft + baseWidth + filter->resizeRight;
-	filter->total_height = filter->resizeTop + baseHeight + filter->resizeBottom;
+	filter->totalWidth  = filter->resizeLeft + baseWidth + filter->resizeRight;
+	filter->totalHeight = filter->resizeTop + baseHeight + filter->resizeBottom;
 
-	filter->uvScale.x         = (float)filter->total_width / baseWidth;
-	filter->uvScale.y         = (float)filter->total_height / baseHeight;
+	filter->uvScale.x         = (float)filter->totalWidth / baseWidth;
+	filter->uvScale.y         = (float)filter->totalHeight / baseHeight;
 	filter->uvOffset.x        = (float)(-filter->resizeLeft) / baseWidth;
 	filter->uvOffset.y        = (float)(-filter->resizeTop) / baseHeight;
 	filter->uvPixelInterval.x = 1.0f / baseWidth;
@@ -1988,7 +1987,7 @@ void ShaderFilter::videoRender(void *data, gs_effect_t *effect)
 	if (filter->effect != nullptr) {
 		obs_source_t *target, *parent, *source;
 		gs_texture_t *texture;
-		uint32_t      parent_flags;
+		uint32_t      parentFlags;
 
 		source = filter->context;
 		target = obs_filter_get_target(filter->context);
@@ -2005,8 +2004,8 @@ void ShaderFilter::videoRender(void *data, gs_effect_t *effect)
 			return;
 		}
 
-		size_t cx = filter->total_width;
-		size_t cy = filter->total_height;
+		size_t cx = filter->totalWidth;
+		size_t cy = filter->totalHeight;
 
 		if (!cx || !cy) {
 			obs_source_skip_video_filter(filter->context);
@@ -2018,44 +2017,44 @@ void ShaderFilter::videoRender(void *data, gs_effect_t *effect)
 				filter->paramList[i]->videoRender(filter);
 		}
 
-		if (!filter->filter_texrender)
-			filter->filter_texrender = gs_texrender_create(GS_RGBA, GS_ZS_NONE);
+		if (!filter->filterTexrender)
+			filter->filterTexrender = gs_texrender_create(GS_RGBA, GS_ZS_NONE);
 
 		const char *id = obs_source_get_id(parent);
-		parent_flags   = obs_get_source_output_flags(id);
+		parentFlags   = obs_get_source_output_flags(id);
 
 		gs_blend_state_push();
 		gs_blend_function(GS_BLEND_ONE, GS_BLEND_ZERO);
 
-		gs_texrender_reset(filter->filter_texrender);
-		if (gs_texrender_begin(filter->filter_texrender, cx, cy)) {
-			bool        custom_draw = (parent_flags & OBS_SOURCE_CUSTOM_DRAW) != 0;
-			bool        async       = (parent_flags & OBS_SOURCE_ASYNC) != 0;
-			struct vec4 clear_color;
+		gs_texrender_reset(filter->filterTexrender);
+		if (gs_texrender_begin(filter->filterTexrender, cx, cy)) {
+			bool        customDraw = (parentFlags & OBS_SOURCE_CUSTOM_DRAW) != 0;
+			bool        async       = (parentFlags & OBS_SOURCE_ASYNC) != 0;
+			struct vec4 clearColor;
 
-			vec4_zero(&clear_color);
-			gs_clear(GS_CLEAR_COLOR, &clear_color, 0.0f, 0);
+			vec4_zero(&clearColor);
+			gs_clear(GS_CLEAR_COLOR, &clearColor, 0.0f, 0);
 			gs_ortho(0.0f, (float)cx, 0.0f, (float)cy, -100.0f, 100.0f);
 
-			if (target == parent && !custom_draw && !async)
+			if (target == parent && !customDraw && !async)
 				obs_source_default_render(target);
 			else
 				obs_source_video_render(target);
 
-			gs_texrender_end(filter->filter_texrender);
+			gs_texrender_end(filter->filterTexrender);
 		}
 
 		gs_blend_state_pop();
 
-		enum obs_allow_direct_render allow_bypass = OBS_NO_DIRECT_RENDERING;
-		bool canBypass = (target == parent) && (allow_bypass == OBS_ALLOW_DIRECT_RENDERING) &&
-				((parent_flags & OBS_SOURCE_CUSTOM_DRAW) == 0) &&
-				((parent_flags & OBS_SOURCE_ASYNC) == 0);
+		enum obs_allow_direct_render allowBypass = OBS_NO_DIRECT_RENDERING;
+		bool canBypass = (target == parent) && (allowBypass == OBS_ALLOW_DIRECT_RENDERING) &&
+				((parentFlags & OBS_SOURCE_CUSTOM_DRAW) == 0) &&
+				((parentFlags & OBS_SOURCE_ASYNC) == 0);
 
-		const char *tech_name = "Draw";
+		const char *techName = "Draw";
 
 		if (canBypass) {
-			gs_technique_t *tech = gs_effect_get_technique(filter->effect, tech_name);
+			gs_technique_t *tech = gs_effect_get_technique(filter->effect, techName);
 
 			passes = gs_technique_begin(tech);
 			for (i = 0; i < passes; i++) {
@@ -2065,13 +2064,13 @@ void ShaderFilter::videoRender(void *data, gs_effect_t *effect)
 			}
 			gs_technique_end(tech);
 			for (j = 0; j < filter->paramList.size(); j++) {
-				filter->paramList[j]->onTechniqueEnd(filter, tech_name, texture);
+				filter->paramList[j]->onTechniqueEnd(filter, techName, texture);
 			}
 		} else {
-			texture = gs_texrender_get_texture(filter->filter_texrender);
+			texture = gs_texrender_get_texture(filter->filterTexrender);
 			gs_eparam_t *image;
 			if (texture) {
-				gs_technique_t *tech = gs_effect_get_technique(filter->effect, tech_name);
+				gs_technique_t *tech = gs_effect_get_technique(filter->effect, techName);
 				try {
 					ShaderParameter *p = filter->paramMap.at("image");
 					image              = p->getParameter()->getParam();
@@ -2088,12 +2087,12 @@ void ShaderFilter::videoRender(void *data, gs_effect_t *effect)
 					gs_technique_end_pass(tech);
 					/*Handle Buffers*/
 					for (j = 0; j < filter->paramList.size(); j++) {
-						filter->paramList[j]->onPass(filter, tech_name, j, texture);
+						filter->paramList[j]->onPass(filter, techName, j, texture);
 					}
 				}
 				gs_technique_end(tech);
 				for (j = 0; j < filter->paramList.size(); j++) {
-					filter->paramList[j]->onTechniqueEnd(filter, tech_name, texture);
+					filter->paramList[j]->onTechniqueEnd(filter, techName, texture);
 				}
 			}
 		}
@@ -2110,7 +2109,7 @@ void ShaderFilter::videoRenderSource(void *data, gs_effect_t *effect)
 
 	obs_source_t *source;
 	gs_texture_t *texture;
-	uint32_t      parent_flags;
+	uint32_t      parentFlags;
 
 	source = filter->context;
 
@@ -2132,36 +2131,34 @@ void ShaderFilter::videoRenderSource(void *data, gs_effect_t *effect)
 				filter->paramList[i]->videoRender(filter);
 		}
 
-		if (!filter->filter_texrender)
-			filter->filter_texrender = gs_texrender_create(GS_RGBA, GS_ZS_NONE);
+		if (!filter->filterTexrender)
+			filter->filterTexrender = gs_texrender_create(GS_RGBA, GS_ZS_NONE);
 
 		const char *id = obs_source_get_id(source);
-		parent_flags   = obs_get_source_output_flags(id);
+		parentFlags   = obs_get_source_output_flags(id);
 
 		gs_blend_state_push();
 		gs_blend_function(GS_BLEND_ONE, GS_BLEND_ZERO);
 
-		gs_texrender_reset(filter->filter_texrender);
-		if (gs_texrender_begin(filter->filter_texrender, cx, cy)) {
-			bool        custom_draw = (parent_flags & OBS_SOURCE_CUSTOM_DRAW) != 0;
-			bool        async       = (parent_flags & OBS_SOURCE_ASYNC) != 0;
-			struct vec4 clear_color;
+		gs_texrender_reset(filter->filterTexrender);
+		if (gs_texrender_begin(filter->filterTexrender, cx, cy)) {
+			struct vec4 clearColor;
 
-			vec4_zero(&clear_color);
-			gs_clear(GS_CLEAR_COLOR, &clear_color, 0.0f, 0);
+			vec4_zero(&clearColor);
+			gs_clear(GS_CLEAR_COLOR, &clearColor, 0.0f, 0);
 			gs_ortho(0.0f, (float)cx, 0.0f, (float)cy, -100.0f, 100.0f);
 
-			gs_texrender_end(filter->filter_texrender);
+			gs_texrender_end(filter->filterTexrender);
 		}
 
 		gs_blend_state_pop();
 
-		const char *tech_name = "Draw";
+		const char *techName = "Draw";
 
-		texture = gs_texrender_get_texture(filter->filter_texrender);
+		texture = gs_texrender_get_texture(filter->filterTexrender);
 		gs_eparam_t *image;
 		if (texture) {
-			gs_technique_t *tech = gs_effect_get_technique(filter->effect, tech_name);
+			gs_technique_t *tech = gs_effect_get_technique(filter->effect, techName);
 			try {
 				ShaderParameter *p = filter->paramMap.at("image");
 				image              = p->getParameter()->getParam();
@@ -2174,60 +2171,58 @@ void ShaderFilter::videoRenderSource(void *data, gs_effect_t *effect)
 			passes = gs_technique_begin(tech);
 			for (i = 0; i < passes; i++) {
 				gs_technique_begin_pass(tech, i);
-				gs_draw_sprite(texture, 0, filter->total_width, filter->total_height);
+				gs_draw_sprite(texture, 0, filter->totalWidth, filter->totalHeight);
 				gs_technique_end_pass(tech);
 				/*Handle Buffers*/
 				for (j = 0; j < filter->paramList.size(); j++) {
-					filter->paramList[j]->onPass(filter, tech_name, j, texture);
+					filter->paramList[j]->onPass(filter, techName, j, texture);
 				}
 			}
 			gs_technique_end(tech);
 			for (j = 0; j < filter->paramList.size(); j++) {
-				filter->paramList[j]->onTechniqueEnd(filter, tech_name, texture);
+				filter->paramList[j]->onTechniqueEnd(filter, techName, texture);
 			}
 		}
 	} else {
 		gs_blend_state_push();
 		gs_blend_function(GS_BLEND_ONE, GS_BLEND_ZERO);
 
-		gs_texrender_reset(filter->filter_texrender);
-		if (gs_texrender_begin(filter->filter_texrender, cx, cy)) {
-			bool        custom_draw = (parent_flags & OBS_SOURCE_CUSTOM_DRAW) != 0;
-			bool        async       = (parent_flags & OBS_SOURCE_ASYNC) != 0;
-			struct vec4 clear_color;
+		gs_texrender_reset(filter->filterTexrender);
+		if (gs_texrender_begin(filter->filterTexrender, cx, cy)) {
+			struct vec4 clearColor;
 
-			vec4_zero(&clear_color);
-			gs_clear(GS_CLEAR_COLOR, &clear_color, 0.0f, 0);
+			vec4_zero(&clearColor);
+			gs_clear(GS_CLEAR_COLOR, &clearColor, 0.0f, 0);
 			gs_ortho(0.0f, (float)cx, 0.0f, (float)cy, -100.0f, 100.0f);
 
-			gs_texrender_end(filter->filter_texrender);
+			gs_texrender_end(filter->filterTexrender);
 		}
 
 		gs_blend_state_pop();
-		texture = gs_texrender_get_texture(filter->filter_texrender);
+		texture = gs_texrender_get_texture(filter->filterTexrender);
 		if (texture) {
-			const char *tech_name = "Draw";
+			const char *techName = "Draw";
 
 			obs_base_effect f;
 			gs_effect_t *   effect = obs_get_base_effect(OBS_EFFECT_DEFAULT);
 			gs_eparam_t *   image  = gs_effect_get_param_by_name(effect, "image");
-			gs_technique_t *tech   = gs_effect_get_technique(filter->effect, tech_name);
+			gs_technique_t *tech   = gs_effect_get_technique(filter->effect, techName);
 
 			gs_effect_set_texture(image, texture);
 
 			passes = gs_technique_begin(tech);
 			for (i = 0; i < passes; i++) {
 				gs_technique_begin_pass(tech, i);
-				gs_draw_sprite(texture, 0, filter->total_width, filter->total_height);
+				gs_draw_sprite(texture, 0, filter->totalWidth, filter->totalHeight);
 				gs_technique_end_pass(tech);
 				/*Handle Buffers*/
 				for (j = 0; j < filter->paramList.size(); j++) {
-					filter->paramList[j]->onPass(filter, tech_name, j, texture);
+					filter->paramList[j]->onPass(filter, techName, j, texture);
 				}
 			}
 			gs_technique_end(tech);
 			for (j = 0; j < filter->paramList.size(); j++) {
-				filter->paramList[j]->onTechniqueEnd(filter, tech_name, texture);
+				filter->paramList[j]->onTechniqueEnd(filter, techName, texture);
 			}
 		}
 	}
