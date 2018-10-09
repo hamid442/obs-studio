@@ -1879,6 +1879,12 @@ void ShaderFilter::reload()
 		gs_eparam_t *param = gs_effect_get_param_by_idx(effect, i);
 		updateCache(param);
 	}
+	try {
+		ShaderParameter *p = paramMap.at("image");
+		image              = p->getParameter()->getParam();
+	} catch (std::out_of_range) {
+		image = nullptr;
+	}
 }
 
 void *ShaderFilter::create(obs_data_t *settings, obs_source_t *source)
@@ -2068,17 +2074,10 @@ void ShaderFilter::videoRender(void *data, gs_effect_t *effect)
 			}
 		} else {
 			texture = gs_texrender_get_texture(filter->filterTexrender);
-			gs_eparam_t *image;
 			if (texture) {
 				gs_technique_t *tech = gs_effect_get_technique(filter->effect, techName);
-				try {
-					ShaderParameter *p = filter->paramMap.at("image");
-					image              = p->getParameter()->getParam();
-				} catch (std::out_of_range) {
-					image = NULL;
-				}
-
-				gs_effect_set_texture(image, texture);
+				if (filter->image)
+					gs_effect_set_texture(filter->image, texture);
 
 				passes = gs_technique_begin(tech);
 				for (i = 0; i < passes; i++) {
@@ -2156,17 +2155,10 @@ void ShaderFilter::videoRenderSource(void *data, gs_effect_t *effect)
 		const char *techName = "Draw";
 
 		texture = gs_texrender_get_texture(filter->filterTexrender);
-		gs_eparam_t *image;
 		if (texture) {
 			gs_technique_t *tech = gs_effect_get_technique(filter->effect, techName);
-			try {
-				ShaderParameter *p = filter->paramMap.at("image");
-				image              = p->getParameter()->getParam();
-			} catch (std::out_of_range) {
-				image = NULL;
-			}
-
-			gs_effect_set_texture(image, texture);
+			if (filter->image)
+				gs_effect_set_texture(filter->image, texture);
 
 			passes = gs_technique_begin(tech);
 			for (i = 0; i < passes; i++) {
@@ -2205,10 +2197,10 @@ void ShaderFilter::videoRenderSource(void *data, gs_effect_t *effect)
 
 			obs_base_effect f;
 			gs_effect_t *   effect = obs_get_base_effect(OBS_EFFECT_DEFAULT);
-			gs_eparam_t *   image  = gs_effect_get_param_by_name(effect, "image");
 			gs_technique_t *tech   = gs_effect_get_technique(filter->effect, techName);
 
-			gs_effect_set_texture(image, texture);
+			if (filter->image)
+				gs_effect_set_texture(filter->image, texture);
 
 			passes = gs_technique_begin(tech);
 			for (i = 0; i < passes; i++) {
