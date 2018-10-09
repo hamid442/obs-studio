@@ -2027,6 +2027,7 @@ void ShaderFilter::videoRender(void *data, gs_effect_t *effect)
 		gs_blend_state_push();
 		gs_blend_function(GS_BLEND_ONE, GS_BLEND_ZERO);
 
+		gs_texrender_reset(filter->filter_texrender);
 		if (gs_texrender_begin(filter->filter_texrender, cx, cy)) {
 			bool        custom_draw = (parent_flags & OBS_SOURCE_CUSTOM_DRAW) != 0;
 			bool        async       = (parent_flags & OBS_SOURCE_ASYNC) != 0;
@@ -2140,6 +2141,7 @@ void ShaderFilter::videoRenderSource(void *data, gs_effect_t *effect)
 		gs_blend_state_push();
 		gs_blend_function(GS_BLEND_ONE, GS_BLEND_ZERO);
 
+		gs_texrender_reset(filter->filter_texrender);
 		if (gs_texrender_begin(filter->filter_texrender, cx, cy)) {
 			bool        custom_draw = (parent_flags & OBS_SOURCE_CUSTOM_DRAW) != 0;
 			bool        async       = (parent_flags & OBS_SOURCE_ASYNC) != 0;
@@ -2188,6 +2190,7 @@ void ShaderFilter::videoRenderSource(void *data, gs_effect_t *effect)
 		gs_blend_state_push();
 		gs_blend_function(GS_BLEND_ONE, GS_BLEND_ZERO);
 
+		gs_texrender_reset(filter->filter_texrender);
 		if (gs_texrender_begin(filter->filter_texrender, cx, cy)) {
 			bool        custom_draw = (parent_flags & OBS_SOURCE_CUSTOM_DRAW) != 0;
 			bool        async       = (parent_flags & OBS_SOURCE_ASYNC) != 0;
