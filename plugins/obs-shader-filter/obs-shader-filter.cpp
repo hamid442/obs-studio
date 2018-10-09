@@ -2367,7 +2367,10 @@ void ShaderFilter::keyClick(void *data, const struct obs_key_event *event, bool 
 
 void ShaderFilter::getDefaults(obs_data_t *settings)
 {
-	UNUSED_PARAMETER(settings);
+	struct obs_video_info ovi;
+	obs_get_video_info(&ovi);
+	obs_data_set_default_int(settings, "size.height", ovi.base_height);
+	obs_data_set_default_int(settings, "size.width", ovi.base_width);
 }
 
 static bool shader_filter_reload_effect_clicked(obs_properties_t *props, obs_property_t *property, void *data)
@@ -2428,12 +2431,12 @@ bool obs_module_load(void)
 	shader_source.get_width              = ShaderFilter::getWidth;
 	shader_source.get_height             = ShaderFilter::getHeight;
 	shader_source.get_properties         = ShaderFilter::getPropertiesSource;
-
-	shader_source.mouse_click = ShaderFilter::mouseClick;
-	shader_source.mouse_move  = ShaderFilter::mouseMove;
-	shader_source.mouse_wheel = ShaderFilter::mouseWheel;
-	shader_source.focus       = ShaderFilter::focus;
-	shader_source.key_click   = ShaderFilter::keyClick;
+	/* Interaction Callbacks */
+	shader_source.mouse_click            = ShaderFilter::mouseClick;
+	shader_source.mouse_move             = ShaderFilter::mouseMove;
+	shader_source.mouse_wheel            = ShaderFilter::mouseWheel;
+	shader_source.focus                  = ShaderFilter::focus;
+	shader_source.key_click              = ShaderFilter::keyClick;
 
 	obs_register_source(&shader_source);
 
