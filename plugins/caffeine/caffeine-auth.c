@@ -25,8 +25,13 @@ static size_t caffeine_signin_write_callback(char * ptr, size_t size,
 	return nmemb;
 }
 
-struct caffeine_auth_response * caffeine_signin(char const * username,
-	char const * password)
+/* TODO: this is partly an exploration of both libcURL and libjansson; much of
+ * this needs to be refactored, and will be reused for WebRTC signaling
+ */
+struct caffeine_auth_response * caffeine_signin(
+	char const * username,
+	char const * password,
+	char const * otp)
 {
 	/* https://api.caffeine.tv/v1/account/signin */
 	/* { "account": { "username": "foo", "password": "bar" } }*/
@@ -44,9 +49,15 @@ struct caffeine_auth_response * caffeine_signin(char const * username,
 	struct dstr request_body;
 	dstr_init(&request_body);
 	/* TODO: sanitize strings */
-	dstr_printf(&request_body,
-		"{\"account\":{\"username\":\"%s\",\"password\":\"%s\"}}",
-		username, password);
+	/* TODO-er: use jansson to serialize this */
+	if (otp)
+		dstr_printf(&request_body,
+			"{\"account\":{\"username\":\"%s\",\"password\":\"%s\"},\"mfa\":{\"otp\":\"%s\"}}",
+			username, password, otp);
+	else
+		dstr_printf(&request_body,
+			"{\"account\":{\"username\":\"%s\",\"password\":\"%s\"}}",
+			username, password);
 
 	/* TODO: get urls from data ? */
 	curl_easy_setopt(curl, CURLOPT_URL,
@@ -70,7 +81,6 @@ struct caffeine_auth_response * caffeine_signin(char const * username,
 
 	CURLcode res = curl_easy_perform(curl);
 	if (res != CURLE_OK) {
-		char const * api_error;
 		log_error("HTTP failure signing in: [%d] %s", res, curl_error);
 		goto request_error;
 	}
@@ -82,38 +92,49 @@ struct caffeine_auth_response * caffeine_signin(char const * username,
 			json_error.text);
 		goto json_failed_error;
 	}
-	char const *error_text;
-	int as_error = json_unpack(response_json, "{s:{s:[s!]}}",
+	char const *error_text = NULL;
+	int error_result = json_unpack(response_json, "{s:{s:[s!]}}",
 		"errors", "_error", &error_text);
-	if (as_error == 0) {
+	if (error_result == 0) {
 		log_error("Error logging in: %s", error_text);
 		goto json_parsed_error;
 	}
 
-	char const *access_token;
-	char const *refresh_token;
-	char const *caid;
-	char const *credential;
-	int as_credentials = json_unpack_ex(response_json, &json_error, 0,
-		"{s:{s:s,s:s,s:s,s:s}}",
+	char const *access_token = NULL;
+	char const *refresh_token = NULL;
+	char const *caid = NULL;
+	char const *credential = NULL;
+	char const *next = NULL;
+	char const *mfa_otp_method = NULL;
+	int success_result = json_unpack_ex(response_json, &json_error, 0,
+		"{s?:{s:s,s:s,s:s,s:s}, s?:s, s?:s}",
 		"credentials",
 		"access_token", &access_token,
 		"refresh_token", &refresh_token,
 		"caid", &caid,
-		"credential", &credential);
+		"credential", &credential,
 
-	if (as_credentials != 0) {
+		"next", &next,
+
+		"mfa_otp_method", &mfa_otp_method);
+
+	if (success_result != 0) {
 		log_error("Failed to extract auth info from signin result: [%s]",
 			json_error.text);
 		goto json_parsed_error;
 	}
 
 	response = bzalloc(sizeof(struct caffeine_auth_response));
-	response->creds = bzalloc(sizeof(struct caffeine_creds));
-	dstr_copy(&response->creds->access_token, access_token);
-	dstr_copy(&response->creds->caid, caid);
-	dstr_copy(&response->creds->refresh_token, refresh_token);
-	dstr_copy(&response->creds->credential, credential);
+	if (access_token) {
+		response->credentials =
+			bzalloc(sizeof(struct caffeine_credentials));
+		dstr_copy(&response->credentials->access_token, access_token);
+		dstr_copy(&response->credentials->caid, caid);
+		dstr_copy(&response->credentials->refresh_token, refresh_token);
+		dstr_copy(&response->credentials->credential, credential);
+	}
+	dstr_copy(&response->next, next);
+	dstr_copy(&response->mfa_otp_method, mfa_otp_method);
 
 json_parsed_error:
 	json_decref(response_json);
@@ -132,14 +153,18 @@ void caffeine_free_auth_response(struct caffeine_auth_response * auth_response)
 	if (auth_response == NULL)
 		return;
 
-	if (auth_response->creds)
+	if (auth_response->credentials)
 	{
-		dstr_free(&auth_response->creds->access_token);
-		dstr_free(&auth_response->creds->caid);
-		dstr_free(&auth_response->creds->refresh_token);
-		dstr_free(&auth_response->creds->credential);
-		bfree(auth_response->creds);
+		dstr_free(&auth_response->credentials->access_token);
+		dstr_free(&auth_response->credentials->caid);
+		dstr_free(&auth_response->credentials->refresh_token);
+		dstr_free(&auth_response->credentials->credential);
+
+		bfree(auth_response->credentials);
 	}
+
+	dstr_free(&auth_response->next);
+	dstr_free(&auth_response->mfa_otp_method);
 
 	bfree(auth_response);
 }
