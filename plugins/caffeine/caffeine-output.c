@@ -1,7 +1,10 @@
 #include <obs.h>
 #include <obs-module.h>
 
-#include "caffeine.h"
+#include <caffeine.h>
+
+#include "caffeine-auth.h"
+
 
 #define do_log(level, format, ...) \
 	blog(level, "[caffeine output: '%s'] " format, \
@@ -17,6 +20,7 @@ struct caffeine_output
 	obs_output_t * output;
 	caff_interface_handle interface;
 	caff_broadcast_handle broadcast;
+	struct caffeine_auth_response * auth_response; /* temporary */
 };
 
 static const char *caffeine_get_name(void *data)
@@ -89,7 +93,7 @@ static void caffeine_destroy(void *data)
 {
 	struct caffeine_output *stream = data;
 	log_info("caffeine_destroy");
-
+	caffeine_free_auth_response(stream->auth_response);
 	caff_deinitialize(stream->interface);
 
 	bfree(data);
@@ -123,8 +127,21 @@ static bool caffeine_start(void *data)
 	 * Most of this work should be on separate thread
 	 */
 
-	caff_broadcast_handle broadcast = caff_start_broadcast(stream->interface,
-		stream, caffeine_broadcast_started, caffeine_broadcast_failed);
+	/* WIP TODO Q&D FAKE */
+	if (stream->auth_response == NULL) {
+		char const * const username = "fakeuser";
+		char const * const password = "fakepassword";
+		stream->auth_response = caffeine_signin(username, password);
+		if (!stream->auth_response) {
+			log_error("Failed login");
+			return false;
+		}
+	}
+
+	caff_broadcast_handle broadcast =
+		caff_start_broadcast(stream->interface, stream,
+			/* TODO caffeine_ice_gathered, */
+			caffeine_broadcast_started, caffeine_broadcast_failed);
 
 	if (!broadcast)
 		return false;
