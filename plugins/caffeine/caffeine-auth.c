@@ -39,30 +39,42 @@ struct caffeine_auth_response * caffeine_signin(
 	 * errors
 	 * email verification
 	 * etc this will be handled by the UI bits, service, etc*/
+	struct caffeine_auth_response * response = NULL;
+
+	json_t * request_json = NULL;
+	if (otp)
+		request_json = json_pack("{s:{s:s,s:s},s:{s:s}}",
+			"account", "username", username, "password", password,
+			"mfa", "otp", otp);
+	else
+		request_json = json_pack("{s:{s:s,s:s}}",
+			"account", "username", username, "password", password);
+
+	if (!request_json)
+	{
+		log_error("Failed to create request JSON");
+		goto request_json_error;
+	}
+
+	char * request_body = json_dumps(request_json, 0);
+	if (!request_body)
+	{
+		log_error("Failed to serialize request JSON");
+		goto request_serialize_error;
+	}
+
 	CURL * curl = curl_easy_init();
 
 	if (!curl)
-		return NULL;
-
-	struct caffeine_auth_response * response = NULL;
-
-	struct dstr request_body;
-	dstr_init(&request_body);
-	/* TODO: sanitize strings */
-	/* TODO-er: use jansson to serialize this */
-	if (otp)
-		dstr_printf(&request_body,
-			"{\"account\":{\"username\":\"%s\",\"password\":\"%s\"},\"mfa\":{\"otp\":\"%s\"}}",
-			username, password, otp);
-	else
-		dstr_printf(&request_body,
-			"{\"account\":{\"username\":\"%s\",\"password\":\"%s\"}}",
-			username, password);
+	{
+		log_error("Failed to initialize cURL");
+		goto curl_init_error;
+	}
 
 	/* TODO: get urls from data ? */
 	curl_easy_setopt(curl, CURLOPT_URL,
 		"https://api.caffeine.tv/v1/account/signin");
-	curl_easy_setopt(curl, CURLOPT_POSTFIELDS, request_body.array);
+	curl_easy_setopt(curl, CURLOPT_POSTFIELDS, request_body);
 
 	struct curl_slist *headers = NULL;
 	headers = curl_slist_append(headers, "Content-Type: application/json");
@@ -72,6 +84,7 @@ struct caffeine_auth_response * caffeine_signin(
 
 	struct dstr response_str;
 	dstr_init(&response_str);
+
 	curl_easy_setopt(curl, CURLOPT_WRITEFUNCTION,
 		caffeine_signin_write_callback);
 	curl_easy_setopt(curl, CURLOPT_WRITEDATA, (void*)&response_str);
@@ -142,8 +155,12 @@ json_failed_error:
 request_error:
 	dstr_free(&response_str);
 	curl_slist_free_all(headers);
-	dstr_free(&request_body);
 	curl_easy_cleanup(curl);
+curl_init_error:
+	free(request_body);
+request_serialize_error:
+	json_decref(request_json);
+request_json_error:
 
 	return response;
 }
