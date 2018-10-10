@@ -35,7 +35,7 @@ set(obs-shader-filter_HEADERS
 set(obs-shader-filter_SOURCES
 	fft.c
 	obs-shader-filter.cpp
-	tinyexpr.c
+	tinyexpr.cpp
 	mtrandom.cpp
 )
 

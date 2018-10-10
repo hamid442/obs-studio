@@ -25,19 +25,32 @@
 #ifndef __TINYEXPR_H__
 #define __TINYEXPR_H__
 
+#include <vector>
+#include <unordered_map>
+#include <string>
 
+using namespace std;
 #ifdef __cplusplus
 extern "C" {
 #endif
 
+struct MathToken {
+	string token;
+	int type;
+	size_t arity;
+	union {
+		double value; const double *bound; const void *function;
+	};
+};
 
-
+typedef vector<MathToken*> te_expr;
+/*
 typedef struct te_expr {
     int type;
     union {double value; const double *bound; const void *function;};
     void *parameters[1];
 } te_expr;
-
+*/
 
 enum {
     TE_VARIABLE = 0,
