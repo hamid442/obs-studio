@@ -131,9 +131,29 @@ static bool caffeine_start(void *data)
 	if (stream->auth_response == NULL) {
 		char const * const username = "fakeuser";
 		char const * const password = "fakepassword";
-		stream->auth_response = caffeine_signin(username, password);
+		char const * const otp = NULL;
+		stream->auth_response = caffeine_signin(username, password, otp);
 		if (!stream->auth_response) {
 			log_error("Failed login");
+			return false;
+		}
+		if (dstr_cmpi(&stream->auth_response->next,
+			"mfa_otp_required") == 0) {
+			log_error("One time password NYI");
+			return false;
+		}
+		if (dstr_cmpi(&stream->auth_response->next,
+			"legal_acceptance_required") == 0) {
+			log_error("Can't broadcast until terms of service are accepted");
+			return false;
+		}
+		if (dstr_cmpi(&stream->auth_response->next,
+			"email_verification") == 0) {
+			log_error("Can't broadcast until email is verified");
+			return false;
+		}
+		if (!stream->auth_response->credentials) {
+			log_error("Empty auth response received");
 			return false;
 		}
 	}
