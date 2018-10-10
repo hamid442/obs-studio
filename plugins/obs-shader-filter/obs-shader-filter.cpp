@@ -1287,7 +1287,7 @@ public:
 		_names.push_back(_parent->getName());
 		_descs.push_back(_parent->getDescription());
 
-		EVal *                                    texType = _param->getAnnotationValue("texture_type");
+		EVal *                                    texType = _param->getAnnotationValue("type");
 		std::unordered_map<std::string, uint32_t> types   = {{"source", source}, {"audio", audio},
                                 {"image", image}, {"media", media}, {"random", random}, {"buffer", buffer}};
 
