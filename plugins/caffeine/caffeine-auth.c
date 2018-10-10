@@ -1,0 +1,145 @@
+#include "caffeine-auth.h"
+
+#include <obs.h>
+#include <util/dstr.h>
+#include <curl/curl.h>
+#include <jansson.h>
+
+#define do_log(level, format, ...) \
+	blog(level, "[caffeine auth] " format, ##__VA_ARGS__)
+
+#define log_error(format, ...)  do_log(LOG_ERROR, format, ##__VA_ARGS__)
+#define log_warn(format, ...)  do_log(LOG_WARNING, format, ##__VA_ARGS__)
+#define log_info(format, ...)  do_log(LOG_INFO, format, ##__VA_ARGS__)
+#define log_debug(format, ...)  do_log(LOG_DEBUG, format, ##__VA_ARGS__)
+
+static size_t caffeine_signin_write_callback(char * ptr, size_t size,
+	size_t nmemb, void * user_data)
+{
+	UNUSED_PARAMETER(size);
+	if (nmemb == 0)
+		return 0;
+
+	struct dstr * result_str = user_data;
+	dstr_ncat(result_str, ptr, nmemb);
+	return nmemb;
+}
+
+struct caffeine_auth_response * caffeine_signin(char const * username,
+	char const * password)
+{
+	/* https://api.caffeine.tv/v1/account/signin */
+	/* { "account": { "username": "foo", "password": "bar" } }*/
+	/* TODO multifactor
+	 * errors
+	 * email verification
+	 * etc this will be handled by the UI bits, service, etc*/
+	CURL * curl = curl_easy_init();
+
+	if (!curl)
+		return NULL;
+
+	struct caffeine_auth_response * response = NULL;
+
+	struct dstr request_body;
+	dstr_init(&request_body);
+	/* TODO: sanitize strings */
+	dstr_printf(&request_body,
+		"{\"account\":{\"username\":\"%s\",\"password\":\"%s\"}}",
+		username, password);
+
+	/* TODO: get urls from data ? */
+	curl_easy_setopt(curl, CURLOPT_URL,
+		"https://api.caffeine.tv/v1/account/signin");
+	curl_easy_setopt(curl, CURLOPT_POSTFIELDS, request_body.array);
+
+	struct curl_slist *headers = NULL;
+	headers = curl_slist_append(headers, "Content-Type: application/json");
+	headers = curl_slist_append(headers, "X-Client-Type: obs");
+	headers = curl_slist_append(headers, "X-Client-Version: " OBS_VERSION); /* TODO sanitize version */
+	curl_easy_setopt(curl, CURLOPT_HTTPHEADER, headers);
+
+	struct dstr response_str;
+	dstr_init(&response_str);
+	curl_easy_setopt(curl, CURLOPT_WRITEFUNCTION,
+		caffeine_signin_write_callback);
+	curl_easy_setopt(curl, CURLOPT_WRITEDATA, (void*)&response_str);
+
+	char curl_error[CURL_ERROR_SIZE];
+	curl_easy_setopt(curl, CURLOPT_ERRORBUFFER, curl_error);
+
+	CURLcode res = curl_easy_perform(curl);
+	if (res != CURLE_OK) {
+		char const * api_error;
+		log_error("HTTP failure signing in: [%d] %s", res, curl_error);
+		goto request_error;
+	}
+
+	json_error_t json_error;
+	json_t * response_json = json_loads(response_str.array, 0, &json_error);
+	if (!response_json) {
+		log_error("Failed to parse signin response: %s",
+			json_error.text);
+		goto json_failed_error;
+	}
+	char const *error_text;
+	int as_error = json_unpack(response_json, "{s:{s:[s!]}}",
+		"errors", "_error", &error_text);
+	if (as_error == 0) {
+		log_error("Error logging in: %s", error_text);
+		goto json_parsed_error;
+	}
+
+	char const *access_token;
+	char const *refresh_token;
+	char const *caid;
+	char const *credential;
+	int as_credentials = json_unpack_ex(response_json, &json_error, 0,
+		"{s:{s:s,s:s,s:s,s:s}}",
+		"credentials",
+		"access_token", &access_token,
+		"refresh_token", &refresh_token,
+		"caid", &caid,
+		"credential", &credential);
+
+	if (as_credentials != 0) {
+		log_error("Failed to extract auth info from signin result: [%s]",
+			json_error.text);
+		goto json_parsed_error;
+	}
+
+	response = bzalloc(sizeof(struct caffeine_auth_response));
+	response->creds = bzalloc(sizeof(struct caffeine_creds));
+	dstr_copy(&response->creds->access_token, access_token);
+	dstr_copy(&response->creds->caid, caid);
+	dstr_copy(&response->creds->refresh_token, refresh_token);
+	dstr_copy(&response->creds->credential, credential);
+
+json_parsed_error:
+	json_decref(response_json);
+json_failed_error:
+request_error:
+	dstr_free(&response_str);
+	curl_slist_free_all(headers);
+	dstr_free(&request_body);
+	curl_easy_cleanup(curl);
+
+	return response;
+}
+
+void caffeine_free_auth_response(struct caffeine_auth_response * auth_response)
+{
+	if (auth_response == NULL)
+		return;
+
+	if (auth_response->creds)
+	{
+		dstr_free(&auth_response->creds->access_token);
+		dstr_free(&auth_response->creds->caid);
+		dstr_free(&auth_response->creds->refresh_token);
+		dstr_free(&auth_response->creds->credential);
+		bfree(auth_response->creds);
+	}
+
+	bfree(auth_response);
+}
