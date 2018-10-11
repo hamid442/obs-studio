@@ -20,7 +20,6 @@ struct caffeine_output
 	obs_output_t * output;
 	caff_interface_handle interface;
 	caff_broadcast_handle broadcast;
-	struct caffeine_auth_response * auth_response; /* temporary */
 };
 
 static const char *caffeine_get_name(void *data)
@@ -93,10 +92,32 @@ static void caffeine_destroy(void *data)
 {
 	struct caffeine_output *stream = data;
 	log_info("caffeine_destroy");
-	caffeine_free_auth_response(stream->auth_response);
 	caff_deinitialize(stream->interface);
 
 	bfree(data);
+}
+
+static char const * caffeine_offer_generated(char const * offer)
+{
+	/* TODO: set up stream with api, get SDP answer, return that */
+	return offer;
+}
+
+static void caffeine_ice_gathered(
+	void *data,
+	caff_ice_candidates candidates,
+	size_t num_candidates)
+{
+	struct caffeine_output *stream = data;
+	log_info("caffeine_ice_gathered");
+	/* TODO: make sure this is thread safe and parallel */
+	for (size_t i = 0; i < num_candidates; ++i)
+	{
+		/* send candidates */
+		/* get response */
+		/* set answer */
+		/* pray */
+	}
 }
 
 static void caffeine_broadcast_started(void *data)
@@ -120,48 +141,19 @@ static bool caffeine_start(void *data)
 	struct caffeine_output *stream = data;
 	log_info("caffeine_start");
 
-	if (!obs_output_can_begin_data_capture(stream->output, 0))
-		return false;
-
 	/* TODO: do get the service, set up stream with broadcast name etc.
 	 * Most of this work should be on separate thread
 	 */
 
-	/* WIP TODO Q&D FAKE */
-	if (stream->auth_response == NULL) {
-		char const * const username = "fakeuser";
-		char const * const password = "fakepassword";
-		char const * const otp = NULL;
-		stream->auth_response = caffeine_signin(username, password, otp);
-		if (!stream->auth_response) {
-			log_error("Failed login");
-			return false;
-		}
-		if (dstr_cmpi(&stream->auth_response->next,
-			"mfa_otp_required") == 0) {
-			log_error("One time password NYI");
-			return false;
-		}
-		if (dstr_cmpi(&stream->auth_response->next,
-			"legal_acceptance_required") == 0) {
-			log_error("Can't broadcast until terms of service are accepted");
-			return false;
-		}
-		if (dstr_cmpi(&stream->auth_response->next,
-			"email_verification") == 0) {
-			log_error("Can't broadcast until email is verified");
-			return false;
-		}
-		if (!stream->auth_response->credentials) {
-			log_error("Empty auth response received");
-			return false;
-		}
-	}
+	if (!obs_output_can_begin_data_capture(stream->output, 0))
+		return false;
 
 	caff_broadcast_handle broadcast =
 		caff_start_broadcast(stream->interface, stream,
-			/* TODO caffeine_ice_gathered, */
-			caffeine_broadcast_started, caffeine_broadcast_failed);
+			caffeine_offer_generated,
+			caffeine_ice_gathered,
+			caffeine_broadcast_started,
+			caffeine_broadcast_failed);
 
 	if (!broadcast)
 		return false;
@@ -203,7 +195,7 @@ static void caffeine_raw_audio(void *data, struct audio_data *frames)
 
 struct obs_output_info caffeine_output_info = {
 	.id        = "caffeine_output",
-	.flags     = OBS_OUTPUT_AV,  /* TODO: OBS_OUTPUT_SERVICE for login info, etc*/
+	.flags     = OBS_OUTPUT_AV | OBS_OUTPUT_SERVICE,  /* TODO: OBS_OUTPUT_SERVICE for login info, etc*/
 	.get_name  = caffeine_get_name,
 	.create    = caffeine_create,
 	.destroy   = caffeine_destroy,

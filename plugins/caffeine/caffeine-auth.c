@@ -28,7 +28,7 @@ static size_t caffeine_signin_write_callback(char * ptr, size_t size,
 /* TODO: this is partly an exploration of both libcURL and libjansson; much of
  * this needs to be refactored, and will be reused for WebRTC signaling
  */
-struct caffeine_auth_response * caffeine_signin(
+struct caffeine_auth_info * caffeine_signin(
 	char const * username,
 	char const * password,
 	char const * otp)
@@ -39,7 +39,7 @@ struct caffeine_auth_response * caffeine_signin(
 	 * errors
 	 * email verification
 	 * etc this will be handled by the UI bits, service, etc*/
-	struct caffeine_auth_response * response = NULL;
+	struct caffeine_auth_info * response = NULL;
 
 	json_t * request_json = NULL;
 	if (otp)
@@ -137,7 +137,7 @@ struct caffeine_auth_response * caffeine_signin(
 		goto json_parsed_error;
 	}
 
-	response = bzalloc(sizeof(struct caffeine_auth_response));
+	response = bzalloc(sizeof(struct caffeine_auth_info));
 	if (access_token) {
 		response->credentials =
 			bzalloc(sizeof(struct caffeine_credentials));
@@ -165,7 +165,7 @@ request_json_error:
 	return response;
 }
 
-void caffeine_free_auth_response(struct caffeine_auth_response * auth_response)
+void caffeine_free_auth_info(struct caffeine_auth_info * auth_response)
 {
 	if (auth_response == NULL)
 		return;
