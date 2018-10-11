@@ -19,6 +19,7 @@ set(caffeine_SOURCES
 	caffeine-auth.h
 	caffeine-auth.c
 	caffeine-module.c
+	caffeine-service.c
 	caffeine-output.c)
 
 add_library(caffeine MODULE
