@@ -1,6 +1,6 @@
 #include <obs-module.h>
 
-#include "caffeine-auth.h"
+#include "caffeine-api.h"
 
 #define do_log(level, format, ...) \
 	blog(level, "[caffeine service] " format, ##__VA_ARGS__)
@@ -14,6 +14,7 @@ struct caffeine_service {
 	char * username;
 	char * password;
 	struct caffeine_auth_info * auth_info;
+	struct caffeine_user_info * user_info;
 };
 
 static char const * caffeine_service_name(void * unused)
@@ -28,6 +29,7 @@ static void caffeine_service_free_contents(struct caffeine_service * service)
 	bfree(service->username);
 	bfree(service->password);
 	caffeine_free_auth_info(service->auth_info);
+	caffeine_free_user_info(service->user_info);
 }
 
 static void caffeine_service_update(void * data, obs_data_t * settings)
@@ -83,32 +85,45 @@ static bool caffeine_service_initialize(void * data, obs_output_t * output)
 	/* TODO: refresh tokens if necessary, do stuff asynchronously, etc */
 
 	if (service->auth_info == NULL) {
-		struct caffeine_auth_info * info = caffeine_signin(
+		struct caffeine_auth_info * auth_info = caffeine_signin(
 			service->username, service->password, NULL); 
-		if (!info) {
+		if (!auth_info) {
 			log_error("Failed login");
 			return false;
 		}
-		if (dstr_cmpi(&info->next,
-			"mfa_otp_required") == 0) {
-			log_error("One time password NYI");
-			return false;
+		if (auth_info->next) {
+			if (strcmp(auth_info->next, "mfa_otp_required") == 0) {
+				log_error("One time password NYI");
+				return false;
+			}
+			if (strcmp(auth_info->next, "legal_acceptance_required")
+				== 0) {
+				log_error("Can't broadcast until terms of service are accepted");
+				return false;
+			}
+			if (strcmp(auth_info->next, "email_verification") == 0){
+				log_error("Can't broadcast until email is verified");
+				return false;
+			}
 		}
-		if (dstr_cmpi(&info->next,
-			"legal_acceptance_required") == 0) {
-			log_error("Can't broadcast until terms of service are accepted");
-			return false;
-		}
-		if (dstr_cmpi(&info->next,
-			"email_verification") == 0) {
-			log_error("Can't broadcast until email is verified");
-			return false;
-		}
-		if (!info->credentials) {
+		if (!auth_info->credentials) {
 			log_error("Empty auth response received");
 			return false;
 		}
-		service->auth_info = info;
+
+		char const * caid = auth_info->credentials->caid;
+		struct caffeine_user_info * user_info =
+			caffeine_getuser(caid, auth_info);
+		if (!user_info) {
+			return false;
+		}
+		if (!user_info->can_broadcast) {
+			log_error("This user is not able to broadcast");
+			return false;
+		}
+
+		service->auth_info = auth_info;
+		service->user_info = user_info;
 	}
 
 	return true;

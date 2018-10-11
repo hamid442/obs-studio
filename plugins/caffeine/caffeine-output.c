@@ -3,7 +3,7 @@
 
 #include <caffeine.h>
 
-#include "caffeine-auth.h"
+#include "caffeine-api.h"
 
 
 #define do_log(level, format, ...) \
