@@ -16,8 +16,8 @@ include_directories(
 	${CAFFEINE_INCLUDE_DIR})
 
 set(caffeine_SOURCES
-	caffeine-auth.h
-	caffeine-auth.c
+	caffeine-api.h
+	caffeine-api.c
 	caffeine-module.c
 	caffeine-service.c
 	caffeine-output.c)
