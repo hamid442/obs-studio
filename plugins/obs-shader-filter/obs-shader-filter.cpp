@@ -710,6 +710,15 @@ public:
 			bindType = floating_point;
 			_bind    = &_filter->elapsedTime;
 		}
+		if (_filter->getType() == OBS_SOURCE_TYPE_TRANSITION) {
+			if (n == "transition_percentage") {
+				bindType = floating_point;
+				_bind = &_filter->transitionPercentage;
+			} else if (n == "transition_time") {
+				bindType = floating_point;
+				_bind = &_filter->transitionSeconds;
+			}
+		}
 	};
 
 	~NumericalData(){};
@@ -1299,6 +1308,8 @@ public:
 
 		if (_names[0] == "image")
 			_texType = ignored;
+		if (_filter->getType() == OBS_SOURCE_TYPE_TRANSITION && _names[0] == "image_2")
+			_texType = ignored;
 
 		_channels = audio_output_get_channels(obs_get_audio());
 
@@ -1770,6 +1781,7 @@ template<class DataType> DataType ShaderFilter::evaluateExpression(DataType defa
 ShaderFilter::ShaderFilter(obs_data_t *settings, obs_source_t *source)
 {
 	context   = source;
+	_source_type = obs_source_get_type(source);
 	_settings = settings;
 	_mutex    = new PThreadMutex();
 	prepReload();
@@ -1884,6 +1896,13 @@ void ShaderFilter::reload()
 		image              = p->getParameter()->getParam();
 	} catch (std::out_of_range) {
 		image = nullptr;
+	}
+
+	try {
+		ShaderParameter *p = paramMap.at("image_2");
+		image_2 = p->getParameter()->getParam();
+	} catch (std::out_of_range) {
+		image_2 = nullptr;
 	}
 }
 
@@ -2198,12 +2217,13 @@ void ShaderFilter::videoRenderSource(void *data, gs_effect_t *effect)
 		texture = gs_texrender_get_texture(filter->filterTexrender);
 		if (texture) {
 			const char *techName = "Draw";
-
 			gs_effect_t *   effect = obs_get_base_effect(OBS_EFFECT_DEFAULT);
 			gs_technique_t *tech   = gs_effect_get_technique(effect, techName);
 
-			if (filter->image)
-				gs_effect_set_texture(filter->image, texture);
+			if (!filter->image)
+				filter->image = gs_effect_get_param_by_name(effect, "image");
+
+			gs_effect_set_texture(filter->image, texture);
 
 			passes = gs_technique_begin(tech);
 			for (i = 0; i < passes; i++) {
@@ -2221,6 +2241,177 @@ void ShaderFilter::videoRenderSource(void *data, gs_effect_t *effect)
 			}
 		}
 	}
+}
+
+void ShaderFilter::videoTickTransition(void *data, float seconds)
+{
+	UNUSED_PARAMETER(data);
+	UNUSED_PARAMETER(seconds);
+}
+
+static void renderTransition(void *data, gs_texture_t *a, gs_texture_t *b,
+		float t, uint32_t cx, uint32_t cy)
+{
+	ShaderFilter *filter = static_cast<ShaderFilter *>(data);
+	size_t i, j, passes;
+	uint32_t      parentFlags;
+	gs_texture_t *texture;
+	obs_source_t *source = filter->context;
+
+	uint64_t ts = os_gettime_ns();
+
+	filter->transitionPercentage = t;
+	float seconds = (ts / 1000000000.0);
+	filter->elapsedTimeBinding.d = seconds;
+	filter->elapsedTime = seconds;
+	filter->transitionSeconds = ((filter->startTimestamp - ts) / 1000000000.0);
+
+	for (i = 0; i < filter->paramList.size(); i++) {
+		if (filter->paramList[i])
+			filter->paramList[i]->videoTick(filter, filter->elapsedTime, seconds);
+	}
+
+	int baseWidth = cx;
+	int baseHeight = cy;
+
+	filter->totalWidth = baseWidth;
+	filter->totalHeight = baseHeight;
+
+	filter->uvScale.x = (float)filter->totalWidth / baseWidth;
+	filter->uvScale.y = (float)filter->totalHeight / baseHeight;
+	filter->uvOffset.x = (float)(-filter->resizeLeft) / baseWidth;
+	filter->uvOffset.y = (float)(-filter->resizeTop) / baseHeight;
+	filter->uvPixelInterval.x = 1.0f / baseWidth;
+	filter->uvPixelInterval.y = 1.0f / baseHeight;
+
+	filter->uvScaleBinding = filter->uvScale;
+	filter->uvOffsetBinding = filter->uvOffset;
+
+	if (filter->effect != nullptr) {
+		for (i = 0; i < filter->paramList.size(); i++) {
+			if (filter->paramList[i])
+				filter->paramList[i]->videoRender(filter);
+		}
+
+		if (!filter->filterTexrender)
+			filter->filterTexrender = gs_texrender_create(GS_RGBA, GS_ZS_NONE);
+
+		
+		const char *id = obs_source_get_id(source);
+		parentFlags = obs_get_source_output_flags(id);
+
+		gs_blend_state_push();
+		gs_blend_function(GS_BLEND_ONE, GS_BLEND_ZERO);
+
+		gs_texrender_reset(filter->filterTexrender);
+		if (gs_texrender_begin(filter->filterTexrender, cx, cy)) {
+			struct vec4 clearColor;
+
+			vec4_zero(&clearColor);
+			gs_clear(GS_CLEAR_COLOR, &clearColor, 0.0f, 0);
+			gs_ortho(0.0f, (float)cx, 0.0f, (float)cy, -100.0f, 100.0f);
+
+			gs_texrender_end(filter->filterTexrender);
+		}
+
+		gs_blend_state_pop();
+
+		texture = gs_texrender_get_texture(filter->filterTexrender);
+		
+		if (a || b) {
+			const char *techName = "Draw";
+			gs_technique_t *tech = gs_effect_get_technique(filter->effect, techName);
+			if (filter->image)
+				gs_effect_set_texture(filter->image, a);
+			if (filter->image_2)
+				gs_effect_set_texture(filter->image_2, b);
+
+			passes = gs_technique_begin(tech);
+			for (i = 0; i < passes; i++) {
+				gs_technique_begin_pass(tech, i);
+				gs_draw_sprite(texture, 0, cx, cy);
+				gs_technique_end_pass(tech);
+				/*Handle Buffers*/
+				for (j = 0; j < filter->paramList.size(); j++) {
+					filter->paramList[j]->onPass(filter, techName, j, texture);
+				}
+			}
+			gs_technique_end(tech);
+			for (j = 0; j < filter->paramList.size(); j++) {
+				filter->paramList[j]->onTechniqueEnd(filter, techName, texture);
+			}
+		}
+	} else {
+		/* Cut Effect */
+		texture = b;
+		
+		if (texture) {
+			const char *techName = "Draw";
+
+			gs_effect_t *   effect = obs_get_base_effect(OBS_EFFECT_DEFAULT);
+			if (!filter->image)
+				filter->image = gs_effect_get_param_by_name(effect, "image");
+
+			gs_technique_t *tech = gs_effect_get_technique(effect, techName);
+
+			gs_effect_set_texture(filter->image, texture);
+
+			passes = gs_technique_begin(tech);
+			for (i = 0; i < passes; i++) {
+				gs_technique_begin_pass(tech, i);
+				gs_draw_sprite(texture, 0, cx, cy);
+				gs_technique_end_pass(tech);
+				/*Handle Buffers*/
+				for (j = 0; j < filter->paramList.size(); j++) {
+					filter->paramList[j]->onPass(filter, techName, j, texture);
+				}
+			}
+			gs_technique_end(tech);
+			for (j = 0; j < filter->paramList.size(); j++) {
+				filter->paramList[j]->onTechniqueEnd(filter, techName, texture);
+			}
+		}
+	}
+}
+
+void ShaderFilter::videoRenderTransition(void *data, gs_effect_t *effect)
+{
+	ShaderFilter *filter = static_cast<ShaderFilter *>(data);
+	obs_transition_video_render(filter->context, renderTransition);
+	UNUSED_PARAMETER(effect);
+}
+
+void ShaderFilter::transitionStart(void *data)
+{
+	ShaderFilter *filter = static_cast<ShaderFilter *>(data);
+	filter->startTimestamp = os_gettime_ns();
+}
+
+void ShaderFilter::transitionStop(void *data)
+{
+	ShaderFilter *filter = static_cast<ShaderFilter *>(data);
+	filter->stopTimestamp = os_gettime_ns();
+}
+
+static float mix_a(void *data, float t)
+{
+	UNUSED_PARAMETER(data);
+	return 1.0f - t;
+}
+
+static float mix_b(void *data, float t)
+{
+	UNUSED_PARAMETER(data);
+	return t;
+}
+
+bool ShaderFilter::audioRenderTransition(void *data, uint64_t *ts_out,
+	struct obs_source_audio_mix *audio, uint32_t mixers,
+	size_t channels, size_t sample_rate)
+{
+	ShaderFilter *filter = static_cast<ShaderFilter *>(data);
+	return obs_transition_audio_render(filter->context, ts_out, audio, mixers,
+		channels, sample_rate, mix_a, mix_b);
 }
 
 void ShaderFilter::update(void *data, obs_data_t *settings)
@@ -2429,6 +2620,24 @@ bool obs_module_load(void)
 	shader_source.key_click              = ShaderFilter::keyClick;
 
 	obs_register_source(&shader_source);
+	
+	struct obs_source_info shader_transition = { 0 };
+	shader_transition.id = "obs_shader_transition";
+	shader_transition.type = OBS_SOURCE_TYPE_TRANSITION;
+	shader_transition.output_flags = OBS_SOURCE_VIDEO;
+	shader_transition.get_name = ShaderFilter::getName;
+	shader_transition.create = ShaderFilter::create;
+	shader_transition.destroy = ShaderFilter::destroy;
+	shader_transition.update = ShaderFilter::update;
+	//shader_transition.video_tick = ShaderFilter::videoTickSource;
+	shader_transition.video_render = ShaderFilter::videoRenderTransition;
+	shader_transition.audio_render = ShaderFilter::audioRenderTransition;
+	shader_transition.get_properties = ShaderFilter::getProperties;
+	shader_transition.get_defaults = ShaderFilter::getDefaults;
+	shader_transition.transition_start = ShaderFilter::transitionStart;
+	shader_transition.transition_stop = ShaderFilter::transitionStop;
+
+	obs_register_source(&shader_transition);
 
 	struct obs_audio_info aoi;
 	obs_get_audio_info(&aoi);
