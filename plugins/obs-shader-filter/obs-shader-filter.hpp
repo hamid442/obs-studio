@@ -241,20 +241,31 @@ public:
 
 class ShaderFilter {
 protected:
-	uint32_t totalWidth;
-	uint32_t totalHeight;
-
 	std::string _effectPath;
 	std::string _effectString;
 
-	gs_effect_t *effect    = nullptr;
 	obs_data_t * _settings = nullptr;
 
 	PThreadMutex *_mutex         = nullptr;
 	bool          _reloadEffect = true;
 
 	TinyExpr expression;
+
+	obs_source_type _source_type;
 public:
+	obs_source_type getType()
+	{
+		return _source_type;
+	}
+	uint64_t startTimestamp;
+	uint64_t stopTimestamp;
+
+	float transitionSeconds;
+
+	uint32_t totalWidth;
+	uint32_t totalHeight;
+
+	gs_effect_t *effect = nullptr;
 	gs_texrender_t *filterTexrender = nullptr;
 
 	double _clickCount;
@@ -291,6 +302,7 @@ public:
 	int baseHeight = 0;
 
 	float          elapsedTime        = 0;
+	float          transitionPercentage = 0;
 	in_shader_data elapsedTimeBinding = {0};
 
 	vec2 uvScale;
@@ -302,7 +314,8 @@ public:
 	bind2 uvPixelIntervalBinding;
 
 	matrix4 viewProj;
-	gs_eparam_t *image;
+	gs_eparam_t *image = nullptr;
+	gs_eparam_t *image_2 = nullptr;
 
 	obs_source_t *context = nullptr;
 
@@ -338,8 +351,13 @@ public:
 	static const char *      getName(void *unused);
 	static void              videoTick(void *data, float seconds);
 	static void              videoTickSource(void *data, float seconds);
+	static void              videoTickTransition(void *data, float seconds);
 	static void              videoRender(void *data, gs_effect_t *effect);
 	static void              videoRenderSource(void *data, gs_effect_t *effect);
+	static void              videoRenderTransition(void *data, gs_effect_t *effect);
+	static bool              audioRenderTransition(void *data, uint64_t *ts_out, struct obs_source_audio_mix *audio, uint32_t mixers, size_t channels, size_t sample_rate);
+	static void              transitionStart(void *data);
+	static void              transitionStop(void *data);
 	static void              update(void *data, obs_data_t *settings);
 	static obs_properties_t *getProperties(void *data);
 	static obs_properties_t *getPropertiesSource(void *data);
