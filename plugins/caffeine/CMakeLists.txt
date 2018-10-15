@@ -34,3 +34,4 @@ target_link_libraries(caffeine
 
 #install_obs_plugin_with_data(caffeine data)
 install_obs_plugin(caffeine)
+install_obs_bin(caffeine "" ${CAFFEINE_SHARED})
