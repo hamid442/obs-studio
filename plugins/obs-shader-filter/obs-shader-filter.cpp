@@ -4,16 +4,26 @@ OBS_DECLARE_MODULE()
 OBS_MODULE_USE_DEFAULT_LOCALE("obs_shader_filter", "en-US")
 #define blog(level, msg, ...) blog(level, "shader-filter: " msg, ##__VA_ARGS__)
 
+#ifdef _WIN32
+#include <Windows.h>
+#elif __linux__ || __FreeBSD__
+#include <X11/extensions/Xfixes.h>
+#define xdisp (XCompcap::disp())
+#endif
+
 static void sidechain_capture(void *p, obs_source_t *source, const struct audio_data *audio_data, bool muted);
 
 static bool shader_filter_reload_effect_clicked(obs_properties_t *props, obs_property_t *property, void *data);
 
 static bool shader_filter_file_name_changed(obs_properties_t *props, obs_property_t *p, obs_data_t *settings);
 
+static void getMouseCursor(void *data);
+static void getScreenSizes(void *data);
+
 static const char *shader_filter_texture_file_filter = "Textures (*.bmp *.tga *.png *.jpeg *.jpg *.gif);;";
 
 static const char *shader_filter_media_file_filter =
-		"Video Files (*.mp4 *.ts *.mov *.wmv *.flv *.mkv *.avi *.gif *.webm);;";
+"Video Files (*.mp4 *.ts *.mov *.wmv *.flv *.mkv *.avi *.gif *.webm);;";
 
 #define M_PI_D 3.141592653589793238462643383279502884197169399375
 static double hlsl_clamp(double in, double min, double max)
@@ -51,25 +61,34 @@ const static double int_min = INT_MIN;
 const static double int_max = INT_MAX;
 static double       sample_rate;
 static double       output_channels;
-static std::string  dir[4] = {"left", "right", "top", "bottom"};
+static std::string  dir[4] = { "left", "right", "top", "bottom" };
 
 /* Additional likely to be used functions for mathmatical expressions */
 void prepFunctions(std::vector<te_variable> *vars, ShaderFilter *filter)
 {
 	UNUSED_PARAMETER(filter);
-	std::vector<te_variable> funcs = {{"clamp", hlsl_clamp, TE_FUNCTION3}, {"float_max", &flt_max},
-			{"float_min", &flt_min}, {"int_max", &int_max}, {"int_min", &int_min},
-			{"sample_rate", &sample_rate}, {"channels", &output_channels},
+	std::vector<te_variable> funcs = { {"clamp", hlsl_clamp, TE_FUNCTION3},
+			{"channels", &output_channels}, {"degrees", hlsl_degrees, TE_FUNCTION1},
+			{"float_max", &flt_max},
+			{"float_min", &flt_min}, {"hz_from_mel", audio_hz_from_mel, TE_FUNCTION1},
+			{"int_max", &int_max}, {"int_min", &int_min},
+			{"key", &filter->_key}, {"key_pressed", &filter->_keyUp},
+			{"sample_rate", &sample_rate},
 			{"mel_from_hz", audio_mel_from_hz, TE_FUNCTION1},
-			{"hz_from_mel", audio_hz_from_mel, TE_FUNCTION1}, {"degrees", hlsl_degrees, TE_FUNCTION1},
-			{"radians", hlsl_rad, TE_FUNCTION1}, {"random", random_double, TE_FUNCTION2},
+			{"mouse_click_x", &filter->_mouseClickX},
+			{"mouse_click_y", &filter->_mouseClickY},
 			{"mouse_pos_x", &filter->_mouseX}, {"mouse_pos_y", &filter->_mouseY},
-			{"mouse_type", &filter->_mouseType}, {"mouse_wheel_delta_x", &filter->_mouseWheelDeltaX},
+			{"mouse_type", &filter->_mouseType},
+			{"mouse_up", &filter->_mouseUp},
+			{"mouse_wheel_delta_x", &filter->_mouseWheelDeltaX},
 			{"mouse_wheel_delta_y", &filter->_mouseWheelDeltaY}, {"mouse_wheel_x", &filter->_mouseWheelX},
 			{"mouse_wheel_y", &filter->_mouseWheelY}, {"mouse_leave", &filter->_mouseLeave},
-			{"mouse_up", &filter->_mouseUp}, {"mouse_click_x", &filter->_mouseClickX},
-			{"mouse_click_y", &filter->_mouseClickY}, {"key", &filter->_key},
-			{"key_pressed", &filter->_keyUp}};
+			{"primary_screen_height", &filter->_primaryScreenHeight}, {"primary_screen_width", &filter->_primaryScreenWidth},
+			{"radians", hlsl_rad, TE_FUNCTION1}, {"random", random_double, TE_FUNCTION2},
+			{"screen_height", &filter->_wholeScreenHeight},
+			{"screen_width", &filter->_wholeScreenWidth},
+			{"screen_mouse_pos_x", &filter->_screenMousePosX}, {"screen_mouse_pos_y", &filter->_screenMousePosY},
+			{"screen_mouse_visible", &filter->_screenMouseVisible} };
 	vars->reserve(vars->size() + funcs.size());
 	vars->insert(vars->end(), funcs.begin(), funcs.end());
 }
@@ -153,12 +172,14 @@ bool isIntType(enum gs_shader_param_type type)
 class EVal {
 public:
 	float defaultFloat = 0.0;
-	int   defaultInt   = 0;
+	int   defaultInt = 0;
 
 	void *               data = nullptr;
 	size_t               size = 0;
 	gs_shader_param_type type = GS_SHADER_PARAM_UNKNOWN;
-	EVal(){};
+	EVal()
+	{
+	};
 	~EVal()
 	{
 		if (data)
@@ -171,8 +192,8 @@ public:
 		std::vector<int>   dInt;
 		std::vector<bool>  dBool;
 		float *            ptrFloat = static_cast<float *>(data);
-		int *              ptrInt   = static_cast<int *>(data);
-		bool *             ptrBool  = static_cast<bool *>(data);
+		int *              ptrInt = static_cast<int *>(data);
+		bool *             ptrBool = static_cast<bool *>(data);
 
 		size_t i;
 		size_t len;
@@ -213,8 +234,8 @@ public:
 		std::vector<int>   dInt;
 		std::vector<bool>  dBool;
 		float *            ptrFloat = static_cast<float *>(data);
-		int *              ptrInt   = static_cast<int *>(data);
-		bool *             ptrBool  = static_cast<bool *>(data);
+		int *              ptrInt = static_cast<int *>(data);
+		bool *             ptrBool = static_cast<bool *>(data);
 
 		size_t i;
 		size_t len;
@@ -255,8 +276,8 @@ public:
 		std::vector<int>   dInt;
 		std::vector<bool>  dBool;
 		float *            ptrFloat = static_cast<float *>(data);
-		int *              ptrInt   = static_cast<int *>(data);
-		bool *             ptrBool  = static_cast<bool *>(data);
+		int *              ptrInt = static_cast<int *>(data);
+		bool *             ptrBool = static_cast<bool *>(data);
 
 		size_t i;
 		size_t len;
@@ -293,7 +314,7 @@ public:
 
 	operator std::string()
 	{
-		std::string str      = "";
+		std::string str = "";
 		char *      ptrChar = static_cast<char *>(data);
 
 		switch (type) {
@@ -325,7 +346,7 @@ private:
 			gs_effect_param_info note_info;
 			gs_effect_get_param_info(eparam, &note_info);
 
-			v       = new EVal();
+			v = new EVal();
 			v->data = gs_effect_get_default_val(eparam);
 			v->size = gs_effect_get_default_val_size(eparam);
 			v->type = note_info.type;
@@ -335,9 +356,9 @@ private:
 	}
 
 protected:
-	gs_eparam_t *                             _param      = nullptr;
-	gs_effect_param_info                      _paramInfo = {0};
-	EVal *                                    _value      = nullptr;
+	gs_eparam_t *                             _param = nullptr;
+	gs_effect_param_info                      _paramInfo = { 0 };
+	EVal *                                    _value = nullptr;
 	std::unordered_map<std::string, EParam *> _annotationsMap;
 	size_t                                    _annotationCount;
 
@@ -434,7 +455,7 @@ public:
 		gs_eparam_t *p = nullptr;
 
 		for (i = 0; i < _annotationCount; i++) {
-			p                       = gs_param_get_annotation_by_idx(_param, i);
+			p = gs_param_get_annotation_by_idx(_param, i);
 			EParam *             ep = new EParam(p);
 			gs_effect_param_info _info;
 			gs_effect_get_param_info(p, &_info);
@@ -454,7 +475,7 @@ public:
 
 	template<class DataType> void setValue(DataType *data, size_t size)
 	{
-		size_t len       = size / sizeof(DataType);
+		size_t len = size / sizeof(DataType);
 		size_t arraySize = len * sizeof(DataType);
 		gs_effect_set_val(_param, data, arraySize);
 	}
@@ -504,7 +525,9 @@ public:
 			_param = nullptr;
 	}
 
-	virtual ~ShaderData(){};
+	virtual ~ShaderData()
+	{
+	};
 
 	virtual void init(gs_shader_param_type paramType)
 	{
@@ -520,13 +543,13 @@ public:
 		_tooltips.reserve(_dataCount);
 
 		size_t          i;
-		out_shader_data empty        = {0};
-		in_shader_data  emptyBinding = {0};
+		out_shader_data empty = { 0 };
+		in_shader_data  emptyBinding = { 0 };
 
-		std::string n      = _parent->getName();
-		std::string d      = _parent->getDescription();
+		std::string n = _parent->getName();
+		std::string d = _parent->getDescription();
 		std::string strNum = "";
-		EVal *      val    = nullptr;
+		EVal *      val = nullptr;
 		for (i = 0; i < _dataCount; i++) {
 			if (_dataCount > 1)
 				strNum = "_" + std::to_string(i);
@@ -606,17 +629,17 @@ private:
 	{
 		std::unordered_map<std::string, EParam *> *notations = e->getAnnootations();
 		for (std::unordered_map<std::string, EParam *>::iterator it = notations->begin();
-				it != notations->end(); it++) {
+			it != notations->end(); it++) {
 			EParam *    eparam = (*it).second;
-			EVal *      eval   = eparam->getValue();
-			std::string name   = eparam->info().name;
+			EVal *      eval = eparam->getValue();
+			std::string name = eparam->info().name;
 
 			if (name.compare(0, 9, "list_item") == 0 && name.compare(name.size() - 6, 5, "_name") != 0) {
 				std::vector<int> iList = *eval;
 				if (iList.size()) {
 					EVal *      evalname = e->getAnnotationValue((name + "_name"));
 					std::string itemname = *evalname;
-					int         d        = iList[0];
+					int         d = iList[0];
 					if (itemname.empty())
 						itemname = std::to_string(d);
 					obs_property_list_add_int(p, itemname.c_str(), d);
@@ -629,17 +652,17 @@ private:
 	{
 		std::unordered_map<std::string, EParam *> *notations = e->getAnnootations();
 		for (std::unordered_map<std::string, EParam *>::iterator it = notations->begin();
-				it != notations->end(); it++) {
+			it != notations->end(); it++) {
 			EParam *    eparam = (*it).second;
-			EVal *      eval   = eparam->getValue();
-			std::string name   = eparam->info().name;
+			EVal *      eval = eparam->getValue();
+			std::string name = eparam->info().name;
 
 			if (name.compare(0, 9, "list_item") == 0 && name.compare(name.size() - 6, 5, "_name") != 0) {
 				std::vector<float> fList = *eval;
 				if (fList.size()) {
 					EVal *      evalname = e->getAnnotationValue((name + "_name"));
 					std::string itemname = *evalname;
-					double      d        = fList[0];
+					double      d = fList[0];
 					if (itemname.empty())
 						itemname = std::to_string(d);
 					obs_property_list_add_float(p, itemname.c_str(), d);
@@ -650,10 +673,10 @@ private:
 
 	void fillComboBox(EParam *e, obs_property_t *p)
 	{
-		EVal *      enabledval  = e->getAnnotationValue("enabled_desc");
+		EVal *      enabledval = e->getAnnotationValue("enabled_desc");
 		EVal *      disabledval = e->getAnnotationValue("disabled_desc");
-		std::string enabled     = _OMT("On");
-		std::string disabled    = _OMT("Off");
+		std::string enabled = _OMT("On");
+		std::string disabled = _OMT("Off");
 		if (enabledval) {
 			std::string temp = *enabledval;
 			if (!temp.empty())
@@ -680,10 +703,14 @@ protected:
 	double            _min;
 	double            _max;
 	double            _step;
-	enum BindType { unspecified, none, byte, short_integer, integer, floating_point, double_point };
+	enum BindType {
+		unspecified, none, byte, short_integer, integer, floating_point, double_point
+	};
 	void *   _bind = nullptr;
 	BindType bindType;
-	enum NumericalType { combobox, list, num, slider, color };
+	enum NumericalType {
+		combobox, list, num, slider, color
+	};
 	NumericalType _numType;
 
 public:
@@ -696,19 +723,19 @@ public:
 		std::string n = info.name;
 		if (n == "ViewProj") {
 			bindType = floating_point;
-			_bind    = &_filter->viewProj;
+			_bind = &_filter->viewProj;
 		} else if (n == "uv_offset") {
 			bindType = floating_point;
-			_bind    = &_filter->uvOffset;
+			_bind = &_filter->uvOffset;
 		} else if (n == "uv_scale") {
 			bindType = floating_point;
-			_bind    = &_filter->uvScale;
+			_bind = &_filter->uvScale;
 		} else if (n == "uv_pixel_interval") {
 			bindType = floating_point;
-			_bind    = &_filter->uvPixelInterval;
+			_bind = &_filter->uvPixelInterval;
 		} else if (n == "elapsed_time") {
 			bindType = floating_point;
-			_bind    = &_filter->elapsedTime;
+			_bind = &_filter->elapsedTime;
 		}
 		if (_filter->getType() == OBS_SOURCE_TYPE_TRANSITION) {
 			if (n == "transition_percentage") {
@@ -721,31 +748,33 @@ public:
 		}
 	};
 
-	~NumericalData(){};
+	~NumericalData()
+	{
+	};
 
 	void init(gs_shader_param_type paramType)
 	{
 		ShaderData::init(paramType);
-		_isFloat           = isFloatType(paramType);
-		_isInt             = isIntType(paramType);
+		_isFloat = isFloatType(paramType);
+		_isInt = isIntType(paramType);
 		_skipWholeProperty = _bind ? true : false;
-		_skipCalculations  = false;
+		_skipCalculations = false;
 		size_t i;
 		if (_isFloat) {
-			_min  = (double)_param->getAnnotationValue<float>("min", -FLT_MAX);
-			_max  = (double)_param->getAnnotationValue<float>("max", FLT_MAX);
+			_min = (double)_param->getAnnotationValue<float>("min", -FLT_MAX);
+			_max = (double)_param->getAnnotationValue<float>("max", FLT_MAX);
 			_step = (double)_param->getAnnotationValue<float>("step", 1.0);
 		} else {
-			_min  = (double)_param->getAnnotationValue<int>("min", INT_MIN);
-			_max  = (double)_param->getAnnotationValue<int>("max", INT_MAX);
+			_min = (double)_param->getAnnotationValue<int>("min", INT_MIN);
+			_max = (double)_param->getAnnotationValue<int>("max", INT_MAX);
 			_step = (double)_param->getAnnotationValue<int>("step", 1);
 		}
 
-		EVal *guitype  = _param->getAnnotationValue("type");
+		EVal *guitype = _param->getAnnotationValue("type");
 		bool  isSlider = _param->getAnnotationValue<bool>("is_slider", true);
 
-		std::unordered_map<std::string, uint32_t> types = {{"combobox", combobox}, {"list", list}, {"num", num},
-				{"slider", slider}, {"color", color}};
+		std::unordered_map<std::string, uint32_t> types = { {"combobox", combobox}, {"list", list}, {"num", num},
+				{"slider", slider}, {"color", color} };
 
 		_numType = num;
 		if (guitype && types.find(guitype->getString()) != types.end()) {
@@ -758,9 +787,9 @@ public:
 		_skipProperty.reserve(_dataCount);
 
 		for (i = 0; i < _dataCount; i++) {
-			te_variable var = {0};
-			var.address     = &_bindings[i];
-			var.name        = _bindingNames[i].c_str();
+			te_variable var = { 0 };
+			var.address = &_bindings[i];
+			var.name = _bindingNames[i].c_str();
 			if (_filter)
 				_filter->appendVariable(var);
 		}
@@ -812,16 +841,16 @@ public:
 				case combobox:
 				case list:
 					p = obs_properties_add_list(props, _names[i].c_str(), _descs[i].c_str(),
-							OBS_COMBO_TYPE_LIST, OBS_COMBO_FORMAT_FLOAT);
+						OBS_COMBO_TYPE_LIST, OBS_COMBO_FORMAT_FLOAT);
 					fillFloatList(_param, p);
 					break;
 				case slider:
 					p = obs_properties_add_float_slider(
-							props, _names[i].c_str(), _descs[i].c_str(), _min, _max, _step);
+						props, _names[i].c_str(), _descs[i].c_str(), _min, _max, _step);
 					break;
 				default:
 					p = obs_properties_add_float(
-							props, _names[i].c_str(), _descs[i].c_str(), _min, _max, _step);
+						props, _names[i].c_str(), _descs[i].c_str(), _min, _max, _step);
 					break;
 				}
 				obs_property_set_enabled(p, !_disableProperty[i]);
@@ -837,16 +866,16 @@ public:
 				case combobox:
 				case list:
 					p = obs_properties_add_list(props, _names[i].c_str(), _descs[i].c_str(),
-							OBS_COMBO_TYPE_LIST, OBS_COMBO_FORMAT_INT);
+						OBS_COMBO_TYPE_LIST, OBS_COMBO_FORMAT_INT);
 					fillIntList(_param, p);
 					break;
 				case slider:
 					p = obs_properties_add_int_slider(props, _names[i].c_str(), _descs[i].c_str(),
-							(int)_min, (int)_max, (int)_step);
+						(int)_min, (int)_max, (int)_step);
 					break;
 				default:
 					p = obs_properties_add_int(props, _names[i].c_str(), _descs[i].c_str(),
-							(int)_min, (int)_max, (int)_step);
+						(int)_min, (int)_max, (int)_step);
 					break;
 				}
 				obs_property_set_enabled(p, !_disableProperty[i]);
@@ -862,7 +891,7 @@ public:
 				case combobox:
 				case list:
 					p = obs_properties_add_list(props, _names[i].c_str(), _descs[i].c_str(),
-							OBS_COMBO_TYPE_LIST, OBS_COMBO_FORMAT_INT);
+						OBS_COMBO_TYPE_LIST, OBS_COMBO_FORMAT_INT);
 					fillComboBox(_param, p);
 					break;
 				default:
@@ -887,11 +916,11 @@ public:
 				case combobox:
 				case list:
 					_bindings[i].s64i = obs_data_get_int(settings, _names[i].c_str());
-					_values[i].s32i   = (int32_t)_bindings[i].s64i;
+					_values[i].s32i = (int32_t)_bindings[i].s64i;
 					break;
 				default:
 					_bindings[i].s64i = obs_data_get_bool(settings, _names[i].c_str());
-					_values[i].s32i   = (int32_t)_bindings[i].s64i;
+					_values[i].s32i = (int32_t)_bindings[i].s64i;
 					break;
 				}
 				break;
@@ -900,7 +929,7 @@ public:
 			case GS_SHADER_PARAM_INT3:
 			case GS_SHADER_PARAM_INT4:
 				_bindings[i].s64i = obs_data_get_int(settings, _names[i].c_str());
-				_values[i].s32i   = (int32_t)_bindings[i].s64i;
+				_values[i].s32i = (int32_t)_bindings[i].s64i;
 				break;
 			case GS_SHADER_PARAM_FLOAT:
 			case GS_SHADER_PARAM_VEC2:
@@ -908,7 +937,7 @@ public:
 			case GS_SHADER_PARAM_VEC4:
 			case GS_SHADER_PARAM_MATRIX4X4:
 				_bindings[i].d = obs_data_get_double(settings, _names[i].c_str());
-				_values[i].f   = (float)_bindings[i].d;
+				_values[i].f = (float)_bindings[i].d;
 				break;
 			default:
 				break;
@@ -929,7 +958,7 @@ public:
 				case GS_SHADER_PARAM_BOOL:
 					_filter->compileExpression(_expressions[i]);
 					_bindings[i].s64i = filter->evaluateExpression<long long>(0);
-					_values[i].s32i   = (int32_t)_bindings[i].s64i;
+					_values[i].s32i = (int32_t)_bindings[i].s64i;
 					break;
 				case GS_SHADER_PARAM_INT:
 				case GS_SHADER_PARAM_INT2:
@@ -937,7 +966,7 @@ public:
 				case GS_SHADER_PARAM_INT4:
 					_filter->compileExpression(_expressions[i]);
 					_bindings[i].s64i = filter->evaluateExpression<long long>(0);
-					_values[i].s32i   = (int32_t)_bindings[i].s64i;
+					_values[i].s32i = (int32_t)_bindings[i].s64i;
 					break;
 				case GS_SHADER_PARAM_FLOAT:
 				case GS_SHADER_PARAM_VEC2:
@@ -946,7 +975,7 @@ public:
 				case GS_SHADER_PARAM_MATRIX4X4:
 					_filter->compileExpression(_expressions[i]);
 					_bindings[i].d = filter->evaluateExpression<double>(0);
-					_values[i].f   = (float)_bindings[i].d;
+					_values[i].f = (float)_bindings[i].d;
 					break;
 				default:
 					break;
@@ -955,14 +984,14 @@ public:
 				switch (_paramType) {
 				case GS_SHADER_PARAM_BOOL:
 					_bindings[i].s64i = static_cast<bool *>(_bind)[i];
-					_values[i].s32i   = (int32_t)_bindings[i].s64i;
+					_values[i].s32i = (int32_t)_bindings[i].s64i;
 					break;
 				case GS_SHADER_PARAM_INT:
 				case GS_SHADER_PARAM_INT2:
 				case GS_SHADER_PARAM_INT3:
 				case GS_SHADER_PARAM_INT4:
 					_bindings[i].s64i = static_cast<int *>(_bind)[i];
-					_values[i].s32i   = (int32_t)_bindings[i].s64i;
+					_values[i].s32i = (int32_t)_bindings[i].s64i;
 					break;
 				case GS_SHADER_PARAM_FLOAT:
 				case GS_SHADER_PARAM_VEC2:
@@ -970,7 +999,7 @@ public:
 				case GS_SHADER_PARAM_VEC4:
 				case GS_SHADER_PARAM_MATRIX4X4:
 					_bindings[i].d = static_cast<float *>(_bind)[i];
-					_values[i].f   = (float)_bindings[i].d;
+					_values[i].f = (float)_bindings[i].d;
 					break;
 				default:
 					break;
@@ -1022,9 +1051,13 @@ class StringData : public ShaderData {
 	std::vector<double>      _bindings;
 
 public:
-	StringData(ShaderParameter *parent, ShaderFilter *filter) : ShaderData(parent, filter){};
+	StringData(ShaderParameter *parent, ShaderFilter *filter) : ShaderData(parent, filter)
+	{
+	};
 
-	~StringData(){};
+	~StringData()
+	{
+	};
 
 	void init(gs_shader_param_type paramType)
 	{
@@ -1035,8 +1068,8 @@ public:
 /* functions to add sources to a list for use as textures */
 static bool fillPropertiesSourceList(void *param, obs_source_t *source)
 {
-	obs_property_t *p           = (obs_property_t *)param;
-	uint32_t        flags       = obs_source_get_output_flags(source);
+	obs_property_t *p = (obs_property_t *)param;
+	uint32_t        flags = obs_source_get_output_flags(source);
 	const char *    sourceName = obs_source_get_name(source);
 
 	if ((flags & OBS_SOURCE_VIDEO) != 0 && obs_source_active(source))
@@ -1053,8 +1086,8 @@ static void fillSourceList(obs_property_t *p)
 
 static bool fillPropertiesAudioSourceList(void *param, obs_source_t *source)
 {
-	obs_property_t *p           = (obs_property_t *)param;
-	uint32_t        flags       = obs_source_get_output_flags(source);
+	obs_property_t *p = (obs_property_t *)param;
+	uint32_t        flags = obs_source_get_output_flags(source);
 	const char *    sourceName = obs_source_get_name(source);
 
 	if ((flags & OBS_SOURCE_AUDIO) != 0 && obs_source_active(source))
@@ -1108,7 +1141,7 @@ private:
 	uint32_t processAudio(size_t samples)
 	{
 		size_t i;
-		size_t hSamples     = samples / 2;
+		size_t hSamples = samples / 2;
 		size_t hSamplesSize = samples * 2;
 
 		for (i = 0; i < _channels; i++) {
@@ -1143,7 +1176,7 @@ private:
 		obs_enter_graphics();
 		gs_texture_destroy(_tex);
 		_tex = gs_texture_create(
-				(uint32_t)pxWidth, (uint32_t)_channels, GS_R32F, 1, (const uint8_t **)&_data, 0);
+			(uint32_t)pxWidth, (uint32_t)_channels, GS_R32F, 1, (const uint8_t **)&_data, 0);
 		obs_leave_graphics();
 		gs_effect_set_texture(*param, _tex);
 	}
@@ -1151,8 +1184,8 @@ private:
 	void updateAudioSource(std::string name)
 	{
 		if (!name.empty()) {
-			obs_source_t *sideChain     = nullptr;
-			sideChain                   = obs_get_source_by_name(name.c_str());
+			obs_source_t *sideChain = nullptr;
+			sideChain = obs_get_source_by_name(name.c_str());
 			obs_source_t *oldSideChain = _mediaSource;
 			lock();
 			if (oldSideChain) {
@@ -1168,44 +1201,50 @@ private:
 		}
 	}
 
-	PThreadMutex *_mutex      = nullptr;
+	PThreadMutex *_mutex = nullptr;
 	PThreadMutex *_audioMutex = nullptr;
 
 protected:
 	gs_texrender_t *   _texrender = nullptr;
-	gs_texture_t *     _tex       = nullptr;
-	gs_image_file_t *  _image     = nullptr;
+	gs_texture_t *     _tex = nullptr;
+	gs_image_file_t *  _image = nullptr;
 	std::vector<float> _audio[MAX_AV_PLANES];
 	std::vector<float> _tempAudio[MAX_AV_PLANES];
 	bool               _isFFT = false;
 	std::vector<float> _fft_data[MAX_AV_PLANES];
-	size_t             _channels     = 0;
+	size_t             _channels = 0;
 	size_t             _maxAudioSize = AUDIO_OUTPUT_FRAMES * 2;
-	uint8_t *          _data         = nullptr;
-	obs_source_t *     _mediaSource  = nullptr;
-	std::string        _sourceName   = "";
+	uint8_t *          _data = nullptr;
+	obs_source_t *     _mediaSource = nullptr;
+	std::string        _sourceName = "";
 	size_t             _size;
 	uint8_t            _range_0;
 	uint8_t            _range_1;
-	enum TextureType { ignored, unspecified, source, audio, image, media, random, buffer };
+	enum TextureType {
+		ignored, unspecified, source, audio, image, media, random, buffer
+	};
 	fft_windowing_type _window;
 	TextureType        _texType;
 	std::string        _filePath;
 
 	std::string _sizeWBinding;
 	std::string _sizeHBinding;
+	std::string _mediaSourceLengthBinding;
+	std::string _mediaSourceFramesBinding;
 	std::string _tech;
 	size_t      _pass;
 	double      _sourceWidth;
 	double      _sourceHeight;
+	double      _mediaSourceLength;
+	double      _mediaSourceFrames;
 
 public:
 	TextureData(ShaderParameter *parent, ShaderFilter *filter)
 		: ShaderData(parent, filter), _maxAudioSize(AUDIO_OUTPUT_FRAMES * 2)
 	{
 		_maxAudioSize = AUDIO_OUTPUT_FRAMES * 2;
-		_mutex        = new PThreadMutex();
-		_audioMutex   = new PThreadMutex();
+		_mutex = new PThreadMutex();
+		_audioMutex = new PThreadMutex();
 	};
 
 	~TextureData()
@@ -1224,7 +1263,7 @@ public:
 			gs_texture_destroy(_tex);
 		obs_leave_graphics();
 		_texrender = nullptr;
-		_tex       = nullptr;
+		_tex = nullptr;
 		if (_image)
 			bfree(_image);
 		_image = nullptr;
@@ -1267,9 +1306,9 @@ public:
 		if (!samples || index > (MAX_AV_PLANES - 1))
 			return;
 		audiolock();
-		size_t oldSize    = _audio[index].size() * sizeof(float);
+		size_t oldSize = _audio[index].size() * sizeof(float);
 		size_t insertSize = samples * sizeof(float);
-		float *oldData    = nullptr;
+		float *oldData = nullptr;
 		if (oldSize)
 			oldData = (float *)bmemdup(_audio[index].data(), oldSize);
 		_audio[index].resize(_maxAudioSize);
@@ -1297,8 +1336,8 @@ public:
 		_descs.push_back(_parent->getDescription());
 
 		EVal *                                    texType = _param->getAnnotationValue("type");
-		std::unordered_map<std::string, uint32_t> types   = {{"source", source}, {"audio", audio},
-                                {"image", image}, {"media", media}, {"random", random}, {"buffer", buffer}};
+		std::unordered_map<std::string, uint32_t> types = { {"source", source}, {"audio", audio},
+				{"image", image}, {"media", media}, {"random", random}, {"buffer", buffer} };
 
 		if (texType && types.find(texType->getString()) != types.end()) {
 			_texType = (TextureType)types.at(texType->getString());
@@ -1312,9 +1351,10 @@ public:
 			_texType = ignored;
 
 		_channels = audio_output_get_channels(obs_get_audio());
+		_bindingNames.push_back(toSnakeCase(_names[0]));
 
 		EVal *techAnnotion = _param->getAnnotationValue("technique");
-		EVal *window       = nullptr; 
+		EVal *window = nullptr;
 		switch (_texType) {
 		case audio:
 			_channels = _param->getAnnotationValue<int>("channels", 0);
@@ -1334,20 +1374,35 @@ public:
 			_tech = techAnnotion->getString();
 			_pass = _param->getAnnotationValue<int>("pass", -1);
 			break;
+		case media:
+			_mediaSourceFramesBinding = _bindingNames[0] + "_frames";
+			_mediaSourceLengthBinding = _bindingNames[0] + "_sec";
+			/*
+			te_variable dur = { 0 };
+			dur.address = &_mediaSourceLength;
+			dur.name = _mediaSourceLengthBinding.c_str();
+			te_variable frames = { 0 };
+			frames.address = &_mediaSourceFrames;
+			frames.name = _mediaSourceFramesBinding.c_str();
+			*/
+			if (_filter) {
+				_filter->appendVariable(_mediaSourceFramesBinding, &_mediaSourceFrames);
+				_filter->appendVariable(_mediaSourceLengthBinding, &_mediaSourceLength);
+			}
+			break;
 		default:
 			break;
 		}
 
-		_bindingNames.push_back(toSnakeCase(_names[0]));
 		_sizeWBinding = _bindingNames[0] + "_w";
 		_sizeHBinding = _bindingNames[0] + "_h";
 
-		te_variable size_w = {0};
-		size_w.address     = &_sourceWidth;
-		size_w.name        = _sizeWBinding.c_str();
-		te_variable size_h = {0};
-		size_h.address     = &_sourceHeight;
-		size_h.name        = _sizeHBinding.c_str();
+		te_variable size_w = { 0 };
+		size_w.address = &_sourceWidth;
+		size_w.name = _sizeWBinding.c_str();
+		te_variable size_h = { 0 };
+		size_h.address = &_sourceHeight;
+		size_h.name = _sizeHBinding.c_str();
 
 		if (_filter) {
 			_filter->appendVariable(size_w);
@@ -1362,7 +1417,7 @@ public:
 		switch (_texType) {
 		case source:
 			p = obs_properties_add_list(props, _names[0].c_str(), _descs[0].c_str(), OBS_COMBO_TYPE_LIST,
-					OBS_COMBO_FORMAT_STRING);
+				OBS_COMBO_FORMAT_STRING);
 			fillSourceList(p);
 			for (size_t i = 0; i < obs_property_list_item_count(p); i++) {
 				std::string l = obs_property_list_item_string(p, i);
@@ -1379,14 +1434,14 @@ public:
 			break;
 		case audio:
 			p = obs_properties_add_list(props, _names[0].c_str(), _descs[0].c_str(), OBS_COMBO_TYPE_LIST,
-					OBS_COMBO_FORMAT_STRING);
+				OBS_COMBO_FORMAT_STRING);
 			fillAudioSourceList(p);
 			for (size_t i = 0; i < obs_property_list_item_count(p); i++) {
-				std::string l   = obs_property_list_item_string(p, i);
+				std::string l = obs_property_list_item_string(p, i);
 				std::string src = obs_source_get_name(_filter->context);
 				if (l == src)
 					obs_property_list_item_remove(p, i--);
-				obs_source_t *parent     = obs_filter_get_parent(_filter->context);
+				obs_source_t *parent = obs_filter_get_parent(_filter->context);
 				std::string   parentName = "";
 				if (parent)
 					parentName = obs_source_get_name(parent);
@@ -1396,11 +1451,11 @@ public:
 			break;
 		case media:
 			p = obs_properties_add_path(props, _names[0].c_str(), _descs[0].c_str(), OBS_PATH_FILE,
-					shader_filter_media_file_filter, NULL);
+				shader_filter_media_file_filter, NULL);
 			break;
 		case image:
 			p = obs_properties_add_path(props, _names[0].c_str(), _descs[0].c_str(), OBS_PATH_FILE,
-					shader_filter_texture_file_filter, NULL);
+				shader_filter_texture_file_filter, NULL);
 			break;
 		case random:
 			obs_properties_add_int(props, (_names[0] + "_range_0").c_str(), _descs[0].c_str(), 0, 255, 1);
@@ -1412,14 +1467,42 @@ public:
 	void update(ShaderFilter *filter)
 	{
 		obs_data_t *settings = filter->getSettings();
-		_channels            = audio_output_get_channels(obs_get_audio());
+		_channels = audio_output_get_channels(obs_get_audio());
 		const char *filePath;
+		proc_handler_t *ph = nullptr;
+		obs_data_t *media_settings = nullptr;
+		const char *path;
+		calldata_t cd = { 0 };
+
 		switch (_texType) {
 		case source:
 			if (!_texrender)
 				_texrender = gs_texrender_create(GS_RGBA, GS_ZS_NONE);
 			obs_source_release(_mediaSource);
 			_mediaSource = obs_get_source_by_name(obs_data_get_string(settings, _names[0].c_str()));
+			break;
+		case media:
+			if (!_texrender)
+				_texrender = gs_texrender_create(GS_RGBA, GS_ZS_NONE);
+
+			path = obs_data_get_string(settings, _names[0].c_str());
+			media_settings = obs_data_create();
+			obs_data_set_string(media_settings, "local_file", path);
+
+			obs_source_release(_mediaSource);
+			_mediaSource = obs_source_create_private("ffmpeg_source", NULL, media_settings);
+
+			obs_data_release(media_settings);
+
+			ph = obs_source_get_proc_handler(_mediaSource);
+
+			proc_handler_call(ph, "get_duration", &cd);
+			proc_handler_call(ph, "get_nb_frames", &cd);
+
+			_mediaSourceLength = ((uint64_t)calldata_int(&cd, "duration") / 1000000000.0);
+			_mediaSourceFrames = (uint64_t)calldata_int(&cd, "num_frames");
+
+
 			break;
 		case audio:
 			updateAudioSource(obs_data_get_string(settings, _names[0].c_str()));
@@ -1524,7 +1607,7 @@ public:
 			obs_enter_graphics();
 			gs_texture_destroy(_tex);
 			_tex = gs_texture_create(
-					(uint32_t)srcWidth, (uint32_t)srcHeight, GS_R8, 1, (const uint8_t **)&_data, 0);
+				(uint32_t)srcWidth, (uint32_t)srcHeight, GS_R8, 1, (const uint8_t **)&_data, 0);
 			obs_leave_graphics();
 			gs_effect_set_texture(*_param, _tex);
 			break;
@@ -1583,8 +1666,12 @@ static void sidechain_capture(void *p, obs_source_t *source, const struct audio_
 
 class NullData : public ShaderData {
 public:
-	NullData(ShaderParameter *parent, ShaderFilter *filter) : ShaderData(parent, filter){};
-	~NullData(){};
+	NullData(ShaderParameter *parent, ShaderFilter *filter) : ShaderData(parent, filter)
+	{
+	};
+	~NullData()
+	{
+	};
 	void init(gs_shader_param_type paramType)
 	{
 		UNUSED_PARAMETER(paramType);
@@ -1616,10 +1703,10 @@ ShaderParameter::ShaderParameter(gs_eparam_t *param, ShaderFilter *filter) : _fi
 	struct gs_effect_param_info info;
 	gs_effect_get_param_info(param, &info);
 
-	_mutex       = new PThreadMutex();
-	_name        = info.name;
+	_mutex = new PThreadMutex();
+	_name = info.name;
 	_description = info.name;
-	_param       = new EParam(param);
+	_param = new EParam(param);
 
 	init(info.type);
 }
@@ -1758,6 +1845,13 @@ void ShaderFilter::appendVariable(te_variable var)
 	blog(LOG_INFO, "appending %s", var.name);
 }
 
+void ShaderFilter::appendVariable(std::string &name, double *binding)
+{
+	te_variable var = { 0 };
+	var.address = binding;
+	var.name = name.c_str();
+}
+
 void ShaderFilter::compileExpression(std::string expresion)
 {
 	expression.compile(expresion);
@@ -1780,10 +1874,13 @@ template<class DataType> DataType ShaderFilter::evaluateExpression(DataType defa
 
 ShaderFilter::ShaderFilter(obs_data_t *settings, obs_source_t *source)
 {
-	context   = source;
+	context = source;
 	_source_type = obs_source_get_type(source);
 	_settings = settings;
-	_mutex    = new PThreadMutex();
+	_mutex = new PThreadMutex();
+#if __linux__ || __FreeBSD__
+	dpy = xdisp;
+#endif
 	prepReload();
 	update(this, _settings);
 };
@@ -1891,9 +1988,17 @@ void ShaderFilter::reload()
 		gs_eparam_t *param = gs_effect_get_param_by_idx(effect, i);
 		updateCache(param);
 	}
+
+	/* Enforce alphabetical order for binary search */
+	std::sort(expression.begin(), expression.end(), [](te_variable a, te_variable b) {
+		std::string astr = a.name;
+		std::string bstr = b.name;
+		return astr.compare(bstr) < 0;
+	});
+
 	try {
 		ShaderParameter *p = paramMap.at("image");
-		image              = p->getParameter()->getParam();
+		image = p->getParameter()->getParam();
 	} catch (std::out_of_range) {
 		image = nullptr;
 	}
@@ -1929,13 +2034,17 @@ void ShaderFilter::videoTick(void *data, float seconds)
 	filter->elapsedTimeBinding.d += seconds;
 	filter->elapsedTime += seconds;
 
+	getMouseCursor(filter);
+	getScreenSizes(filter);
+
+
 	size_t i;
 	for (i = 0; i < filter->paramList.size(); i++) {
 		if (filter->paramList[i])
 			filter->paramList[i]->videoTick(filter, filter->elapsedTime, seconds);
 	}
 
-	int *resize[4] = {&filter->resizeLeft, &filter->resizeRight, &filter->resizeTop, &filter->resizeBottom};
+	int *resize[4] = { &filter->resizeLeft, &filter->resizeRight, &filter->resizeTop, &filter->resizeBottom };
 	for (i = 0; i < 4; i++) {
 		if (filter->resizeExpressions[i].empty())
 			continue;
@@ -1946,20 +2055,20 @@ void ShaderFilter::videoTick(void *data, float seconds)
 
 	obs_source_t *target = obs_filter_get_target(filter->context);
 	/* Determine offsets from expansion values. */
-	int baseWidth  = obs_source_get_base_width(target);
+	int baseWidth = obs_source_get_base_width(target);
 	int baseHeight = obs_source_get_base_height(target);
 
-	filter->totalWidth  = filter->resizeLeft + baseWidth + filter->resizeRight;
+	filter->totalWidth = filter->resizeLeft + baseWidth + filter->resizeRight;
 	filter->totalHeight = filter->resizeTop + baseHeight + filter->resizeBottom;
 
-	filter->uvScale.x         = (float)filter->totalWidth / baseWidth;
-	filter->uvScale.y         = (float)filter->totalHeight / baseHeight;
-	filter->uvOffset.x        = (float)(-filter->resizeLeft) / baseWidth;
-	filter->uvOffset.y        = (float)(-filter->resizeTop) / baseHeight;
+	filter->uvScale.x = (float)filter->totalWidth / baseWidth;
+	filter->uvScale.y = (float)filter->totalHeight / baseHeight;
+	filter->uvOffset.x = (float)(-filter->resizeLeft) / baseWidth;
+	filter->uvOffset.y = (float)(-filter->resizeTop) / baseHeight;
 	filter->uvPixelInterval.x = 1.0f / baseWidth;
 	filter->uvPixelInterval.y = 1.0f / baseHeight;
 
-	filter->uvScaleBinding  = filter->uvScale;
+	filter->uvScaleBinding = filter->uvScale;
 	filter->uvOffsetBinding = filter->uvOffset;
 }
 
@@ -1969,13 +2078,16 @@ void ShaderFilter::videoTickSource(void *data, float seconds)
 	filter->elapsedTimeBinding.d += seconds;
 	filter->elapsedTime += seconds;
 
+	getMouseCursor(filter);
+	getScreenSizes(filter);
+
 	size_t i;
 	for (i = 0; i < filter->paramList.size(); i++) {
 		if (filter->paramList[i])
 			filter->paramList[i]->videoTick(filter, filter->elapsedTime, seconds);
 	}
 
-	int *resize[4] = {&filter->resizeLeft, &filter->resizeRight, &filter->resizeTop, &filter->resizeBottom};
+	int *resize[4] = { &filter->resizeLeft, &filter->resizeRight, &filter->resizeTop, &filter->resizeBottom };
 	for (i = 0; i < 4; i++) {
 		if (filter->resizeExpressions[i].empty())
 			continue;
@@ -1985,20 +2097,20 @@ void ShaderFilter::videoTickSource(void *data, float seconds)
 	}
 
 	/* Determine offsets from expansion values. */
-	int baseWidth  = filter->baseWidth;
+	int baseWidth = filter->baseWidth;
 	int baseHeight = filter->baseHeight;
 
-	filter->totalWidth  = filter->resizeLeft + baseWidth + filter->resizeRight;
+	filter->totalWidth = filter->resizeLeft + baseWidth + filter->resizeRight;
 	filter->totalHeight = filter->resizeTop + baseHeight + filter->resizeBottom;
 
-	filter->uvScale.x         = (float)filter->totalWidth / baseWidth;
-	filter->uvScale.y         = (float)filter->totalHeight / baseHeight;
-	filter->uvOffset.x        = (float)(-filter->resizeLeft) / baseWidth;
-	filter->uvOffset.y        = (float)(-filter->resizeTop) / baseHeight;
+	filter->uvScale.x = (float)filter->totalWidth / baseWidth;
+	filter->uvScale.y = (float)filter->totalHeight / baseHeight;
+	filter->uvOffset.x = (float)(-filter->resizeLeft) / baseWidth;
+	filter->uvOffset.y = (float)(-filter->resizeTop) / baseHeight;
 	filter->uvPixelInterval.x = 1.0f / baseWidth;
 	filter->uvPixelInterval.y = 1.0f / baseHeight;
 
-	filter->uvScaleBinding  = filter->uvScale;
+	filter->uvScaleBinding = filter->uvScale;
 	filter->uvOffsetBinding = filter->uvOffset;
 }
 
@@ -2019,12 +2131,12 @@ void ShaderFilter::videoRender(void *data, gs_effect_t *effect)
 
 		if (!target) {
 			blog(LOG_INFO, "filter '%s' being processed with no target!",
-					obs_source_get_name(filter->context));
+				obs_source_get_name(filter->context));
 			return;
 		}
 		if (!parent) {
 			blog(LOG_INFO, "filter '%s' being processed with no parent!",
-					obs_source_get_name(filter->context));
+				obs_source_get_name(filter->context));
 			return;
 		}
 
@@ -2045,7 +2157,7 @@ void ShaderFilter::videoRender(void *data, gs_effect_t *effect)
 			filter->filterTexrender = gs_texrender_create(GS_RGBA, GS_ZS_NONE);
 
 		const char *id = obs_source_get_id(parent);
-		parentFlags   = obs_get_source_output_flags(id);
+		parentFlags = obs_get_source_output_flags(id);
 
 		gs_blend_state_push();
 		gs_blend_function(GS_BLEND_ONE, GS_BLEND_ZERO);
@@ -2053,7 +2165,7 @@ void ShaderFilter::videoRender(void *data, gs_effect_t *effect)
 		gs_texrender_reset(filter->filterTexrender);
 		if (gs_texrender_begin(filter->filterTexrender, cx, cy)) {
 			bool        customDraw = (parentFlags & OBS_SOURCE_CUSTOM_DRAW) != 0;
-			bool        async       = (parentFlags & OBS_SOURCE_ASYNC) != 0;
+			bool        async = (parentFlags & OBS_SOURCE_ASYNC) != 0;
 			struct vec4 clearColor;
 
 			vec4_zero(&clearColor);
@@ -2072,14 +2184,14 @@ void ShaderFilter::videoRender(void *data, gs_effect_t *effect)
 
 		enum obs_allow_direct_render allowBypass = OBS_NO_DIRECT_RENDERING;
 		bool canBypass = (target == parent) && (allowBypass == OBS_ALLOW_DIRECT_RENDERING) &&
-				((parentFlags & OBS_SOURCE_CUSTOM_DRAW) == 0) &&
-				((parentFlags & OBS_SOURCE_ASYNC) == 0);
+			((parentFlags & OBS_SOURCE_CUSTOM_DRAW) == 0) &&
+			((parentFlags & OBS_SOURCE_ASYNC) == 0);
 
 		const char *techName = "Draw";
 
 		if (canBypass) {
 			gs_technique_t *tech = gs_effect_get_technique(filter->effect, techName);
-			texture              = gs_texrender_get_texture(filter->filterTexrender);
+			texture = gs_texrender_get_texture(filter->filterTexrender);
 
 			passes = gs_technique_begin(tech);
 			for (i = 0; i < passes; i++) {
@@ -2157,7 +2269,7 @@ void ShaderFilter::videoRenderSource(void *data, gs_effect_t *effect)
 			filter->filterTexrender = gs_texrender_create(GS_RGBA, GS_ZS_NONE);
 
 		const char *id = obs_source_get_id(source);
-		parentFlags   = obs_get_source_output_flags(id);
+		parentFlags = obs_get_source_output_flags(id);
 
 		gs_blend_state_push();
 		gs_blend_function(GS_BLEND_ONE, GS_BLEND_ZERO);
@@ -2218,7 +2330,7 @@ void ShaderFilter::videoRenderSource(void *data, gs_effect_t *effect)
 		if (texture) {
 			const char *techName = "Draw";
 			gs_effect_t *   effect = obs_get_base_effect(OBS_EFFECT_DEFAULT);
-			gs_technique_t *tech   = gs_effect_get_technique(effect, techName);
+			gs_technique_t *tech = gs_effect_get_technique(effect, techName);
 
 			if (!filter->image)
 				filter->image = gs_effect_get_param_by_name(effect, "image");
@@ -2250,7 +2362,7 @@ void ShaderFilter::videoTickTransition(void *data, float seconds)
 }
 
 static void renderTransition(void *data, gs_texture_t *a, gs_texture_t *b,
-		float t, uint32_t cx, uint32_t cy)
+	float t, uint32_t cx, uint32_t cy)
 {
 	ShaderFilter *filter = static_cast<ShaderFilter *>(data);
 	size_t i, j, passes;
@@ -2265,6 +2377,9 @@ static void renderTransition(void *data, gs_texture_t *a, gs_texture_t *b,
 	filter->elapsedTimeBinding.d = seconds;
 	filter->elapsedTime = seconds;
 	filter->transitionSeconds = ((filter->startTimestamp - ts) / 1000000000.0);
+
+	getMouseCursor(filter);
+	getScreenSizes(filter);
 
 	for (i = 0; i < filter->paramList.size(); i++) {
 		if (filter->paramList[i])
@@ -2296,7 +2411,7 @@ static void renderTransition(void *data, gs_texture_t *a, gs_texture_t *b,
 		if (!filter->filterTexrender)
 			filter->filterTexrender = gs_texrender_create(GS_RGBA, GS_ZS_NONE);
 
-		
+
 		const char *id = obs_source_get_id(source);
 		parentFlags = obs_get_source_output_flags(id);
 
@@ -2317,7 +2432,7 @@ static void renderTransition(void *data, gs_texture_t *a, gs_texture_t *b,
 		gs_blend_state_pop();
 
 		texture = gs_texrender_get_texture(filter->filterTexrender);
-		
+
 		if (a || b) {
 			const char *techName = "Draw";
 			gs_technique_t *tech = gs_effect_get_technique(filter->effect, techName);
@@ -2344,7 +2459,7 @@ static void renderTransition(void *data, gs_texture_t *a, gs_texture_t *b,
 	} else {
 		/* Cut Effect */
 		texture = b;
-		
+
 		if (texture) {
 			const char *techName = "Draw";
 
@@ -2428,7 +2543,7 @@ void ShaderFilter::update(void *data, obs_data_t *settings)
 			filter->paramList[i]->update(filter);
 	}
 	filter->baseHeight = (int)obs_data_get_int(settings, "size.height");
-	filter->baseWidth  = (int)obs_data_get_int(settings, "size.width");
+	filter->baseWidth = (int)obs_data_get_int(settings, "size.width");
 }
 
 obs_properties_t *ShaderFilter::getProperties(void *data)
@@ -2442,10 +2557,10 @@ obs_properties_t *ShaderFilter::getProperties(void *data)
 	shaderPath += "/shaders";
 
 	obs_properties_add_button(
-			props, "reload_effect", obs_module_text("Reload"), shader_filter_reload_effect_clicked);
+		props, "reload_effect", obs_module_text("Reload"), shader_filter_reload_effect_clicked);
 
 	obs_property_t *file_name = obs_properties_add_path(
-			props, "shader_file_name", obs_module_text("File"), OBS_PATH_FILE, NULL, shaderPath.c_str());
+		props, "shader_file_name", obs_module_text("File"), OBS_PATH_FILE, NULL, shaderPath.c_str());
 
 	obs_property_set_modified_callback(file_name, shader_filter_file_name_changed);
 
@@ -2467,10 +2582,10 @@ obs_properties_t *ShaderFilter::getPropertiesSource(void *data)
 	shaderPath += "/shaders";
 
 	obs_properties_add_button(
-			props, "reload_effect", obs_module_text("Reload"), shader_filter_reload_effect_clicked);
+		props, "reload_effect", obs_module_text("Reload"), shader_filter_reload_effect_clicked);
 
 	obs_property_t *file_name = obs_properties_add_path(
-			props, "shader_file_name", obs_module_text("File"), OBS_PATH_FILE, NULL, shaderPath.c_str());
+		props, "shader_file_name", obs_module_text("File"), OBS_PATH_FILE, NULL, shaderPath.c_str());
 
 	obs_property_set_modified_callback(file_name, shader_filter_file_name_changed);
 
@@ -2497,15 +2612,60 @@ uint32_t ShaderFilter::getHeight(void *data)
 	return filter->getHeight();
 }
 
+static void getMouseCursor(void *data)
+{
+#ifdef _WIN32
+	ShaderFilter *filter = static_cast<ShaderFilter *>(data);
+
+	CURSORINFO ci = { 0 };
+	HICON icon;
+
+	ci.cbSize = sizeof(ci);
+
+	if (!GetCursorInfo(&ci)) {
+		filter->_screenMouseVisible = false;
+		return;
+	}
+
+	filter->_screenMousePosX = ci.ptScreenPos.x;
+	filter->_screenMousePosY = ci.ptScreenPos.y;
+	filter->_screenMouseVisible = false;
+#elif __linux__ || __FreeBSD__
+	XFixesCursorImage *xc = XFixesGetCursorImage(filter->dpy);
+	if (!xc)
+		return;
+
+	filter->_screenMousePosX = (double)xc->x;
+	filter->_screenMousePosY = (double)xc->y;
+	filter->_screenMouseVisible = true;
+	UNUSED_PARAMETER(data);
+#endif
+}
+
+static void getScreenSizes(void *data)
+{
+#ifdef _WIN32
+	ShaderFilter *filter = static_cast<ShaderFilter *>(data);
+	filter->_wholeScreenWidth = GetSystemMetrics(SM_CXVIRTUALSCREEN);
+	filter->_wholeScreenHeight = GetSystemMetrics(SM_CYVIRTUALSCREEN);
+
+	filter->_primaryScreenWidth = GetSystemMetrics(SM_CXSCREEN);
+	filter->_primaryScreenHeight = GetSystemMetrics(SM_CYSCREEN);
+	//int i = GetSystemMetrics(SM_CMONITORS);
+#elif __linux__ || __FreeBSD__
+	UNUSED_PARAMETER(data);
+#endif
+}
+
 void ShaderFilter::mouseClick(
-		void *data, const struct obs_mouse_event *event, int32_t type, bool mouse_up, uint32_t click_count)
+	void *data, const struct obs_mouse_event *event, int32_t type, bool mouse_up, uint32_t click_count)
 {
 	ShaderFilter *filter = static_cast<ShaderFilter *>(data);
-	filter->_mouseType   = type;
-	filter->_mouseUp     = mouse_up;
-	filter->_clickCount  = click_count;
-	filter->_mouseX      = event->x;
-	filter->_mouseY      = event->y;
+	filter->_mouseType = type;
+	filter->_mouseUp = mouse_up;
+	filter->_clickCount = click_count;
+	filter->_mouseX = event->x;
+	filter->_mouseY = event->y;
 	filter->_mouseClickX = event->x;
 	filter->_mouseClickY = event->y;
 }
@@ -2513,17 +2673,17 @@ void ShaderFilter::mouseClick(
 void ShaderFilter::mouseMove(void *data, const struct obs_mouse_event *event, bool mouse_leave)
 {
 	ShaderFilter *filter = static_cast<ShaderFilter *>(data);
-	filter->_mouseX      = event->x;
-	filter->_mouseY      = event->y;
-	filter->_clickCount  = 0;
-	filter->_mouseLeave  = mouse_leave;
+	filter->_mouseX = event->x;
+	filter->_mouseY = event->y;
+	filter->_clickCount = 0;
+	filter->_mouseLeave = mouse_leave;
 }
 
 void ShaderFilter::mouseWheel(void *data, const struct obs_mouse_event *event, int x_delta, int y_delta)
 {
-	ShaderFilter *filter      = static_cast<ShaderFilter *>(data);
-	filter->_mouseX           = event->x;
-	filter->_mouseY           = event->y;
+	ShaderFilter *filter = static_cast<ShaderFilter *>(data);
+	filter->_mouseX = event->x;
+	filter->_mouseY = event->y;
 	filter->_mouseWheelDeltaX = x_delta;
 	filter->_mouseWheelDeltaY = y_delta;
 	filter->_mouseWheelX += x_delta;
@@ -2533,13 +2693,13 @@ void ShaderFilter::mouseWheel(void *data, const struct obs_mouse_event *event, i
 void ShaderFilter::focus(void *data, bool focus)
 {
 	ShaderFilter *filter = static_cast<ShaderFilter *>(data);
-	filter->_focus       = focus ? 1.0 : 0.0;
+	filter->_focus = focus ? 1.0 : 0.0;
 }
 
 void ShaderFilter::keyClick(void *data, const struct obs_key_event *event, bool key_up)
 {
-	ShaderFilter *filter        = static_cast<ShaderFilter *>(data);
-	filter->_keyModifiers       = event->modifiers;
+	ShaderFilter *filter = static_cast<ShaderFilter *>(data);
+	filter->_keyModifiers = event->modifiers;
 	filter->_nativeKeyModifiers = event->native_modifiers;
 	if (event->text)
 		filter->_key = (double)event->text[0];
@@ -2568,7 +2728,7 @@ static bool shader_filter_reload_effect_clicked(obs_properties_t *props, obs_pro
 static bool shader_filter_file_name_changed(obs_properties_t *props, obs_property_t *p, obs_data_t *settings)
 {
 	ShaderFilter *filter = static_cast<ShaderFilter *>(obs_properties_get_param(props));
-	std::string   path   = obs_data_get_string(settings, obs_property_name(p));
+	std::string   path = obs_data_get_string(settings, obs_property_name(p));
 
 	if (filter->getPath() != path) {
 		filter->prepReload();
@@ -2581,46 +2741,46 @@ static bool shader_filter_file_name_changed(obs_properties_t *props, obs_propert
 
 bool obs_module_load(void)
 {
-	struct obs_source_info shader_filter = {0};
-	shader_filter.id                     = "obs_shader_filter";
-	shader_filter.type                   = OBS_SOURCE_TYPE_FILTER;
-	shader_filter.output_flags           = OBS_SOURCE_VIDEO;
-	shader_filter.get_name               = ShaderFilter::getName;
-	shader_filter.create                 = ShaderFilter::create;
-	shader_filter.destroy                = ShaderFilter::destroy;
-	shader_filter.update                 = ShaderFilter::update;
-	shader_filter.video_tick             = ShaderFilter::videoTick;
-	shader_filter.video_render           = ShaderFilter::videoRender;
-	shader_filter.get_defaults           = ShaderFilter::getDefaults;
-	shader_filter.get_width              = ShaderFilter::getWidth;
-	shader_filter.get_height             = ShaderFilter::getHeight;
-	shader_filter.get_properties         = ShaderFilter::getProperties;
+	struct obs_source_info shader_filter = { 0 };
+	shader_filter.id = "obs_shader_filter";
+	shader_filter.type = OBS_SOURCE_TYPE_FILTER;
+	shader_filter.output_flags = OBS_SOURCE_VIDEO;
+	shader_filter.get_name = ShaderFilter::getName;
+	shader_filter.create = ShaderFilter::create;
+	shader_filter.destroy = ShaderFilter::destroy;
+	shader_filter.update = ShaderFilter::update;
+	shader_filter.video_tick = ShaderFilter::videoTick;
+	shader_filter.video_render = ShaderFilter::videoRender;
+	shader_filter.get_defaults = ShaderFilter::getDefaults;
+	shader_filter.get_width = ShaderFilter::getWidth;
+	shader_filter.get_height = ShaderFilter::getHeight;
+	shader_filter.get_properties = ShaderFilter::getProperties;
 
 	obs_register_source(&shader_filter);
 
-	struct obs_source_info shader_source = {0};
-	shader_source.id                     = "obs_shader_source";
-	shader_source.type                   = OBS_SOURCE_TYPE_INPUT;
-	shader_source.output_flags           = OBS_SOURCE_VIDEO | OBS_SOURCE_INTERACTION;
-	shader_source.get_name               = ShaderFilter::getName;
-	shader_source.create                 = ShaderFilter::create;
-	shader_source.destroy                = ShaderFilter::destroy;
-	shader_source.update                 = ShaderFilter::update;
-	shader_source.video_tick             = ShaderFilter::videoTickSource;
-	shader_source.video_render           = ShaderFilter::videoRenderSource;
-	shader_source.get_defaults           = ShaderFilter::getDefaults;
-	shader_source.get_width              = ShaderFilter::getWidth;
-	shader_source.get_height             = ShaderFilter::getHeight;
-	shader_source.get_properties         = ShaderFilter::getPropertiesSource;
+	struct obs_source_info shader_source = { 0 };
+	shader_source.id = "obs_shader_source";
+	shader_source.type = OBS_SOURCE_TYPE_INPUT;
+	shader_source.output_flags = OBS_SOURCE_VIDEO | OBS_SOURCE_INTERACTION;
+	shader_source.get_name = ShaderFilter::getName;
+	shader_source.create = ShaderFilter::create;
+	shader_source.destroy = ShaderFilter::destroy;
+	shader_source.update = ShaderFilter::update;
+	shader_source.video_tick = ShaderFilter::videoTickSource;
+	shader_source.video_render = ShaderFilter::videoRenderSource;
+	shader_source.get_defaults = ShaderFilter::getDefaults;
+	shader_source.get_width = ShaderFilter::getWidth;
+	shader_source.get_height = ShaderFilter::getHeight;
+	shader_source.get_properties = ShaderFilter::getPropertiesSource;
 	/* Interaction Callbacks */
-	shader_source.mouse_click            = ShaderFilter::mouseClick;
-	shader_source.mouse_move             = ShaderFilter::mouseMove;
-	shader_source.mouse_wheel            = ShaderFilter::mouseWheel;
-	shader_source.focus                  = ShaderFilter::focus;
-	shader_source.key_click              = ShaderFilter::keyClick;
+	shader_source.mouse_click = ShaderFilter::mouseClick;
+	shader_source.mouse_move = ShaderFilter::mouseMove;
+	shader_source.mouse_wheel = ShaderFilter::mouseWheel;
+	shader_source.focus = ShaderFilter::focus;
+	shader_source.key_click = ShaderFilter::keyClick;
 
 	obs_register_source(&shader_source);
-	
+
 	struct obs_source_info shader_transition = { 0 };
 	shader_transition.id = "obs_shader_transition";
 	shader_transition.type = OBS_SOURCE_TYPE_TRANSITION;
@@ -2641,7 +2801,7 @@ bool obs_module_load(void)
 
 	struct obs_audio_info aoi;
 	obs_get_audio_info(&aoi);
-	sample_rate     = (double)aoi.samples_per_sec;
+	sample_rate = (double)aoi.samples_per_sec;
 	output_channels = (double)get_audio_channels(aoi.speakers);
 
 	return true;
