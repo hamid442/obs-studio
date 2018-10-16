@@ -123,41 +123,42 @@ static std::string  dir[4] = { "left", "right", "top", "bottom" };
 void prepFunctions(std::vector<te_variable> *vars, ShaderFilter *filter)
 {
 	UNUSED_PARAMETER(filter);
-	std::vector<te_variable> funcs = { {"clamp", hlsl_clamp, TE_FUNCTION3 | TE_FLAG_PURE},
-			{"channels", &output_channels}, {"degrees", hlsl_degrees, TE_FUNCTION1 | TE_FLAG_PURE},
-			{"float_max", &flt_max},
-			{"float_min", &flt_min}, {"hz_from_mel", audio_hz_from_mel, TE_FUNCTION1 | TE_FLAG_PURE},
-			{"int_max", &int_max}, {"int_min", &int_min},
-			{"key", &filter->_key}, {"key_pressed", &filter->_keyUp},
-			{"sample_rate", &sample_rate},
-			{"mel_from_hz", audio_mel_from_hz, TE_FUNCTION1 | TE_FLAG_PURE},
-			{"mouse_click_x", &filter->_mouseClickX},
-			{"mouse_click_y", &filter->_mouseClickY},
-			{"mouse_pos_x", &filter->_mouseX}, {"mouse_pos_y", &filter->_mouseY},
-			{"mouse_type", &filter->_mouseType},
-			{"mouse_up", &filter->_mouseUp},
-			{"mouse_wheel_delta_x", &filter->_mouseWheelDeltaX},
-			{"mouse_wheel_delta_y", &filter->_mouseWheelDeltaY}, {"mouse_wheel_x", &filter->_mouseWheelX},
-			{"mouse_wheel_y", &filter->_mouseWheelY}, {"mouse_leave", &filter->_mouseLeave},
-			{"primary_screen_height", &filter->_primaryScreenHeight}, {"primary_screen_width", &filter->_primaryScreenWidth},
-			{"radians", hlsl_rad, TE_FUNCTION1 | TE_FLAG_PURE}, {"random", random_double, TE_FUNCTION2},
-			{"screen_height", &filter->_wholeScreenHeight},
-			{"screen_width", &filter->_wholeScreenWidth},
-			{"screen_mouse_pos_x", &filter->_screenMousePosX}, {"screen_mouse_pos_y", &filter->_screenMousePosY},
-			{"screen_mouse_visible", &filter->_screenMouseVisible},
+	std::vector<te_variable> funcs = {
+	{"clamp", hlsl_clamp, TE_FUNCTION3 | TE_FLAG_PURE},
+	{"channels", &output_channels}, {"degrees", hlsl_degrees, TE_FUNCTION1 | TE_FLAG_PURE},
+	{"float_max", &flt_max},
+	{"float_min", &flt_min}, {"hz_from_mel", audio_hz_from_mel, TE_FUNCTION1 | TE_FLAG_PURE},
+	{"int_max", &int_max}, {"int_min", &int_min},
+	{"key", &filter->_key}, {"key_pressed", &filter->_keyUp},
+	{"sample_rate", &sample_rate},
+	{"mel_from_hz", audio_mel_from_hz, TE_FUNCTION1 | TE_FLAG_PURE},
+	{"mouse_click_x", &filter->_mouseClickX},
+	{"mouse_click_y", &filter->_mouseClickY},
+	{"mouse_pos_x", &filter->_mouseX}, {"mouse_pos_y", &filter->_mouseY},
+	{"mouse_type", &filter->_mouseType},
+	{"mouse_up", &filter->_mouseUp},
+	{"mouse_wheel_delta_x", &filter->_mouseWheelDeltaX},
+	{"mouse_wheel_delta_y", &filter->_mouseWheelDeltaY}, {"mouse_wheel_x", &filter->_mouseWheelX},
+	{"mouse_wheel_y", &filter->_mouseWheelY}, {"mouse_leave", &filter->_mouseLeave},
+	{"primary_screen_height", &filter->_primaryScreenHeight}, {"primary_screen_width", &filter->_primaryScreenWidth},
+	{"radians", hlsl_rad, TE_FUNCTION1 | TE_FLAG_PURE}, {"random", random_double, TE_FUNCTION2},
+	{"screen_height", &filter->_wholeScreenHeight},
+	{"screen_width", &filter->_wholeScreenWidth},
+	{"screen_mouse_pos_x", &filter->_screenMousePosX}, {"screen_mouse_pos_y", &filter->_screenMousePosY},
+	{"screen_mouse_visible", &filter->_screenMouseVisible},
 	/* Basic functions originally included in TinyExpr*/
-	{"abs", static_cast<double (*)(double)>(fabs), TE_FUNCTION1 | TE_FLAG_PURE, 0},
+	{"abs", static_cast<double(*)(double)>(fabs),     TE_FUNCTION1 | TE_FLAG_PURE, 0},
 	{"acos", static_cast<double(*)(double)>(acos),    TE_FUNCTION1 | TE_FLAG_PURE, 0},
 	{"asin", static_cast<double(*)(double)>(asin),    TE_FUNCTION1 | TE_FLAG_PURE, 0},
 	{"atan", static_cast<double(*)(double)>(atan),    TE_FUNCTION1 | TE_FLAG_PURE, 0},
 	{"atan2", static_cast<double(*)(double, double)>(atan2),  TE_FUNCTION2 | TE_FLAG_PURE, 0},
-	{"ceil", static_cast<double(*)(double)>(dceil),    TE_FUNCTION1 | TE_FLAG_PURE, 0},
+	{"ceil", static_cast<double(*)(double)>(dceil),   TE_FUNCTION1 | TE_FLAG_PURE, 0},
 	{"cos", static_cast<double(*)(double)>(cos),      TE_FUNCTION1 | TE_FLAG_PURE, 0},
 	{"cosh", static_cast<double(*)(double)>(cosh),    TE_FUNCTION1 | TE_FLAG_PURE, 0},
-	{"e", static_cast<double(*)()>(e),          TE_FUNCTION0 | TE_FLAG_PURE, 0},
+	{"e", static_cast<double(*)()>(e), TE_FUNCTION0 | TE_FLAG_PURE, 0},
 	{"exp", static_cast<double(*)(double)>(exp),      TE_FUNCTION1 | TE_FLAG_PURE, 0},
 	{"fac", static_cast<double(*)(double)>(fac),      TE_FUNCTION1 | TE_FLAG_PURE, 0},
-	{"floor", static_cast<double(*)(double)>(dfloor),  TE_FUNCTION1 | TE_FLAG_PURE, 0},
+	{"floor", static_cast<double(*)(double)>(dfloor), TE_FUNCTION1 | TE_FLAG_PURE, 0},
 	{"ln", static_cast<double(*)(double)>(log),       TE_FUNCTION1 | TE_FLAG_PURE, 0},
     #ifdef TE_NAT_LOG
 	{"log", static_cast<double(*)(double)>(log),      TE_FUNCTION1 | TE_FLAG_PURE, 0},
@@ -167,7 +168,7 @@ void prepFunctions(std::vector<te_variable> *vars, ShaderFilter *filter)
 	{"log10", static_cast<double(*)(double)>(log10),  TE_FUNCTION1 | TE_FLAG_PURE, 0},
 	{"ncr", static_cast<double(*)(double, double)>(ncr),      TE_FUNCTION2 | TE_FLAG_PURE, 0},
 	{"npr", static_cast<double(*)(double, double)>(npr),      TE_FUNCTION2 | TE_FLAG_PURE, 0},
-	{"pi", static_cast<double(*)()>(pi),        TE_FUNCTION0 | TE_FLAG_PURE, 0},
+	{"pi", static_cast<double(*)()>(pi),              TE_FUNCTION0 | TE_FLAG_PURE, 0},
 	{"pow", static_cast<double(*)(double, double)>(pow),      TE_FUNCTION2 | TE_FLAG_PURE, 0},
 	{"sin", static_cast<double(*)(double)>(sin),      TE_FUNCTION1 | TE_FLAG_PURE, 0},
 	{"sinh", static_cast<double(*)(double)>(sinh),    TE_FUNCTION1 | TE_FLAG_PURE, 0},
@@ -2000,11 +2001,6 @@ void ShaderFilter::updateCache(gs_eparam_t *param)
 	if (p) {
 		paramList.push_back(p);
 		paramMap.insert(std::pair<std::string, ShaderParameter *>(p->getName(), p));
-		switch (p->getParameterType()) {
-		case GS_SHADER_PARAM_TEXTURE:
-			//textureList.push_back(p);
-			break;
-		}
 		blog(LOG_INFO, "%s", p->getName().c_str());
 	}
 }
@@ -2064,18 +2060,18 @@ void ShaderFilter::reload()
 		return astr.compare(bstr) < 0;
 	});
 
-	try {
+	if (paramMap.count("image")) {
 		ShaderParameter *p = paramMap.at("image");
 		image = p->getParameter()->getParam();
-	} catch (std::out_of_range) {
+	} else {
 		image = nullptr;
 	}
 
-	try {
+	if (paramMap.count("image_2")) {
 		ShaderParameter *p = paramMap.at("image_2");
-		image_2 = p->getParameter()->getParam();
-	} catch (std::out_of_range) {
-		image_2 = nullptr;
+		image = p->getParameter()->getParam();
+	} else {
+		image = nullptr;
 	}
 }
 
@@ -2323,9 +2319,8 @@ void ShaderFilter::videoRenderSource(void *data, gs_effect_t *effect)
 	uint32_t cx = obs_source_get_base_width(source);
 	uint32_t cy = obs_source_get_base_height(source);
 
-	if (!cx || !cy) {
+	if (!cx || !cy)
 		return;
-	}
 
 	if (filter->effect != nullptr) {
 		for (i = 0; i < filter->paramList.size(); i++) {
