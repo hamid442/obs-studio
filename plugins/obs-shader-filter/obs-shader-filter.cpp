@@ -55,6 +55,62 @@ static double audio_hz_from_mel(double mel)
 	return 700 * (pow(10, mel / 2595) - 1);
 }
 
+static double pi(void)
+{
+	return 3.141592653589793238462643383279502884197169399375;
+}
+/*float precision 2.71828182845904523536*/
+static double e(void)
+{
+	return 2.718281828459045235360287471352662497757247093699;
+}
+
+static double dceil(double d)
+{
+	return ceil(d);
+};
+
+static double dfloor(double d)
+{
+	return dfloor(d);
+}
+
+static double fac(double a)
+{/* simplest version of fac */
+	if (a < 0.0)
+		return NAN;
+	if (a > UINT_MAX)
+		return INFINITY;
+	unsigned int ua = (unsigned int)(a);
+	unsigned long int result = 1, i;
+	for (i = 1; i <= ua; i++) {
+		if (i > ULONG_MAX / result)
+			return INFINITY;
+		result *= i;
+	}
+	return (double)result;
+}
+
+static double ncr(double n, double r)
+{
+	if (n < 0.0 || r < 0.0 || n < r) return NAN;
+	if (n > UINT_MAX || r > UINT_MAX) return INFINITY;
+	unsigned long int un = (unsigned int)(n), ur = (unsigned int)(r), i;
+	unsigned long int result = 1;
+	if (ur > un / 2) ur = un - ur;
+	for (i = 1; i <= ur; i++) {
+		if (result > ULONG_MAX / (un - ur + i))
+			return INFINITY;
+		result *= un - ur + i;
+		result /= i;
+	}
+	return result;
+}
+static double npr(double n, double r)
+{
+	return ncr(n, r) * fac(r);
+}
+
 const static double flt_max = FLT_MAX;
 const static double flt_min = FLT_MIN;
 const static double int_min = INT_MIN;
@@ -88,7 +144,36 @@ void prepFunctions(std::vector<te_variable> *vars, ShaderFilter *filter)
 			{"screen_height", &filter->_wholeScreenHeight},
 			{"screen_width", &filter->_wholeScreenWidth},
 			{"screen_mouse_pos_x", &filter->_screenMousePosX}, {"screen_mouse_pos_y", &filter->_screenMousePosY},
-			{"screen_mouse_visible", &filter->_screenMouseVisible} };
+			{"screen_mouse_visible", &filter->_screenMouseVisible},
+	/* Basic functions originally included in TinyExpr*/
+	{"abs", static_cast<double (*)(double)>(fabs), TE_FUNCTION1 | TE_FLAG_PURE, 0},
+	{"acos", static_cast<double(*)(double)>(acos),    TE_FUNCTION1 | TE_FLAG_PURE, 0},
+	{"asin", static_cast<double(*)(double)>(asin),    TE_FUNCTION1 | TE_FLAG_PURE, 0},
+	{"atan", static_cast<double(*)(double)>(atan),    TE_FUNCTION1 | TE_FLAG_PURE, 0},
+	{"atan2", static_cast<double(*)(double, double)>(atan2),  TE_FUNCTION2 | TE_FLAG_PURE, 0},
+	{"ceil", static_cast<double(*)(double)>(dceil),    TE_FUNCTION1 | TE_FLAG_PURE, 0},
+	{"cos", static_cast<double(*)(double)>(cos),      TE_FUNCTION1 | TE_FLAG_PURE, 0},
+	{"cosh", static_cast<double(*)(double)>(cosh),    TE_FUNCTION1 | TE_FLAG_PURE, 0},
+	{"e", static_cast<double(*)()>(e),          TE_FUNCTION0 | TE_FLAG_PURE, 0},
+	{"exp", static_cast<double(*)(double)>(exp),      TE_FUNCTION1 | TE_FLAG_PURE, 0},
+	{"fac", static_cast<double(*)(double)>(fac),      TE_FUNCTION1 | TE_FLAG_PURE, 0},
+	{"floor", static_cast<double(*)(double)>(dfloor),  TE_FUNCTION1 | TE_FLAG_PURE, 0},
+	{"ln", static_cast<double(*)(double)>(log),       TE_FUNCTION1 | TE_FLAG_PURE, 0},
+    #ifdef TE_NAT_LOG
+	{"log", static_cast<double(*)(double)>(log),      TE_FUNCTION1 | TE_FLAG_PURE, 0},
+    #else
+	{"log", static_cast<double(*)(double)>(log10),    TE_FUNCTION1 | TE_FLAG_PURE, 0},
+    #endif
+	{"log10", static_cast<double(*)(double)>(log10),  TE_FUNCTION1 | TE_FLAG_PURE, 0},
+	{"ncr", static_cast<double(*)(double, double)>(ncr),      TE_FUNCTION2 | TE_FLAG_PURE, 0},
+	{"npr", static_cast<double(*)(double, double)>(npr),      TE_FUNCTION2 | TE_FLAG_PURE, 0},
+	{"pi", static_cast<double(*)()>(pi),        TE_FUNCTION0 | TE_FLAG_PURE, 0},
+	{"pow", static_cast<double(*)(double, double)>(pow),      TE_FUNCTION2 | TE_FLAG_PURE, 0},
+	{"sin", static_cast<double(*)(double)>(sin),      TE_FUNCTION1 | TE_FLAG_PURE, 0},
+	{"sinh", static_cast<double(*)(double)>(sinh),    TE_FUNCTION1 | TE_FLAG_PURE, 0},
+	{"sqrt", static_cast<double(*)(double)>(sqrt),    TE_FUNCTION1 | TE_FLAG_PURE, 0},
+	{"tan", static_cast<double(*)(double)>(tan),      TE_FUNCTION1 | TE_FLAG_PURE, 0},
+	{"tanh", static_cast<double(*)(double)>(tanh),    TE_FUNCTION1 | TE_FLAG_PURE, 0} };
 	vars->reserve(vars->size() + funcs.size());
 	vars->insert(vars->end(), funcs.begin(), funcs.end());
 }
