@@ -308,7 +308,6 @@ void next_token(state *s)
 				while ((s->next[0] >= 'a' && s->next[0] <= 'z') || (s->next[0] >= '0' && s->next[0] <= '9') || (s->next[0] == '_')) s->next++;
 
 				const te_variable *var = find_lookup(s, start, s->next - start);
-				if (!var) var = find_builtin(start, s->next - start);
 
 				if (!var) {
 					s->type = TOK_ERROR;
