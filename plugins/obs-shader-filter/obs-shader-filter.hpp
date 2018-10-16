@@ -25,6 +25,7 @@ extern "C" {
 #include <unordered_map>
 #include <vector>
 #include <list>
+#include <algorithm>
 
 #include "fft.h"
 #include "tinyexpr.h"
@@ -271,6 +272,9 @@ public:
 	double _clickCount;
 	double _mouseUp;
 	double _mouseType;
+	double _screenMousePosX;
+	double _screenMousePosY;
+	double _screenMouseVisible;
 	double _mouseX;
 	double _mouseY;
 	double _mouseClickX;
@@ -280,6 +284,12 @@ public:
 	double _mouseWheelY;
 	double _mouseWheelDeltaX;
 	double _mouseWheelDeltaY;
+
+	double _wholeScreenWidth;
+	double _wholeScreenHeight;
+
+	double _primaryScreenWidth;
+	double _primaryScreenHeight;
 
 	double _keyModifiers;
 	double _keyUp;
@@ -297,6 +307,8 @@ public:
 	int         resizeRight  = 0;
 	int         resizeTop    = 0;
 	int         resizeBottom = 0;
+
+	std::string transitionTimeExpression;
 
 	int baseWidth = 0;
 	int baseHeight = 0;
@@ -327,6 +339,7 @@ public:
 	std::vector<ShaderParameter *> parameters();
 	void                           clearExpression();
 	void                           appendVariable(te_variable var);
+	void                           appendVariable(std::string &name, double *binding);
 
 	void compileExpression(std::string expresion = "");
 
