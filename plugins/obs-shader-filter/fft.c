@@ -29,10 +29,10 @@ enum fft_windowing_type get_window_type(const char *window)
 	enum fft_windowing_type ret;
 	if (window) {
 		int low_bound = 0;
-		int high_bound = end_fft_enum-1;
+		int high_bound = end_fft_enum - 1;
 		int i;
 		int c;
-		for (;low_bound <= high_bound;) {
+		for (; low_bound <= high_bound;) {
 			i = (low_bound + ((high_bound - low_bound) / 2));
 			c = strcmp(window, fft_window_strings[i]);
 			if (c == 0) {

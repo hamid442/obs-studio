@@ -106,6 +106,7 @@ static double ncr(double n, double r)
 	}
 	return result;
 }
+
 static double npr(double n, double r)
 {
 	return ncr(n, r) * fac(r);
@@ -146,7 +147,7 @@ void prepFunctions(std::vector<te_variable> *vars, ShaderFilter *filter)
 	{"screen_width", &filter->_wholeScreenWidth},
 	{"screen_mouse_pos_x", &filter->_screenMousePosX}, {"screen_mouse_pos_y", &filter->_screenMousePosY},
 	{"screen_mouse_visible", &filter->_screenMouseVisible},
-	/* Basic functions originally included in TinyExpr*/
+	/* Basic functions originally included in TinyExpr */
 	{"abs", static_cast<double(*)(double)>(fabs),     TE_FUNCTION1 | TE_FLAG_PURE, 0},
 	{"acos", static_cast<double(*)(double)>(acos),    TE_FUNCTION1 | TE_FLAG_PURE, 0},
 	{"asin", static_cast<double(*)(double)>(asin),    TE_FUNCTION1 | TE_FLAG_PURE, 0},
@@ -1227,12 +1228,10 @@ private:
 		size_t hSamples = samples / 2;
 		size_t hSamplesSize = samples * 2;
 
-		for (i = 0; i < _channels; i++) {
+		for (i = 0; i < _channels; i++)
 			audio_fft_complex(((float *)_data) + (i * samples), (uint32_t)samples);
-		}
-		for (i = 1; i < _channels; i++) {
+		for (i = 1; i < _channels; i++)
 			memcpy(((float *)_data) + (i * hSamples), ((float *)_data) + (i * samples), hSamplesSize);
-		}
 		return (uint32_t)hSamples;
 	}
 
@@ -1332,9 +1331,8 @@ public:
 
 	~TextureData()
 	{
-		if (_texType == audio) {
+		if (_texType == audio)
 			obs_source_remove_audio_capture_callback(_mediaSource, sidechain_capture, this);
-		}
 		if (_mediaSource)
 			obs_source_release(_mediaSource);
 		_mediaSource = nullptr;
@@ -1422,15 +1420,14 @@ public:
 		std::unordered_map<std::string, uint32_t> types = { {"source", source}, {"audio", audio},
 				{"image", image}, {"media", media}, {"random", random}, {"buffer", buffer} };
 
-		if (texType && types.find(texType->getString()) != types.end()) {
+		if (texType && types.find(texType->getString()) != types.end())
 			_texType = (TextureType)types.at(texType->getString());
-		} else {
+		else
 			_texType = image;
-		}
 
 		if (_names[0] == "image")
 			_texType = ignored;
-		if (_filter->getType() == OBS_SOURCE_TYPE_TRANSITION && _names[0] == "image_2")
+		else if (_filter->getType() == OBS_SOURCE_TYPE_TRANSITION && _names[0] == "image_2")
 			_texType = ignored;
 
 		_channels = audio_output_get_channels(obs_get_audio());
@@ -2263,14 +2260,12 @@ void ShaderFilter::videoRender(void *data, gs_effect_t *effect)
 				obs_source_video_render(target);
 				gs_technique_end_pass(tech);
 				/*Handle Buffers*/
-				for (j = 0; j < filter->paramList.size(); j++) {
+				for (j = 0; j < filter->paramList.size(); j++)
 					filter->paramList[j]->onPass(filter, techName, j, texture);
-				}
 			}
 			gs_technique_end(tech);
-			for (j = 0; j < filter->paramList.size(); j++) {
+			for (j = 0; j < filter->paramList.size(); j++)
 				filter->paramList[j]->onTechniqueEnd(filter, techName, texture);
-			}
 		} else {
 			texture = gs_texrender_get_texture(filter->filterTexrender);
 			if (texture) {
@@ -2284,14 +2279,12 @@ void ShaderFilter::videoRender(void *data, gs_effect_t *effect)
 					gs_draw_sprite(texture, 0, cx, cy);
 					gs_technique_end_pass(tech);
 					/*Handle Buffers*/
-					for (j = 0; j < filter->paramList.size(); j++) {
+					for (j = 0; j < filter->paramList.size(); j++)
 						filter->paramList[j]->onPass(filter, techName, j, texture);
-					}
 				}
 				gs_technique_end(tech);
-				for (j = 0; j < filter->paramList.size(); j++) {
+				for (j = 0; j < filter->paramList.size(); j++)
 					filter->paramList[j]->onTechniqueEnd(filter, techName, texture);
-				}
 			}
 		}
 	} else {
@@ -2364,14 +2357,12 @@ void ShaderFilter::videoRenderSource(void *data, gs_effect_t *effect)
 				gs_draw_sprite(texture, 0, filter->totalWidth, filter->totalHeight);
 				gs_technique_end_pass(tech);
 				/*Handle Buffers*/
-				for (j = 0; j < filter->paramList.size(); j++) {
+				for (j = 0; j < filter->paramList.size(); j++)
 					filter->paramList[j]->onPass(filter, techName, j, texture);
-				}
 			}
 			gs_technique_end(tech);
-			for (j = 0; j < filter->paramList.size(); j++) {
+			for (j = 0; j < filter->paramList.size(); j++)
 				filter->paramList[j]->onTechniqueEnd(filter, techName, texture);
-			}
 		}
 	} else {
 		gs_blend_state_push();
@@ -2406,14 +2397,12 @@ void ShaderFilter::videoRenderSource(void *data, gs_effect_t *effect)
 				gs_draw_sprite(texture, 0, filter->totalWidth, filter->totalHeight);
 				gs_technique_end_pass(tech);
 				/*Handle Buffers*/
-				for (j = 0; j < filter->paramList.size(); j++) {
+				for (j = 0; j < filter->paramList.size(); j++)
 					filter->paramList[j]->onPass(filter, techName, j, texture);
-				}
 			}
 			gs_technique_end(tech);
-			for (j = 0; j < filter->paramList.size(); j++) {
+			for (j = 0; j < filter->paramList.size(); j++)
 				filter->paramList[j]->onTechniqueEnd(filter, techName, texture);
-			}
 		}
 	}
 }
@@ -2510,14 +2499,12 @@ static void renderTransition(void *data, gs_texture_t *a, gs_texture_t *b,
 				gs_draw_sprite(texture, 0, cx, cy);
 				gs_technique_end_pass(tech);
 				/*Handle Buffers*/
-				for (j = 0; j < filter->paramList.size(); j++) {
+				for (j = 0; j < filter->paramList.size(); j++)
 					filter->paramList[j]->onPass(filter, techName, j, texture);
-				}
 			}
 			gs_technique_end(tech);
-			for (j = 0; j < filter->paramList.size(); j++) {
+			for (j = 0; j < filter->paramList.size(); j++)
 				filter->paramList[j]->onTechniqueEnd(filter, techName, texture);
-			}
 		}
 	} else {
 		/* Cut Effect */
@@ -2540,14 +2527,12 @@ static void renderTransition(void *data, gs_texture_t *a, gs_texture_t *b,
 				gs_draw_sprite(texture, 0, cx, cy);
 				gs_technique_end_pass(tech);
 				/*Handle Buffers*/
-				for (j = 0; j < filter->paramList.size(); j++) {
+				for (j = 0; j < filter->paramList.size(); j++)
 					filter->paramList[j]->onPass(filter, techName, j, texture);
-				}
 			}
 			gs_technique_end(tech);
-			for (j = 0; j < filter->paramList.size(); j++) {
+			for (j = 0; j < filter->paramList.size(); j++)
 				filter->paramList[j]->onTechniqueEnd(filter, techName, texture);
-			}
 		}
 	}
 }

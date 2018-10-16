@@ -108,12 +108,14 @@ struct bind2 {
 
 class TinyExpr : public std::vector<te_variable> {
 	std::string _expr;
-	te_expr *   _compiled  = nullptr;
-	int         _err       = 0;
+	te_expr *   _compiled = nullptr;
+	int         _err = 0;
 	std::string _errString = "";
 
 public:
-	TinyExpr(){};
+	TinyExpr()
+	{
+	};
 	~TinyExpr()
 	{
 		releaseExpression();
@@ -141,11 +143,11 @@ public:
 		_compiled = te_compile(expression.c_str(), data(), (int)size(), &_err);
 		if (!_compiled) {
 			_errString = "Expression Error At [" + std::to_string(_err) + "]:\n" +
-					expression.substr(0, _err) + "[ERROR HERE]" + expression.substr(_err);
+				expression.substr(0, _err) + "[ERROR HERE]" + expression.substr(_err);
 			blog(LOG_WARNING, _errString.c_str());
 		} else {
 			_errString = "";
-			_expr      = expression;
+			_expr = expression;
 		}
 	};
 	bool success()
@@ -216,8 +218,8 @@ protected:
 	gs_shader_param_type _paramType;
 
 	ShaderData *    _shaderData = nullptr;
-	obs_property_t *_property   = nullptr;
-	ShaderFilter *  _filter     = nullptr;
+	obs_property_t *_property = nullptr;
+	ShaderFilter *  _filter = nullptr;
 
 public:
 	ShaderParameter(gs_eparam_t *param, ShaderFilter *filter);
@@ -247,7 +249,7 @@ protected:
 
 	obs_data_t * _settings = nullptr;
 
-	PThreadMutex *_mutex         = nullptr;
+	PThreadMutex *_mutex = nullptr;
 	bool          _reloadEffect = true;
 
 	TinyExpr expression;
@@ -303,9 +305,9 @@ public:
 	std::vector<ShaderParameter *>                     evaluationList = {};
 
 	std::string resizeExpressions[4];
-	int         resizeLeft   = 0;
-	int         resizeRight  = 0;
-	int         resizeTop    = 0;
+	int         resizeLeft = 0;
+	int         resizeRight = 0;
+	int         resizeTop = 0;
 	int         resizeBottom = 0;
 
 	std::string transitionTimeExpression;
@@ -313,9 +315,9 @@ public:
 	int baseWidth = 0;
 	int baseHeight = 0;
 
-	float          elapsedTime        = 0;
+	float          elapsedTime = 0;
 	float          transitionPercentage = 0;
-	in_shader_data elapsedTimeBinding = {0};
+	in_shader_data elapsedTimeBinding = { 0 };
 
 	vec2 uvScale;
 	vec2 uvOffset;
@@ -378,7 +380,7 @@ public:
 	static uint32_t          getHeight(void *data);
 	static void              getDefaults(obs_data_t *settings);
 	static void mouseClick(void *data, const struct obs_mouse_event *event, int32_t type, bool mouse_up,
-			uint32_t click_count);
+		uint32_t click_count);
 	static void mouseMove(void *data, const struct obs_mouse_event *event, bool mouse_leave);
 	static void mouseWheel(void *data, const struct obs_mouse_event *event, int x_delta, int y_delta);
 	static void focus(void *data, bool focus);
