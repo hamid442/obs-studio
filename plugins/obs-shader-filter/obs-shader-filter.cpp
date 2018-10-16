@@ -67,14 +67,14 @@ static std::string  dir[4] = { "left", "right", "top", "bottom" };
 void prepFunctions(std::vector<te_variable> *vars, ShaderFilter *filter)
 {
 	UNUSED_PARAMETER(filter);
-	std::vector<te_variable> funcs = { {"clamp", hlsl_clamp, TE_FUNCTION3},
-			{"channels", &output_channels}, {"degrees", hlsl_degrees, TE_FUNCTION1},
+	std::vector<te_variable> funcs = { {"clamp", hlsl_clamp, TE_FUNCTION3 | TE_FLAG_PURE},
+			{"channels", &output_channels}, {"degrees", hlsl_degrees, TE_FUNCTION1 | TE_FLAG_PURE},
 			{"float_max", &flt_max},
-			{"float_min", &flt_min}, {"hz_from_mel", audio_hz_from_mel, TE_FUNCTION1},
+			{"float_min", &flt_min}, {"hz_from_mel", audio_hz_from_mel, TE_FUNCTION1 | TE_FLAG_PURE},
 			{"int_max", &int_max}, {"int_min", &int_min},
 			{"key", &filter->_key}, {"key_pressed", &filter->_keyUp},
 			{"sample_rate", &sample_rate},
-			{"mel_from_hz", audio_mel_from_hz, TE_FUNCTION1},
+			{"mel_from_hz", audio_mel_from_hz, TE_FUNCTION1 | TE_FLAG_PURE},
 			{"mouse_click_x", &filter->_mouseClickX},
 			{"mouse_click_y", &filter->_mouseClickY},
 			{"mouse_pos_x", &filter->_mouseX}, {"mouse_pos_y", &filter->_mouseY},
@@ -84,7 +84,7 @@ void prepFunctions(std::vector<te_variable> *vars, ShaderFilter *filter)
 			{"mouse_wheel_delta_y", &filter->_mouseWheelDeltaY}, {"mouse_wheel_x", &filter->_mouseWheelX},
 			{"mouse_wheel_y", &filter->_mouseWheelY}, {"mouse_leave", &filter->_mouseLeave},
 			{"primary_screen_height", &filter->_primaryScreenHeight}, {"primary_screen_width", &filter->_primaryScreenWidth},
-			{"radians", hlsl_rad, TE_FUNCTION1}, {"random", random_double, TE_FUNCTION2},
+			{"radians", hlsl_rad, TE_FUNCTION1 | TE_FLAG_PURE}, {"random", random_double, TE_FUNCTION2},
 			{"screen_height", &filter->_wholeScreenHeight},
 			{"screen_width", &filter->_wholeScreenWidth},
 			{"screen_mouse_pos_x", &filter->_screenMousePosX}, {"screen_mouse_pos_y", &filter->_screenMousePosY},
