@@ -787,11 +787,8 @@ public:
 		_skipProperty.reserve(_dataCount);
 
 		for (i = 0; i < _dataCount; i++) {
-			te_variable var = { 0 };
-			var.address = &_bindings[i];
-			var.name = _bindingNames[i].c_str();
 			if (_filter)
-				_filter->appendVariable(var);
+				_filter->appendVariable(_bindingNames[i], &_bindings[i].d);
 		}
 
 		bool hasExpressions = false;
@@ -1377,14 +1374,7 @@ public:
 		case media:
 			_mediaSourceFramesBinding = _bindingNames[0] + "_frames";
 			_mediaSourceLengthBinding = _bindingNames[0] + "_sec";
-			/*
-			te_variable dur = { 0 };
-			dur.address = &_mediaSourceLength;
-			dur.name = _mediaSourceLengthBinding.c_str();
-			te_variable frames = { 0 };
-			frames.address = &_mediaSourceFrames;
-			frames.name = _mediaSourceFramesBinding.c_str();
-			*/
+
 			if (_filter) {
 				_filter->appendVariable(_mediaSourceFramesBinding, &_mediaSourceFrames);
 				_filter->appendVariable(_mediaSourceLengthBinding, &_mediaSourceLength);
@@ -1397,16 +1387,9 @@ public:
 		_sizeWBinding = _bindingNames[0] + "_w";
 		_sizeHBinding = _bindingNames[0] + "_h";
 
-		te_variable size_w = { 0 };
-		size_w.address = &_sourceWidth;
-		size_w.name = _sizeWBinding.c_str();
-		te_variable size_h = { 0 };
-		size_h.address = &_sourceHeight;
-		size_h.name = _sizeHBinding.c_str();
-
 		if (_filter) {
-			_filter->appendVariable(size_w);
-			_filter->appendVariable(size_h);
+			_filter->appendVariable(_sizeWBinding, &_sourceWidth);
+			_filter->appendVariable(_sizeHBinding, &_sourceHeight);
 		}
 	}
 
