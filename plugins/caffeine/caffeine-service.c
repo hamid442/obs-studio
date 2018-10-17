@@ -1,6 +1,7 @@
 #include <obs-module.h>
 
 #include "caffeine-api.h"
+#include "caffeine-service.h"
 
 #define do_log(level, format, ...) \
 	blog(level, "[caffeine service] " format, ##__VA_ARGS__)
@@ -26,10 +27,14 @@ static char const * caffeine_service_name(void * unused)
 
 static void caffeine_service_free_contents(struct caffeine_service * service)
 {
+	if (!service)
+		return;
+
 	bfree(service->username);
 	bfree(service->password);
 	caffeine_free_auth_info(service->auth_info);
 	caffeine_free_user_info(service->user_info);
+	memset(service, 0, sizeof(struct caffeine_service));
 }
 
 static void caffeine_service_update(void * data, obs_data_t * settings)
@@ -46,6 +51,7 @@ static void * caffeine_service_create(
 	obs_data_t * settings,
 	obs_service_t * unused)
 {
+	log_info("caffeine_service_create");
 	UNUSED_PARAMETER(unused);
 
 	struct caffeine_service * service =
@@ -57,6 +63,7 @@ static void * caffeine_service_create(
 
 static void caffeine_service_destroy(void * data)
 {
+	log_info("caffeine_service_destroy");
 	struct caffeine_service * service = data;
 	caffeine_service_free_contents(service);
 	bfree(service);
@@ -80,12 +87,15 @@ static obs_properties_t * caffeine_service_properties(void * data)
 
 static bool caffeine_service_initialize(void * data, obs_output_t * output)
 {
+	log_info("caffeine_service_initialize");
 	struct caffeine_service * service = data;
+	struct caffeine_auth_info * auth_info = NULL;
+	struct caffeine_user_info * user_info = NULL;
 
 	/* TODO: refresh tokens if necessary, do stuff asynchronously, etc */
 
 	if (service->auth_info == NULL) {
-		struct caffeine_auth_info * auth_info = caffeine_signin(
+		auth_info = caffeine_signin(
 			service->username, service->password, NULL); 
 		if (!auth_info) {
 			log_error("Failed login");
@@ -94,32 +104,32 @@ static bool caffeine_service_initialize(void * data, obs_output_t * output)
 		if (auth_info->next) {
 			if (strcmp(auth_info->next, "mfa_otp_required") == 0) {
 				log_error("One time password NYI");
-				return false;
+				goto cleanup_auth;
 			}
 			if (strcmp(auth_info->next, "legal_acceptance_required")
 				== 0) {
 				log_error("Can't broadcast until terms of service are accepted");
-				return false;
+				goto cleanup_auth;
 			}
 			if (strcmp(auth_info->next, "email_verification") == 0){
 				log_error("Can't broadcast until email is verified");
-				return false;
+				goto cleanup_auth;
 			}
 		}
 		if (!auth_info->credentials) {
 			log_error("Empty auth response received");
-			return false;
+			goto cleanup_auth;
 		}
 
-		char const * caid = auth_info->credentials->caid;
-		struct caffeine_user_info * user_info =
-			caffeine_getuser(caid, auth_info);
+		user_info = caffeine_getuser(auth_info->credentials->caid,
+			auth_info);
 		if (!user_info) {
-			return false;
+			goto cleanup_auth;
 		}
 		if (!user_info->can_broadcast) {
 			log_error("This user is not able to broadcast");
-			return false;
+			caffeine_free_user_info(user_info);
+			goto cleanup_user;
 		}
 
 		service->auth_info = auth_info;
@@ -127,6 +137,12 @@ static bool caffeine_service_initialize(void * data, obs_output_t * output)
 	}
 
 	return true;
+
+cleanup_user:
+	caffeine_free_user_info(user_info);
+cleanup_auth:
+	caffeine_free_auth_info(auth_info);
+	return false;
 }
 
 static char const * caffeine_service_username(void * data)
@@ -139,6 +155,24 @@ static char const * caffeine_service_password(void * data)
 {
 	struct caffeine_service * service = data;
 	return service->password;
+}
+
+static void * caffeine_service_query(void * data, int query_id, va_list unused)
+{
+	UNUSED_PARAMETER(unused);
+	struct caffeine_service * service = data;
+	log_info("caffeine_service_query");
+
+	switch (query_id)
+	{
+	case CAFFEINE_QUERY_AUTH_INFO:
+		return service->auth_info;
+	case CAFFEINE_QUERY_STAGE_ID:
+		return service->user_info->stage_id;
+	default:
+		log_warn("Unrecognized query [%d]", query_id);
+		return NULL;
+	}
 }
 
 static char const * caffeine_service_output_type(void * unused)
@@ -157,5 +191,6 @@ struct obs_service_info caffeine_service_info = {
 	.initialize = caffeine_service_initialize,
 	.get_username = caffeine_service_username,
 	.get_password = caffeine_service_password,
+	.query = caffeine_service_query,
 	.get_output_type = caffeine_service_output_type,
 };

@@ -4,6 +4,7 @@
 #include <caffeine.h>
 
 #include "caffeine-api.h"
+#include "caffeine-service.h"
 
 
 #define do_log(level, format, ...) \
@@ -20,6 +21,7 @@ struct caffeine_output
 	obs_output_t * output;
 	caff_interface_handle interface;
 	caff_broadcast_handle broadcast;
+	struct caffeine_stream_info * stream_info;
 };
 
 static const char *caffeine_get_name(void *data)
@@ -93,31 +95,44 @@ static void caffeine_destroy(void *data)
 	struct caffeine_output *stream = data;
 	log_info("caffeine_destroy");
 	caff_deinitialize(stream->interface);
+	caffeine_free_stream_info(stream->stream_info);
 
 	bfree(data);
 }
 
-static char const * caffeine_offer_generated(char const * offer)
+static char const * caffeine_offer_generated(
+	void * data,
+	char const * sdp_offer)
 {
-	/* TODO: set up stream with api, get SDP answer, return that */
-	return offer;
+	struct caffeine_output * stream = data;
+	log_info("caffeine_offer_generated");
+
+	obs_service_t * service = obs_output_get_service(stream->output);
+	char const * stage_id =
+		obs_service_query(service, CAFFEINE_QUERY_STAGE_ID);
+	struct caffeine_auth_info const * auth_info =
+		obs_service_query(service, CAFFEINE_QUERY_AUTH_INFO);
+
+	stream->stream_info =
+		caffeine_start_stream(stage_id, sdp_offer, auth_info);
+
+	return stream->stream_info ? stream->stream_info->sdp_answer : NULL;
 }
 
-static void caffeine_ice_gathered(
+static bool caffeine_ice_gathered(
 	void *data,
 	caff_ice_candidates candidates,
 	size_t num_candidates)
 {
-	struct caffeine_output *stream = data;
+	struct caffeine_output * stream = data;
 	log_info("caffeine_ice_gathered");
-	/* TODO: make sure this is thread safe and parallel */
-	for (size_t i = 0; i < num_candidates; ++i)
-	{
-		/* send candidates */
-		/* get response */
-		/* set answer */
-		/* pray */
-	}
+
+	obs_service_t * service = obs_output_get_service(stream->output);
+	struct caffeine_auth_info const * auth_info =
+		obs_service_query(service, CAFFEINE_QUERY_AUTH_INFO);
+
+	return caffeine_trickle_candidates(
+		candidates, num_candidates, auth_info, stream->stream_info);
 }
 
 static void caffeine_broadcast_started(void *data)
@@ -141,9 +156,7 @@ static bool caffeine_start(void *data)
 	struct caffeine_output *stream = data;
 	log_info("caffeine_start");
 
-	/* TODO: do get the service, set up stream with broadcast name etc.
-	 * Most of this work should be on separate thread
-	 */
+	/* TODO: Most of this work should be on separate thread */
 
 	if (!obs_output_can_begin_data_capture(stream->output, 0))
 		return false;
@@ -169,8 +182,11 @@ static void caffeine_stop(void *data, uint64_t ts)
 	struct caffeine_output *stream = data;
 	log_info("caffeine_stop");
 
-	/* TODO: teardown with service; do something with ts? */
+	/* TODO: do something with ts? */
 	caff_end_broadcast(stream->broadcast);
+	caffeine_free_stream_info(stream->stream_info);
+	stream->stream_info = NULL;
+	stream->broadcast = NULL;
 
 	obs_output_end_data_capture(stream->output);
 }
@@ -195,7 +211,7 @@ static void caffeine_raw_audio(void *data, struct audio_data *frames)
 
 struct obs_output_info caffeine_output_info = {
 	.id        = "caffeine_output",
-	.flags     = OBS_OUTPUT_AV | OBS_OUTPUT_SERVICE,  /* TODO: OBS_OUTPUT_SERVICE for login info, etc*/
+	.flags     = OBS_OUTPUT_AV | OBS_OUTPUT_SERVICE,
 	.get_name  = caffeine_get_name,
 	.create    = caffeine_create,
 	.destroy   = caffeine_destroy,

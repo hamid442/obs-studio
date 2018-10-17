@@ -16,10 +16,11 @@ include_directories(
 	${CAFFEINE_INCLUDE_DIR})
 
 set(caffeine_SOURCES
-	caffeine-api.h
 	caffeine-api.c
+	caffeine-api.h
 	caffeine-module.c
 	caffeine-service.c
+	caffeine-service.h
 	caffeine-output.c)
 
 add_library(caffeine MODULE

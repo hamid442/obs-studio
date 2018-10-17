@@ -13,6 +13,13 @@
 #define log_info(format, ...)  do_log(LOG_INFO, format, ##__VA_ARGS__)
 #define log_debug(format, ...)  do_log(LOG_DEBUG, format, ##__VA_ARGS__)
 
+#define API_ENDPOINT "https://api.caffeine.tv"
+
+#define SIGNIN_URL       API_ENDPOINT "/v1/account/signin"
+#define GETUSER_URL_F    API_ENDPOINT "/v1/users/%s"
+#define STREAM_URL       API_ENDPOINT "/v2/broadcasts/streams"
+#define TRICKLE_URL_F    API_ENDPOINT "/v2/broadcasts/streams/%s"
+
 static size_t caffeine_curl_write_callback(char * ptr, size_t size,
 	size_t nmemb, void * user_data)
 {
@@ -29,12 +36,12 @@ static struct curl_slist * caffeine_basic_headers() {
 	struct curl_slist * headers = NULL;
 	headers = curl_slist_append(headers, "Content-Type: application/json");
 	headers = curl_slist_append(headers, "X-Client-Type: obs");
-	headers = curl_slist_append(headers, "X-Client-Version: " OBS_VERSION); /* TODO sanitize version */
+	headers = curl_slist_append(headers, "X-Client-Version: " OBS_VERSION);
 	return headers;
 }
 
 static struct curl_slist * caffeine_authenticated_headers(
-	struct caffeine_auth_info * auth_info)
+	struct caffeine_auth_info const * auth_info)
 {
 	struct dstr header;
 	dstr_init(&header);
@@ -52,20 +59,14 @@ static struct curl_slist * caffeine_authenticated_headers(
 	return headers;
 }
 
-/* TODO: this is partly an exploration of both libcURL and libjansson; much of
- * this needs to be refactored, and will be reused for WebRTC signaling
+/* TODO: refactor this - lots of dupe code between request types
+ * TODO: handle retries, auth token refresh, etc
  */
 struct caffeine_auth_info * caffeine_signin(
 	char const * username,
 	char const * password,
 	char const * otp)
 {
-	/* https://api.caffeine.tv/v1/account/signin */
-	/* { "account": { "username": "foo", "password": "bar" } }*/
-	/* TODO multifactor
-	 * errors
-	 * email verification
-	 * etc this will be handled by the UI bits, service, etc*/
 	struct caffeine_auth_info * response = NULL;
 
 	json_t * request_json = NULL;
@@ -99,8 +100,7 @@ struct caffeine_auth_info * caffeine_signin(
 	}
 
 	/* TODO: get urls from data ? */
-	curl_easy_setopt(curl, CURLOPT_URL,
-		"https://api.caffeine.tv/v1/account/signin");
+	curl_easy_setopt(curl, CURLOPT_URL, SIGNIN_URL);
 	curl_easy_setopt(curl, CURLOPT_POSTFIELDS, request_body);
 
 	struct curl_slist *headers = caffeine_basic_headers();
@@ -211,7 +211,7 @@ void caffeine_free_auth_info(struct caffeine_auth_info * auth_response)
 
 struct caffeine_user_info * caffeine_getuser(
 	char const * caid,
-	struct caffeine_auth_info * auth_info)
+	struct caffeine_auth_info const * auth_info)
 {
 	if (caid == NULL) {
 		log_error("Missing caid");
@@ -236,8 +236,7 @@ struct caffeine_user_info * caffeine_getuser(
 	/* TODO: get urls from data ? */
 	struct dstr url_str;
 	dstr_init(&url_str);
-	dstr_printf(&url_str, "https://api.caffeine.tv/v1/users/%s",
-		auth_info->credentials->caid);
+	dstr_printf(&url_str, GETUSER_URL_F, auth_info->credentials->caid);
 
 	curl_easy_setopt(curl, CURLOPT_URL, url_str.array);
 
@@ -294,8 +293,9 @@ struct caffeine_user_info * caffeine_getuser(
 	}
 
 	if (strcmp(fetched_caid, caid) != 0) {
-		log_warn("Somehow got a different user. Original caid: %s - Fetched caid: %s",
-			caid, fetched_caid);
+		log_warn("Somehow got a different user. Original caid: %s - "
+			 "Fetched caid: %s",
+			 caid, fetched_caid);
 	}
 
 	user_info = bzalloc(sizeof(struct caffeine_user_info));
@@ -324,4 +324,250 @@ void caffeine_free_user_info(struct caffeine_user_info * user_info)
 	bfree(user_info->caid);
 	bfree(user_info->username);
 	bfree(user_info->stage_id);
+}
+
+struct caffeine_stream_info * caffeine_start_stream(
+	char const * stage_id,
+	char const * sdp_offer,
+	struct caffeine_auth_info const * auth_info)
+{
+	struct caffeine_stream_info * response = NULL;
+
+	json_t * request_json = NULL;
+	request_json = json_pack("{s:s,s:s,s:s}",
+		"stage_id", stage_id,
+		"offer", sdp_offer,
+		"video_codec", "h264");
+
+	if (!request_json)
+	{
+		log_error("Failed to create request JSON");
+		goto request_json_error;
+	}
+
+	char * request_body = json_dumps(request_json, 0);
+	if (!request_body)
+	{
+		log_error("Failed to serialize request JSON");
+		goto request_serialize_error;
+	}
+
+	CURL * curl = curl_easy_init();
+
+	if (!curl)
+	{
+		log_error("Failed to initialize cURL");
+		goto curl_init_error;
+	}
+
+	/* TODO: get urls from data ? */
+	curl_easy_setopt(curl, CURLOPT_URL, STREAM_URL);
+	curl_easy_setopt(curl, CURLOPT_POSTFIELDS, request_body);
+
+	struct curl_slist *headers = caffeine_authenticated_headers(auth_info);
+	curl_easy_setopt(curl, CURLOPT_HTTPHEADER, headers);
+
+	struct dstr response_str;
+	dstr_init(&response_str);
+
+	curl_easy_setopt(curl, CURLOPT_WRITEFUNCTION,
+		caffeine_curl_write_callback);
+	curl_easy_setopt(curl, CURLOPT_WRITEDATA, (void*)&response_str);
+
+	char curl_error[CURL_ERROR_SIZE];
+	curl_easy_setopt(curl, CURLOPT_ERRORBUFFER, curl_error);
+
+	CURLcode res = curl_easy_perform(curl);
+	if (res != CURLE_OK) {
+		log_error("HTTP failure starting stream: [%d] %s",
+			res, curl_error);
+		goto request_error;
+	}
+
+	long response_code;
+	curl_easy_getinfo(curl, CURLINFO_RESPONSE_CODE, &response_code);
+
+	json_error_t json_error;
+	json_t * response_json = json_loads(response_str.array, 0, &json_error);
+	if (!response_json) {
+		log_error("Failed to parse start stream response: %s",
+			json_error.text);
+		goto json_failed_error;
+	}
+	char const *error_text = NULL;
+	int error_result = json_unpack(response_json, "{s:[s!]}",
+		"_errors", &error_text);
+	if (error_result == 0) {
+		log_error("Error starting stream: %s", error_text);
+		goto json_parsed_error;
+	}
+
+	char const *stream_id = NULL;
+	char const *sdp_answer = NULL;
+	char const *signed_payload = NULL;
+	int success_result = json_unpack_ex(response_json, &json_error, 0,
+		"{s:s,s:s,s:s}",
+		"id", &stream_id,
+		"answer", &sdp_answer,
+		"signed_payload", &signed_payload);
+
+	if (success_result != 0) {
+		log_error("Failed to extract auth info from signin result: [%s]",
+			json_error.text);
+		goto json_parsed_error;
+	}
+
+	response = bzalloc(sizeof(struct caffeine_stream_info));
+	response->stream_id = bstrdup(stream_id);
+	response->sdp_answer = bstrdup(sdp_answer);
+	response->signed_payload = bstrdup(signed_payload);
+
+json_parsed_error:
+	json_decref(response_json);
+json_failed_error:
+request_error:
+	dstr_free(&response_str);
+	curl_slist_free_all(headers);
+	curl_easy_cleanup(curl);
+curl_init_error:
+	free(request_body);
+request_serialize_error:
+	json_decref(request_json);
+request_json_error:
+
+	return response;
+}
+
+void caffeine_free_stream_info(struct caffeine_stream_info * stream_info)
+{
+	if (!stream_info)
+		return;
+
+	bfree(stream_info->stream_id);
+	bfree(stream_info->sdp_answer);
+	bfree(stream_info->signed_payload);
+}
+
+bool caffeine_trickle_candidates(
+	caff_ice_candidates candidates,
+	size_t num_candidates,
+	struct caffeine_auth_info const * auth_info,
+	struct caffeine_stream_info const * stream_info)
+{
+	json_t * ice_candidates = json_array();
+	for (size_t i = 0; i < num_candidates; ++i)
+	{
+		json_array_append_new(ice_candidates, json_pack(
+			"{s:s,s:s,s:i}",
+			"candidate", candidates[i].sdp,
+			"sdpMid", candidates[i].sdp_mid,
+			"sdpMLineIndex", candidates[i].sdp_mline_index));
+	}
+
+	json_t * request_json = json_pack(
+		"{s:o,s:s}",
+		"ice_candidates", ice_candidates,
+		"signed_payload", stream_info->signed_payload);
+
+	bool response = false;
+
+	if (!request_json)
+	{
+		log_error("Failed to create request JSON");
+		goto request_json_error;
+	}
+
+	char * request_body = json_dumps(request_json, 0);
+	if (!request_body)
+	{
+		log_error("Failed to serialize request JSON");
+		goto request_serialize_error;
+	}
+
+	CURL * curl = curl_easy_init();
+
+	if (!curl)
+	{
+		log_error("Failed to initialize cURL");
+		goto curl_init_error;
+	}
+
+	struct dstr url_str;
+	dstr_init(&url_str);
+	dstr_printf(&url_str, TRICKLE_URL_F, stream_info->stream_id);
+
+	curl_easy_setopt(curl, CURLOPT_URL, url_str.array);
+	curl_easy_setopt(curl, CURLOPT_POSTFIELDS, request_body);
+	curl_easy_setopt(curl, CURLOPT_CUSTOMREQUEST, "PUT");
+
+	struct curl_slist *headers = caffeine_authenticated_headers(auth_info);
+	curl_easy_setopt(curl, CURLOPT_HTTPHEADER, headers);
+
+	struct dstr response_str;
+	dstr_init(&response_str);
+
+	curl_easy_setopt(curl, CURLOPT_WRITEFUNCTION,
+		caffeine_curl_write_callback);
+	curl_easy_setopt(curl, CURLOPT_WRITEDATA, (void*)&response_str);
+
+	char curl_error[CURL_ERROR_SIZE];
+	curl_easy_setopt(curl, CURLOPT_ERRORBUFFER, curl_error);
+
+	CURLcode res = curl_easy_perform(curl);
+	if (res != CURLE_OK) {
+		log_error("HTTP failure negotiating ICE: [%d] %s",
+			res, curl_error);
+		goto request_error;
+	}
+
+	long response_code;
+	curl_easy_getinfo(curl, CURLINFO_RESPONSE_CODE, &response_code);
+
+	json_error_t json_error;
+	json_t * response_json = json_loads(response_str.array, 0, &json_error);
+	if (!response_json) {
+		log_error("Failed to parse ICE response: %s",
+			json_error.text);
+		goto json_failed_error;
+	}
+	char const *error_text = NULL;
+	int error_result = json_unpack(response_json, "{s:[s!]}",
+		"_errors", &error_text);
+	if (error_result == 0) {
+		log_error("Error negotiating ICE: %s", error_text);
+		goto json_parsed_error;
+	}
+
+	char const *stream_id = NULL;
+	char const *stage_id = NULL;
+	char const *new_signed_payload = NULL;
+	int success_result = json_unpack_ex(response_json, &json_error, 0,
+		"{s:s,s:s,s:s}",
+		"id", &stream_id,
+		"stage_id", &stage_id,
+		"signed_payload", &new_signed_payload);
+
+	if (success_result != 0) {
+		log_error("Failed to extract auth info from signin result: [%s]",
+			json_error.text);
+		goto json_parsed_error;
+	}
+
+	response = true;
+
+json_parsed_error:
+	json_decref(response_json);
+json_failed_error:
+request_error:
+	dstr_free(&response_str);
+	curl_slist_free_all(headers);
+	curl_easy_cleanup(curl);
+	dstr_free(&url_str);
+curl_init_error:
+	free(request_body);
+request_serialize_error:
+	json_decref(request_json);
+request_json_error:
+
+	return response;
 }

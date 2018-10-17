@@ -1,0 +1,8 @@
+#pragma once
+
+enum {
+	CAFFEINE_QUERY_AUTH_INFO,
+	CAFFEINE_QUERY_STAGE_ID,
+
+	CAFFEINE_QUERY_MAX
+};
