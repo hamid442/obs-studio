@@ -45,6 +45,14 @@ void VolControl::OBSVolumeMuted(void *data, calldata_t *calldata)
 			Q_ARG(bool, muted));
 }
 
+void VolControl::OBSSourceMixersChanged(void *data, calldata_t *calldata)
+{
+	VolControl *volControl = static_cast<VolControl *>(data);
+	uint32_t mixers = (uint32_t)calldata_int(calldata, "mixers");
+	QMetaObject::invokeMethod(volControl, "SourceMixersChanged",
+			Q_ARG(uint32_t, mixers));
+}
+
 void VolControl::VolumeChanged()
 {
 	slider->blockSignals(true);
@@ -156,6 +164,59 @@ void VolControl::SetRec(bool checked)
 	SetMon(mon->isChecked());
 }
 
+void VolControl::SourceMixersChanged(uint32_t mixers)
+{
+	track1->setChecked(mixers & (1 << 0));
+	track2->setChecked(mixers & (1 << 1));
+	track3->setChecked(mixers & (1 << 2));
+	track4->setChecked(mixers & (1 << 3));
+	track5->setChecked(mixers & (1 << 4));
+	track6->setChecked(mixers & (1 << 5));
+}
+
+static inline void setMixer(obs_source_t *source, const int mixerIdx, const bool checked)
+{
+	uint32_t mixers     = obs_source_get_audio_mixers(source);
+	uint32_t new_mixers = mixers;
+
+	if (checked)
+		new_mixers |= (1 << mixerIdx);
+	else
+		new_mixers &= ~(1 << mixerIdx);
+
+	obs_source_set_audio_mixers(source, new_mixers);
+}
+
+void VolControl::track1Changed(bool checked)
+{
+	setMixer(source, 0, checked);
+}
+
+void VolControl::track2Changed(bool checked)
+{
+	setMixer(source, 1, checked);
+}
+
+void VolControl::track3Changed(bool checked)
+{
+	setMixer(source, 2, checked);
+}
+
+void VolControl::track4Changed(bool checked)
+{
+	setMixer(source, 3, checked);
+}
+
+void VolControl::track5Changed(bool checked)
+{
+	setMixer(source, 4, checked);
+}
+
+void VolControl::track6Changed(bool checked)
+{
+	setMixer(source, 5, checked);
+}
+
 void VolControl::SliderChanged(int vol)
 {
 	obs_fader_set_deflection(obs_fader, float(vol) * 0.01f);
@@ -215,11 +276,19 @@ VolControl::VolControl(OBSSource source_, bool *mutePtr, bool showConfig, bool v
 	nameLabel = new QLabel();
 	volLabel  = new QLabel();
 	mute      = new MuteCheckBox();
+	uint32_t mixers = 0xFF;
 #if defined(_WIN32) || defined(__APPLE__) || HAVE_PULSEAUDIO
 	mon = new MonCheckBox();
-	if (trackIndex < 0)
-		send = new SendsCheckBox();
 #endif
+	if (trackIndex < 0) {
+		send = new SendsCheckBox();
+		track1 = new TracksCheckBox();
+		track2 = new TracksCheckBox();
+		track3 = new TracksCheckBox();
+		track4 = new TracksCheckBox();
+		track5 = new TracksCheckBox();
+		track6 = new TracksCheckBox();
+	}
 	track_index = trackIndex;
 	OBSBasic *main = reinterpret_cast<OBSBasic*>(App()->GetMainWindow());
 	QString sourceName;
@@ -299,9 +368,16 @@ VolControl::VolControl(OBSSource source_, bool *mutePtr, bool showConfig, bool v
 #endif
 #if defined(_WIN32) || defined(__APPLE__) || HAVE_PULSEAUDIO
 		rightLayout->addWidget(mon);
-		if (trackIndex < 0)
-			rightLayout->addWidget(send);
 #endif
+		if (trackIndex < 0) {
+			rightLayout->addWidget(send);
+			rightLayout->addWidget(track1);
+			rightLayout->addWidget(track2);
+			rightLayout->addWidget(track3);
+			rightLayout->addWidget(track4);
+			rightLayout->addWidget(track5);
+			rightLayout->addWidget(track6);
+		}
 		if (trackIndex >= 0) {
 			rightLayout->addWidget(stream);
 			rightLayout->addWidget(rec);
@@ -354,6 +430,12 @@ VolControl::VolControl(OBSSource source_, bool *mutePtr, bool showConfig, bool v
 			textLayout->addItem(new QSpacerItem(15, 0));
 #endif
 			textLayout->addWidget(send);
+			textLayout->addWidget(track1);
+			textLayout->addWidget(track2);
+			textLayout->addWidget(track3);
+			textLayout->addWidget(track4);
+			textLayout->addWidget(track5);
+			textLayout->addWidget(track6);
 		}
 #endif
 #ifdef __APPLE__
@@ -479,6 +561,38 @@ VolControl::VolControl(OBSSource source_, bool *mutePtr, bool showConfig, bool v
 		QWidget::connect(rec, SIGNAL(clicked(bool)),
 				this, SLOT(SetRec(bool)));
 	}
+	/* tracks buttons for input mixer */
+	if (trackIndex < 0) {
+		mixers = obs_source_get_audio_mixers(source);
+		track1->setChecked(mixers & (1 << 0));
+		track2->setChecked(mixers & (1 << 1));
+		track3->setChecked(mixers & (1 << 2));
+		track4->setChecked(mixers & (1 << 3));
+		track5->setChecked(mixers & (1 << 4));
+		track6->setChecked(mixers & (1 << 5));
+		track1->setObjectName(QString::fromUtf8("track1"));
+		track2->setObjectName(QString::fromUtf8("track2"));
+		track3->setObjectName(QString::fromUtf8("track3"));
+		track4->setObjectName(QString::fromUtf8("track4"));
+		track5->setObjectName(QString::fromUtf8("track5"));
+		track6->setObjectName(QString::fromUtf8("track6"));
+		QWidget::connect(track1, SIGNAL(clicked(bool)), this,
+				SLOT(track1Changed(bool)));
+		QWidget::connect(track2, SIGNAL(clicked(bool)), this,
+				SLOT(track2Changed(bool)));
+		QWidget::connect(track3, SIGNAL(clicked(bool)), this,
+				SLOT(track3Changed(bool)));
+		QWidget::connect(track4, SIGNAL(clicked(bool)), this,
+				SLOT(track4Changed(bool)));
+		QWidget::connect(track5, SIGNAL(clicked(bool)), this,
+				SLOT(track5Changed(bool)));
+		QWidget::connect(track6, SIGNAL(clicked(bool)), this,
+				SLOT(track6Changed(bool)));
+
+		if (source != nullptr)
+			signal_handler_connect(obs_source_get_signal_handler(source),
+					"audio_mixers", OBSSourceMixersChanged, this);
+	}
 	obs_fader_attach_source(obs_fader, source);
 	obs_volmeter_attach_source(obs_volmeter, source);
 
@@ -505,6 +619,8 @@ VolControl::~VolControl()
 	if (source != nullptr) {
 		signal_handler_disconnect(obs_source_get_signal_handler(source),
 				"mute", OBSVolumeMuted, this);
+		signal_handler_disconnect(obs_source_get_signal_handler(source),
+				"audio_mixers", OBSSourceMixersChanged, this);
 	}
 	obs_fader_destroy(obs_fader);
 	obs_volmeter_destroy(obs_volmeter);
