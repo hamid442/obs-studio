@@ -188,7 +188,7 @@ std::string toSnakeCase(std::string str)
 		c = str[i];
 		if (isupper(c)) {
 			str.insert(i++, "_");
-			str.assign(i, (char)tolower(c));
+			str[i] = (char)tolower(c);
 		}
 	}
 	return str;
@@ -197,13 +197,16 @@ std::string toSnakeCase(std::string str)
 std::string toCamelCase(std::string str)
 {
 	size_t i;
-	char   c;
-	for (i = 0; i < str.size(); i++) {
+	char   c, c2;
+	for (i = 0; i < str.size()-1; i++) {
 		c = str[i];
 		if (c == '_') {
-			str.erase(i);
-			if (i < str.size())
-				str.assign(i, (char)toupper(c));
+			c2 = str[i + 1];
+			if (islower(c2)) {
+				str.erase(i);
+				if (i < str.size())
+					str[i] = (char)toupper(c);
+			}
 		}
 	}
 	return str;
@@ -897,7 +900,7 @@ public:
 			}
 		}
 
-		bool showExprLess = _param->getAnnotationValue("show_exprless", false);
+		bool showExprLess = _param->getAnnotationValue<bool>("show_exprless", false);
 		if (!showExprLess)
 			_showExpressionLess = !hasExpressions;
 		else
@@ -1041,7 +1044,7 @@ public:
 				switch (_paramType) {
 				case GS_SHADER_PARAM_BOOL:
 					_filter->compileExpression(_expressions[i]);
-					_bindings[i].s64i = filter->evaluateExpression<long long>(0);
+					_bindings[i].d = (double)filter->evaluateExpression<long long>(0);
 					_values[i].s32i = (int32_t)_bindings[i].s64i;
 					break;
 				case GS_SHADER_PARAM_INT:
@@ -1049,7 +1052,7 @@ public:
 				case GS_SHADER_PARAM_INT3:
 				case GS_SHADER_PARAM_INT4:
 					_filter->compileExpression(_expressions[i]);
-					_bindings[i].s64i = filter->evaluateExpression<long long>(0);
+					_bindings[i].d = (double)filter->evaluateExpression<long long>(0);
 					_values[i].s32i = (int32_t)_bindings[i].s64i;
 					break;
 				case GS_SHADER_PARAM_FLOAT:
@@ -1697,6 +1700,33 @@ public:
 				//gs_copy_texture();
 				double tw = 0;
 				double th = 0;
+				size_t bytes = 0;
+				size_t size = 0;
+				if (_tex) {
+					tw = gs_texture_get_width(_tex);
+					th = gs_texture_get_height(_tex);
+				}
+				bytes = 4 * 4 * tw * th;
+				size = 4 * 4 * gs_texture_get_width(texture) * gs_texture_get_height(texture);
+
+				if (!_data || bytes != size) {
+					_data = (uint8_t*)brealloc(_data, size);
+					obs_enter_graphics();
+					if (_tex)
+						gs_texture_destroy(_tex);
+					obs_leave_graphics();
+					_tex = nullptr;
+				}
+				if (!_tex)
+					_tex = gs_texture_create(gs_texture_get_width(texture), gs_texture_get_height(texture), gs_texture_get_color_format(texture), 1, (const uint8_t **)&_data, 0);
+
+				obs_enter_graphics();
+				gs_copy_texture(_tex, texture);
+				_param->setValue<gs_texture_t *>(&_tex, sizeof(gs_texture *));
+				obs_leave_graphics();
+				/*
+				double tw = 0;
+				double th = 0;
 				double bytes = 0;
 				if (_tex) {
 					tw = gs_texture_get_width(_tex);
@@ -1719,6 +1749,7 @@ public:
 				}
 				obs_enter_graphics();
 				_param->setValue<gs_texture_t *>(&_tex, sizeof(gs_texture *));
+				*/
 			}
 		}
 	}
@@ -1729,7 +1760,34 @@ public:
 		if (_texType == buffer) {
 			std::string tech = technique;
 			if (tech == _tech && _pass == -1) {
+				double tw = 0;
+				double th = 0;
+				size_t bytes = 0;
+				size_t size = 0;
+				if (_tex) {
+					tw = gs_texture_get_width(_tex);
+					th = gs_texture_get_height(_tex);
+				}
+				bytes = 4 * 4 * tw * th;
+				size = 4 * 4 * gs_texture_get_width(texture) * gs_texture_get_height(texture);
+
+				if (!_data || bytes != size) {
+					_data = (uint8_t*)brealloc(_data, size);
+					obs_enter_graphics();
+					if(_tex)
+						gs_texture_destroy(_tex);
+					obs_leave_graphics();
+					_tex = nullptr;
+				}
+				if (!_tex)
+					_tex = gs_texture_create(gs_texture_get_width(texture), gs_texture_get_height(texture), gs_texture_get_color_format(texture), 1, (const uint8_t **)&_data, 0);
+
+				obs_enter_graphics();
+				gs_copy_texture(_tex, texture);
+				_param->setValue<gs_texture_t *>(&_tex, sizeof(gs_texture *));
+				obs_leave_graphics();
 				//gs_copy_texture();
+				/*
 				double tw = 0;
 				double th = 0;
 				double bytes = 0;
@@ -1754,6 +1812,7 @@ public:
 				}
 				obs_enter_graphics();
 				_param->setValue<gs_texture_t *>(&_tex, sizeof(gs_texture *));
+				*/
 			}
 		}
 	}
@@ -1952,8 +2011,11 @@ void ShaderFilter::clearExpression()
 
 void ShaderFilter::appendVariable(te_variable var)
 {
-	expression.push_back(var);
-	blog(LOG_INFO, "appending %s", var.name);
+	if (!expression.hasVariable(std::string(var.name)))
+	{
+		blog(LOG_INFO, "appending %s", var.name);
+		expression.push_back(var);
+	}
 }
 
 void ShaderFilter::appendVariable(std::string &name, double *binding)
@@ -1961,6 +2023,10 @@ void ShaderFilter::appendVariable(std::string &name, double *binding)
 	te_variable var = { 0 };
 	var.address = binding;
 	var.name = name.c_str();
+	if (!expression.hasVariable(name)) {
+		blog(LOG_INFO, "appending %s", var.name);
+		expression.push_back(var);
+	}
 }
 
 void ShaderFilter::compileExpression(std::string expresion)
@@ -2099,9 +2165,11 @@ void ShaderFilter::reload()
 
 	/* Enforce alphabetical order for binary search */
 	std::sort(expression.begin(), expression.end(), [](te_variable a, te_variable b) {
-		std::string astr = a.name;
-		std::string bstr = b.name;
-		return astr.compare(bstr) < 0;
+		/*
+		std::string astr = std::string(a.name);
+		std::string bstr = std::string(b.name);
+		*/
+		return strcmp(a.name, b.name) < 0;
 	});
 
 	if (paramMap.count("image")) {

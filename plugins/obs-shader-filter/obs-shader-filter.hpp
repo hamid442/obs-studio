@@ -127,6 +127,29 @@ public:
 			_compiled = nullptr;
 		}
 	};
+	bool hasVariable(std::string search)
+	{
+		if (!size())
+			return false;
+		size_t lo = 0;
+		size_t hi = size() - 1;
+		for (; lo <= hi;) {
+			int i = lo + ((hi - lo) / 2);
+			te_variable t = this->at(i);
+			int c = strcmp(search.c_str(), t.name);
+			if (c == 0) {
+				return true;
+			} else if (c > 0) {
+				lo = i + 1;
+			} else {
+				if (i == 0)
+					return false;
+				hi = i - 1;
+			}
+
+		}
+		return false;
+	}
 	template<class DataType> DataType evaluate(DataType default_value = 0)
 	{
 		DataType ret = default_value;
