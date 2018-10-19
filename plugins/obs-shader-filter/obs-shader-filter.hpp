@@ -115,18 +115,18 @@ class TinyExpr : public std::vector<te_variable> {
 public:
 	TinyExpr()
 	{
-	};
+	}
 	~TinyExpr()
 	{
 		releaseExpression();
-	};
+	}
 	void releaseExpression()
 	{
 		if (_compiled) {
 			te_free(_compiled);
 			_compiled = nullptr;
 		}
-	};
+	}
 	bool hasVariable(std::string search)
 	{
 		if (!size())
@@ -156,7 +156,7 @@ public:
 		if (_compiled)
 			ret = (DataType)te_eval(_compiled);
 		return ret;
-	};
+	}
 	void compile(std::string expression)
 	{
 		if (expression.empty())
@@ -172,10 +172,10 @@ public:
 			_errString = "";
 			_expr = expression;
 		}
-	};
+	}
 	bool success()
 	{
-		return _compiled;
+		return _compiled != nullptr;
 	}
 	std::string errorString()
 	{
