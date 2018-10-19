@@ -142,7 +142,7 @@ public:
 			releaseExpression();
 		_compiled = te_compile(expression.c_str(), data(), (int)size(), &_err);
 		if (!_compiled) {
-			_errString = "Expression Error At [" + std::to_string(_err) + "]:\n" +
+			_errString = "Expression Error At [" + std::to_string(_err) + "] in: " + expression + "\n" +
 				expression.substr(0, _err) + "[ERROR HERE]" + expression.substr(_err);
 			blog(LOG_WARNING, _errString.c_str());
 		} else {
@@ -152,7 +152,7 @@ public:
 	};
 	bool success()
 	{
-		return _err == 0;
+		return _compiled;
 	}
 	std::string errorString()
 	{

@@ -72,7 +72,7 @@ static double dceil(double d)
 
 static double dfloor(double d)
 {
-	return dfloor(d);
+	return floor(d);
 }
 
 static double fac(double a)
@@ -1433,7 +1433,7 @@ public:
 		_channels = audio_output_get_channels(obs_get_audio());
 		_bindingNames.push_back(toSnakeCase(_names[0]));
 
-		EVal *techAnnotion = _param->getAnnotationValue("technique");
+		EVal *techAnnotation = _param->getAnnotationValue("technique");
 		EVal *window = nullptr;
 		switch (_texType) {
 		case audio:
@@ -1451,7 +1451,10 @@ public:
 				_window = none;
 			break;
 		case buffer:
-			_tech = techAnnotion->getString();
+			if (techAnnotation)
+				_tech = techAnnotation->getString();
+			else
+				_tech = "";
 			_pass = _param->getAnnotationValue<int>("pass", -1);
 			break;
 		case media:
@@ -1691,10 +1694,31 @@ public:
 		if (_texType == buffer) {
 			std::string tech = technique;
 			if (tech == _tech && pass == _pass) {
+				//gs_copy_texture();
+				double tw = 0;
+				double th = 0;
+				double bytes = 0;
+				if (_tex) {
+					tw = gs_texture_get_width(_tex);
+					th = gs_texture_get_height(_tex);
+				}
+				bytes = 4 * 4 * tw * th;
 				obs_enter_graphics();
 				gs_texture_destroy(_tex);
-				gs_copy_texture(_tex, texture);
+				if (texture) {
+					_sourceWidth = gs_texture_get_width(texture);
+					_sourceHeight = gs_texture_get_height(texture);
+					if (!_data) {
+						_data = (uint8_t*)bmalloc(4 * 4 * gs_texture_get_width(texture) * gs_texture_get_height(texture));
+					} else if (_data && (bytes != _sourceWidth * _sourceHeight * 16)) {
+						_data = (uint8_t*)brealloc(_data, _sourceWidth * _sourceHeight * 16);
+					}
+					_tex = gs_texture_create(gs_texture_get_width(texture), gs_texture_get_height(texture), gs_texture_get_color_format(texture), 1, (const uint8_t **)&_data, 0);
+					
+					gs_copy_texture(_tex, texture);
+				}
 				obs_enter_graphics();
+				_param->setValue<gs_texture_t *>(&_tex, sizeof(gs_texture *));
 			}
 		}
 	}
@@ -1705,10 +1729,31 @@ public:
 		if (_texType == buffer) {
 			std::string tech = technique;
 			if (tech == _tech && _pass == -1) {
+				//gs_copy_texture();
+				double tw = 0;
+				double th = 0;
+				double bytes = 0;
+				if (_tex) {
+					tw = gs_texture_get_width(_tex);
+					th = gs_texture_get_height(_tex);
+				}
+				bytes = 4 * 4 * tw * th;
 				obs_enter_graphics();
 				gs_texture_destroy(_tex);
-				gs_copy_texture(_tex, texture);
+				if (texture) {
+					_sourceWidth = gs_texture_get_width(texture);
+					_sourceHeight = gs_texture_get_height(texture);
+					if (!_data) {
+						_data = (uint8_t*)bmalloc(4 * 4 * gs_texture_get_width(texture) * gs_texture_get_height(texture));
+					} else if (_data && (bytes != _sourceWidth * _sourceHeight * 16)) {
+						_data = (uint8_t*)brealloc(_data, _sourceWidth * _sourceHeight * 16);
+					}
+					_tex = gs_texture_create(gs_texture_get_width(texture), gs_texture_get_height(texture), gs_texture_get_color_format(texture), 1, (const uint8_t **)&_data, 0);
+
+					gs_copy_texture(_tex, texture);
+				}
 				obs_enter_graphics();
+				_param->setValue<gs_texture_t *>(&_tex, sizeof(gs_texture *));
 			}
 		}
 	}
@@ -1921,6 +1966,8 @@ void ShaderFilter::appendVariable(std::string &name, double *binding)
 void ShaderFilter::compileExpression(std::string expresion)
 {
 	expression.compile(expresion);
+	if (!expressionCompiled())
+		blog(LOG_WARNING, "%s", obs_source_get_name(obs_filter_get_parent(context)));
 }
 
 bool ShaderFilter::expressionCompiled()
@@ -2175,6 +2222,24 @@ void ShaderFilter::videoTickSource(void *data, float seconds)
 	filter->uvOffsetBinding = filter->uvOffset;
 }
 
+static inline void renderSprite(ShaderFilter *filter, gs_effect_t *effect, gs_texture_t *texture, const char *techName, uint32_t &cx, uint32_t &cy)
+{
+	size_t i, j;
+	gs_technique_t *tech = gs_effect_get_technique(effect, techName);
+	size_t passes = gs_technique_begin(tech);
+	for (i = 0; i < passes; i++) {
+		gs_technique_begin_pass(tech, i);
+		gs_draw_sprite(texture, 0, cx, cy);
+		gs_technique_end_pass(tech);
+		/*Handle Buffers*/
+		for (j = 0; j < filter->paramList.size(); j++)
+			filter->paramList[j]->onPass(filter, techName, i, texture);
+	}
+	gs_technique_end(tech);
+	for (j = 0; j < filter->paramList.size(); j++)
+		filter->paramList[j]->onTechniqueEnd(filter, techName, texture);
+}
+
 void ShaderFilter::videoRender(void *data, gs_effect_t *effect)
 {
 	UNUSED_PARAMETER(effect);
@@ -2261,7 +2326,7 @@ void ShaderFilter::videoRender(void *data, gs_effect_t *effect)
 				gs_technique_end_pass(tech);
 				/*Handle Buffers*/
 				for (j = 0; j < filter->paramList.size(); j++)
-					filter->paramList[j]->onPass(filter, techName, j, texture);
+					filter->paramList[j]->onPass(filter, techName, i, texture);
 			}
 			gs_technique_end(tech);
 			for (j = 0; j < filter->paramList.size(); j++)
@@ -2273,18 +2338,7 @@ void ShaderFilter::videoRender(void *data, gs_effect_t *effect)
 				if (filter->image)
 					gs_effect_set_texture(filter->image, texture);
 
-				passes = gs_technique_begin(tech);
-				for (i = 0; i < passes; i++) {
-					gs_technique_begin_pass(tech, i);
-					gs_draw_sprite(texture, 0, cx, cy);
-					gs_technique_end_pass(tech);
-					/*Handle Buffers*/
-					for (j = 0; j < filter->paramList.size(); j++)
-						filter->paramList[j]->onPass(filter, techName, j, texture);
-				}
-				gs_technique_end(tech);
-				for (j = 0; j < filter->paramList.size(); j++)
-					filter->paramList[j]->onTechniqueEnd(filter, techName, texture);
+				renderSprite(filter, filter->effect, texture, techName, cx, cy);
 			}
 		}
 	} else {
@@ -2343,26 +2397,12 @@ void ShaderFilter::videoRenderSource(void *data, gs_effect_t *effect)
 
 		gs_blend_state_pop();
 
-		const char *techName = "Draw";
-
 		texture = gs_texrender_get_texture(filter->filterTexrender);
 		if (texture) {
-			gs_technique_t *tech = gs_effect_get_technique(filter->effect, techName);
+			const char *techName = "Draw";
 			if (filter->image)
 				gs_effect_set_texture(filter->image, texture);
-
-			passes = gs_technique_begin(tech);
-			for (i = 0; i < passes; i++) {
-				gs_technique_begin_pass(tech, i);
-				gs_draw_sprite(texture, 0, filter->totalWidth, filter->totalHeight);
-				gs_technique_end_pass(tech);
-				/*Handle Buffers*/
-				for (j = 0; j < filter->paramList.size(); j++)
-					filter->paramList[j]->onPass(filter, techName, j, texture);
-			}
-			gs_technique_end(tech);
-			for (j = 0; j < filter->paramList.size(); j++)
-				filter->paramList[j]->onTechniqueEnd(filter, techName, texture);
+			renderSprite(filter, filter->effect, texture, techName, filter->totalWidth, filter->totalHeight);
 		}
 	} else {
 		gs_blend_state_push();
@@ -2384,25 +2424,7 @@ void ShaderFilter::videoRenderSource(void *data, gs_effect_t *effect)
 		if (texture) {
 			const char *techName = "Draw";
 			gs_effect_t *   effect = obs_get_base_effect(OBS_EFFECT_DEFAULT);
-			gs_technique_t *tech = gs_effect_get_technique(effect, techName);
-
-			if (!filter->image)
-				filter->image = gs_effect_get_param_by_name(effect, "image");
-
-			gs_effect_set_texture(filter->image, texture);
-
-			passes = gs_technique_begin(tech);
-			for (i = 0; i < passes; i++) {
-				gs_technique_begin_pass(tech, i);
-				gs_draw_sprite(texture, 0, filter->totalWidth, filter->totalHeight);
-				gs_technique_end_pass(tech);
-				/*Handle Buffers*/
-				for (j = 0; j < filter->paramList.size(); j++)
-					filter->paramList[j]->onPass(filter, techName, j, texture);
-			}
-			gs_technique_end(tech);
-			for (j = 0; j < filter->paramList.size(); j++)
-				filter->paramList[j]->onTechniqueEnd(filter, techName, texture);
+			renderSprite(filter, effect, texture, techName, filter->totalWidth, filter->totalHeight);
 		}
 	}
 }
@@ -2487,24 +2509,11 @@ static void renderTransition(void *data, gs_texture_t *a, gs_texture_t *b,
 
 		if (a || b) {
 			const char *techName = "Draw";
-			gs_technique_t *tech = gs_effect_get_technique(filter->effect, techName);
 			if (filter->image)
 				gs_effect_set_texture(filter->image, a);
 			if (filter->image_2)
 				gs_effect_set_texture(filter->image_2, b);
-
-			passes = gs_technique_begin(tech);
-			for (i = 0; i < passes; i++) {
-				gs_technique_begin_pass(tech, i);
-				gs_draw_sprite(texture, 0, cx, cy);
-				gs_technique_end_pass(tech);
-				/*Handle Buffers*/
-				for (j = 0; j < filter->paramList.size(); j++)
-					filter->paramList[j]->onPass(filter, techName, j, texture);
-			}
-			gs_technique_end(tech);
-			for (j = 0; j < filter->paramList.size(); j++)
-				filter->paramList[j]->onTechniqueEnd(filter, techName, texture);
+			renderSprite(filter, filter->effect, texture, techName, cx, cy);
 		}
 	} else {
 		/* Cut Effect */
@@ -2517,22 +2526,8 @@ static void renderTransition(void *data, gs_texture_t *a, gs_texture_t *b,
 			if (!filter->image)
 				filter->image = gs_effect_get_param_by_name(effect, "image");
 
-			gs_technique_t *tech = gs_effect_get_technique(effect, techName);
-
 			gs_effect_set_texture(filter->image, texture);
-
-			passes = gs_technique_begin(tech);
-			for (i = 0; i < passes; i++) {
-				gs_technique_begin_pass(tech, i);
-				gs_draw_sprite(texture, 0, cx, cy);
-				gs_technique_end_pass(tech);
-				/*Handle Buffers*/
-				for (j = 0; j < filter->paramList.size(); j++)
-					filter->paramList[j]->onPass(filter, techName, j, texture);
-			}
-			gs_technique_end(tech);
-			for (j = 0; j < filter->paramList.size(); j++)
-				filter->paramList[j]->onTechniqueEnd(filter, techName, texture);
+			renderSprite(filter, effect, texture, techName, cx, cy);
 		}
 	}
 }
