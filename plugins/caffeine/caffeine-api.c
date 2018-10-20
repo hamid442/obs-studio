@@ -19,6 +19,13 @@
 #define GETUSER_URL_F    API_ENDPOINT "/v1/users/%s"
 #define STREAM_URL       API_ENDPOINT "/v2/broadcasts/streams"
 #define TRICKLE_URL_F    API_ENDPOINT "/v2/broadcasts/streams/%s"
+#define BROADCAST_URL    API_ENDPOINT "/v1/broadcasts"
+#define HEARTBEAT_URL_F  API_ENDPOINT "/v2/broadcasts/streams/%s/heartbeat"
+
+#define REALTIME_ENDPOINT "https://realtime.caffeine.tv"
+
+#define STAGE_STATE_URL_F  REALTIME_ENDPOINT "/v2/stages/%s/details"
+
 
 static size_t caffeine_curl_write_callback(char * ptr, size_t size,
 	size_t nmemb, void * user_data)
@@ -34,7 +41,6 @@ static size_t caffeine_curl_write_callback(char * ptr, size_t size,
 
 static struct curl_slist * caffeine_basic_headers() {
 	struct curl_slist * headers = NULL;
-	headers = curl_slist_append(headers, "Content-Type: application/json");
 	headers = curl_slist_append(headers, "X-Client-Type: obs");
 	headers = curl_slist_append(headers, "X-Client-Version: " OBS_VERSION);
 	return headers;
@@ -104,6 +110,7 @@ struct caffeine_auth_info * caffeine_signin(
 	curl_easy_setopt(curl, CURLOPT_POSTFIELDS, request_body);
 
 	struct curl_slist *headers = caffeine_basic_headers();
+	headers = curl_slist_append(headers, "Content-Type: application/json");
 	curl_easy_setopt(curl, CURLOPT_HTTPHEADER, headers);
 
 	struct dstr response_str;
@@ -241,6 +248,7 @@ struct caffeine_user_info * caffeine_getuser(
 	curl_easy_setopt(curl, CURLOPT_URL, url_str.array);
 
 	struct curl_slist *headers = caffeine_authenticated_headers(auth_info);
+	headers = curl_slist_append(headers, "Content-Type: application/json");
 	curl_easy_setopt(curl, CURLOPT_HTTPHEADER, headers);
 
 	struct dstr response_str;
@@ -365,6 +373,7 @@ struct caffeine_stream_info * caffeine_start_stream(
 	curl_easy_setopt(curl, CURLOPT_POSTFIELDS, request_body);
 
 	struct curl_slist *headers = caffeine_authenticated_headers(auth_info);
+	headers = curl_slist_append(headers, "Content-Type: application/json");
 	curl_easy_setopt(curl, CURLOPT_HTTPHEADER, headers);
 
 	struct dstr response_str;
@@ -501,6 +510,7 @@ bool caffeine_trickle_candidates(
 	curl_easy_setopt(curl, CURLOPT_CUSTOMREQUEST, "PUT");
 
 	struct curl_slist *headers = caffeine_authenticated_headers(auth_info);
+	headers = curl_slist_append(headers, "Content-Type: application/json");
 	curl_easy_setopt(curl, CURLOPT_HTTPHEADER, headers);
 
 	struct dstr response_str;
@@ -570,4 +580,339 @@ request_serialize_error:
 request_json_error:
 
 	return response;
+}
+
+
+char * set_stage_live(
+	bool isLive,
+	char const * session_id,
+	char const * stage_id,
+	char const * stream_id,
+	struct caffeine_auth_info const * auth_info)
+{
+	json_t * stream_json = json_pack("{s:s,s:s,s:s,s:{s:b,s:b}}",
+		"id", stream_id,
+		"label", "game",
+		"type", "primary",
+		"capabilities",
+		"audio", 1,
+		"video", 1);
+
+	if (!stream_json)
+		return NULL;
+
+	char * result = NULL;
+
+	json_t * payload_json = json_pack("{s:s,s:s,s:s,s:[o],s:s}",
+		"state", isLive ? "ONLINE" : "OFFLINE",
+		"title", "OBS Test",
+		"game_id", "79",
+		"streams", stream_json,
+		"host_connection_quality", "GOOD");
+
+	if (!payload_json)
+	{
+		log_error("Failed to create request JSON");
+		goto payload_json_error;
+	}
+
+	char const * request_type = "POST";
+	if (session_id) {
+		json_object_set_new(payload_json, "session_id", json_string(session_id));
+		request_type = "PUT";
+	}
+
+	json_t * request_json = json_pack("{s:o}", "v2", payload_json);
+	if (!request_json)
+	{
+		log_error("Failed to create request JSON");
+		goto request_json_error;
+	}
+
+	char * request_body = json_dumps(request_json, 0);
+	if (!request_body)
+	{
+		log_error("Failed to serialize request JSON");
+		goto request_serialize_error;
+	}
+
+	CURL * curl = curl_easy_init();
+
+	if (!curl)
+	{
+		log_error("Failed to initialize cURL");
+		goto curl_init_error;
+	}
+
+	struct dstr url_str;
+	dstr_init(&url_str);
+	dstr_printf(&url_str, STAGE_STATE_URL_F, stage_id);
+
+	curl_easy_setopt(curl, CURLOPT_URL, url_str.array);
+	curl_easy_setopt(curl, CURLOPT_POSTFIELDS, request_body);
+	curl_easy_setopt(curl, CURLOPT_CUSTOMREQUEST, request_type);
+
+	struct curl_slist *headers = caffeine_authenticated_headers(auth_info);
+	headers = curl_slist_append(headers, "Content-Type: application/json");
+	curl_easy_setopt(curl, CURLOPT_HTTPHEADER, headers);
+
+
+	struct dstr response_str;
+	dstr_init(&response_str);
+
+	curl_easy_setopt(curl, CURLOPT_WRITEFUNCTION,
+		caffeine_curl_write_callback);
+	curl_easy_setopt(curl, CURLOPT_WRITEDATA, (void*)&response_str);
+
+	char curl_error[CURL_ERROR_SIZE];
+	curl_easy_setopt(curl, CURLOPT_ERRORBUFFER, curl_error);
+
+	CURLcode res = curl_easy_perform(curl);
+	if (res != CURLE_OK) {
+		log_error("HTTP failure going live: [%d] %s",
+			res, curl_error);
+		goto request_error;
+	}
+
+	long response_code;
+	curl_easy_getinfo(curl, CURLINFO_RESPONSE_CODE, &response_code);
+	log_info("Http response [%ld]", response_code);
+
+	if (response_code / 100 != 2)
+		log_info("update stage failed");
+
+	json_error_t json_error;
+	json_t * response_json = json_loads(response_str.array, 0, &json_error);
+	if (!response_json) {
+		log_error("Failed to stage state response: %s",
+			json_error.text);
+		goto json_failed_error;
+	}
+	char const *error_text = NULL;
+	int error_result = json_unpack(response_json, "{s:[s!]}",
+		"_errors", &error_text);
+	if (error_result == 0) {
+		log_error("Error updating stage state: %s", error_text);
+		goto json_parsed_error;
+	}
+
+
+	if (!session_id) {
+		char const * new_session_id;
+		if (json_unpack(response_json, "{s:s}", "session_id", &new_session_id) != 0) {
+			goto request_error;
+		}
+		log_info("got session id %s", new_session_id);
+
+		result = bstrdup(new_session_id);
+	}
+
+json_parsed_error:
+	json_decref(response_json);
+json_failed_error:
+request_error:
+	dstr_free(&response_str);
+	curl_slist_free_all(headers);
+	curl_easy_cleanup(curl);
+	dstr_free(&url_str);
+curl_init_error:
+	free(request_body);
+request_serialize_error:
+	json_decref(request_json);
+request_json_error:
+	json_decref(payload_json);
+payload_json_error:
+	json_decref(stream_json);
+
+	return result;
+}
+
+void add_text_part(curl_mime * mime, char const * name, char const * text)
+{
+	curl_mimepart * part = curl_mime_addpart(mime);
+	curl_mime_name(part, name);
+	curl_mime_type(part, "text/plain");
+	curl_mime_data(part, text, CURL_ZERO_TERMINATED);
+}
+
+bool create_broadcast(struct caffeine_auth_info const * auth_info)
+{
+	CURL * curl = curl_easy_init();
+
+	if (!curl)
+	{
+		log_error("Failed to initialize cURL");
+		return false;
+	}
+
+	curl_mime * mime = curl_mime_init(curl);
+	add_text_part(mime, "broadcast[name]", "OBS Test");
+	add_text_part(mime, "broadcast[description]", "");
+	add_text_part(mime, "broadcast[content_rating]", "PG");
+	add_text_part(mime, "broadcast[platform]", "PC");
+	add_text_part(mime, "broadcast[state]", "ONLINE");
+	add_text_part(mime, "broadcast[game_id]", "79");
+
+	curl_easy_setopt(curl, CURLOPT_MIMEPOST, mime);
+
+	curl_easy_setopt(curl, CURLOPT_URL, BROADCAST_URL);
+
+	struct curl_slist *headers = caffeine_authenticated_headers(auth_info);
+	headers = curl_slist_append(headers, "Content-Type: multipart/form-data");
+	curl_easy_setopt(curl, CURLOPT_HTTPHEADER, headers);
+
+	struct dstr response_str;
+	dstr_init(&response_str);
+
+	curl_easy_setopt(curl, CURLOPT_WRITEFUNCTION,
+		caffeine_curl_write_callback);
+	curl_easy_setopt(curl, CURLOPT_WRITEDATA, (void*)&response_str);
+
+	char curl_error[CURL_ERROR_SIZE];
+	curl_easy_setopt(curl, CURLOPT_ERRORBUFFER, curl_error);
+
+	bool result = false;
+
+	CURLcode res = curl_easy_perform(curl);
+	if (res != CURLE_OK) {
+		log_error("HTTP failure going live: [%d] %s",
+			res, curl_error);
+		goto request_error;
+	}
+
+	long response_code;
+	curl_easy_getinfo(curl, CURLINFO_RESPONSE_CODE, &response_code);
+
+	log_info("Http response code [%ld]", response_code);
+
+	json_error_t json_error;
+	json_t * response_json = json_loads(response_str.array, 0, &json_error);
+	if (!response_json) {
+		log_error("Failed to stage state response: %s",
+			json_error.text);
+		goto json_failed_error;
+	}
+	char const *error_text = NULL;
+	int error_result = json_unpack(response_json, "{s:[s!]}",
+		"_errors", &error_text);
+	if (error_result == 0) {
+		log_error("Error updating stage state: %s", error_text);
+		goto json_parsed_error;
+	}
+
+
+	if (response_code / 100 == 2)
+		result = true;
+
+json_parsed_error:
+	json_decref(response_json);
+json_failed_error:
+request_error:
+	dstr_free(&response_str);
+	curl_slist_free_all(headers);
+	curl_mime_free(mime);
+	curl_easy_cleanup(curl);
+
+	return result;
+}
+
+bool send_heartbeat(
+	char const * stage_id,
+	char const * signed_payload,
+	struct caffeine_auth_info const * auth_info)
+{
+	bool result = false;
+
+	json_t * request_json =
+		json_pack("{s:s}", "signed_payload", signed_payload);
+
+	if (!request_json)
+	{
+		log_error("Failed to create request JSON");
+		goto request_json_error;
+	}
+
+	char * request_body = json_dumps(request_json, 0);
+	if (!request_body)
+	{
+		log_error("Failed to serialize request JSON");
+		goto request_serialize_error;
+	}
+
+	CURL * curl = curl_easy_init();
+
+	if (!curl)
+	{
+		log_error("Failed to initialize cURL");
+		goto curl_init_error;
+	}
+
+	struct dstr url_str;
+	dstr_init(&url_str);
+	dstr_printf(&url_str, HEARTBEAT_URL_F, stage_id);
+
+	curl_easy_setopt(curl, CURLOPT_URL, url_str.array);
+	curl_easy_setopt(curl, CURLOPT_POSTFIELDS, request_body);
+
+	struct curl_slist *headers = caffeine_authenticated_headers(auth_info);
+	headers = curl_slist_append(headers, "Content-Type: application/json");
+	curl_easy_setopt(curl, CURLOPT_HTTPHEADER, headers);
+
+	struct dstr response_str;
+	dstr_init(&response_str);
+
+	curl_easy_setopt(curl, CURLOPT_WRITEFUNCTION,
+		caffeine_curl_write_callback);
+	curl_easy_setopt(curl, CURLOPT_WRITEDATA, (void*)&response_str);
+
+	char curl_error[CURL_ERROR_SIZE];
+	curl_easy_setopt(curl, CURLOPT_ERRORBUFFER, curl_error);
+
+	CURLcode res = curl_easy_perform(curl);
+	if (res != CURLE_OK) {
+		log_error("HTTP failure going live: [%d] %s",
+			res, curl_error);
+		goto request_error;
+	}
+
+	long response_code;
+	curl_easy_getinfo(curl, CURLINFO_RESPONSE_CODE, &response_code);
+
+
+	log_info("Http response code [%ld]", response_code);
+
+	json_error_t json_error;
+	json_t * response_json = json_loads(response_str.array, 0, &json_error);
+	if (!response_json) {
+		log_error("Failed to parse heartbeat response: %s",
+			json_error.text);
+		goto json_failed_error;
+	}
+	char const *error_text = NULL;
+	int error_result = json_unpack(response_json, "{s:[s!]}",
+		"_errors", &error_text);
+	if (error_result == 0) {
+		log_error("Error sending heartbeat: %s", error_text);
+		goto json_parsed_error;
+	}
+
+
+	if (response_code / 100 == 2)
+		result = true;
+
+json_parsed_error:
+	json_decref(response_json);
+json_failed_error:
+request_error:
+	dstr_free(&response_str);
+	curl_slist_free_all(headers);
+	curl_easy_cleanup(curl);
+	dstr_free(&url_str);
+curl_init_error:
+	free(request_body);
+request_serialize_error:
+	json_decref(request_json);
+request_json_error:
+
+	return result;
 }
