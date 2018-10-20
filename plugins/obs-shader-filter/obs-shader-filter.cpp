@@ -2134,9 +2134,9 @@ void ShaderFilter::reload()
 
 	if (paramMap.count("image_2")) {
 		ShaderParameter *p = paramMap.at("image_2");
-		image = p->getParameter()->getParam();
+		image_2 = p->getParameter()->getParam();
 	} else {
-		image = nullptr;
+		image_2 = nullptr;
 	}
 }
 
