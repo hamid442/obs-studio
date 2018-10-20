@@ -127,28 +127,16 @@ public:
 			_compiled = nullptr;
 		}
 	}
+
 	bool hasVariable(std::string search)
 	{
 		if (!size())
 			return false;
-		size_t lo = 0;
-		size_t hi = size() - 1;
-		for (; lo <= hi;) {
-			int i = lo + ((hi - lo) / 2);
-			te_variable t = this->at(i);
-			int c = strcmp(search.c_str(), t.name);
-			if (c == 0) {
-				return true;
-			} else if (c > 0) {
-				lo = i + 1;
-			} else {
-				if (i == 0)
-					return false;
-				hi = i - 1;
-			}
-
-		}
-		return false;
+		te_variable searchVar = { 0 };
+		searchVar.name = search.c_str();
+		return std::binary_search(begin(), end(), searchVar, [](te_variable a, te_variable b) {
+			return strcmp(a.name, b.name) < 0;
+		});
 	}
 	template<class DataType> DataType evaluate(DataType default_value = 0)
 	{
