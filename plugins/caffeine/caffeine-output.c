@@ -1,5 +1,7 @@
-#include <obs.h>
 #include <obs-module.h>
+
+#include <util/platform.h>
+#include <util/threading.h>
 
 #include <caffeine.h>
 
@@ -22,6 +24,8 @@ struct caffeine_output
 	caff_interface_handle interface;
 	caff_broadcast_handle broadcast;
 	struct caffeine_stream_info * stream_info;
+	pthread_mutex_t stream_mutex;
+	pthread_t heartbeat_thread;
 };
 
 static const char *caffeine_get_name(void *data)
@@ -77,6 +81,8 @@ static void *caffeine_create(obs_data_t *settings, obs_output_t *output)
 
 	struct caffeine_output *stream = bzalloc(sizeof(struct caffeine_output));
 	stream->output = output;
+	pthread_mutex_init_value(&stream->stream_mutex);
+	pthread_mutex_init(&stream->stream_mutex, NULL);
 
 	log_info("caffeine_create");
 
@@ -140,7 +146,7 @@ static void caffeine_broadcast_started(void *data)
 	struct caffeine_output *stream = data;
 	log_info("caffeine_broadcast_started");
 
-	obs_output_begin_data_capture(stream->output, 0);
+	// TODO fix all the concurrency
 }
 
 static void caffeine_broadcast_failed(void *data, caff_error error)
@@ -149,6 +155,54 @@ static void caffeine_broadcast_failed(void *data, caff_error error)
 	log_error("caffeine_broadcast_failed: %d", error);
 
 	obs_output_signal_stop(stream->output, caffeine_to_obs_error(error));
+}
+
+void * golive_thread(void * data)
+{
+	struct caffeine_output * stream = data;
+	pthread_mutex_lock(&stream->stream_mutex);
+
+	obs_service_t * service = obs_output_get_service(stream->output);
+
+	char * stage_id = bstrdup(
+		obs_service_query(service, CAFFEINE_QUERY_STAGE_ID));
+	struct caffeine_auth_info const * auth_info =
+		obs_service_query(service, CAFFEINE_QUERY_AUTH_INFO);
+
+	char * stream_id = bstrdup(stream->stream_info->stream_id);
+	char * signed_payload = bstrdup(stream->stream_info->signed_payload);
+	pthread_mutex_unlock(&stream->stream_mutex);
+
+	char * session_id = NULL;
+
+	if ((session_id = set_stage_live(false, session_id, stage_id, stream_id, auth_info)) == NULL) {
+		return NULL;
+	}
+
+	if (!create_broadcast(auth_info)) {
+		bfree(session_id);
+		return NULL;
+	}
+
+	set_stage_live(true, session_id, stage_id, stream_id, auth_info);
+
+	pthread_mutex_lock(&stream->stream_mutex);
+	while (stream->broadcast)
+	{
+		//set_stage_live(true, stage_id, stream->stream_info->stream_id, auth_info);
+		send_heartbeat(stream_id, signed_payload, auth_info);
+		pthread_mutex_unlock(&stream->stream_mutex);
+		os_sleep_ms(3000);
+		pthread_mutex_lock(&stream->stream_mutex);
+		set_stage_live(true, session_id, stage_id, stream_id, auth_info);
+	}
+	pthread_mutex_unlock(&stream->stream_mutex);
+
+	bfree(session_id);
+	bfree(signed_payload);
+	bfree(stream_id);
+	bfree(stage_id);
+	return NULL;
 }
 
 static bool caffeine_start(void *data)
@@ -172,6 +226,11 @@ static bool caffeine_start(void *data)
 		return false;
 
 	stream->broadcast = broadcast;
+
+	obs_output_begin_data_capture(stream->output, 0);
+
+	pthread_create(&stream->heartbeat_thread, NULL, golive_thread, stream);
+
 	return true;
 }
 
@@ -183,10 +242,18 @@ static void caffeine_stop(void *data, uint64_t ts)
 	log_info("caffeine_stop");
 
 	/* TODO: do something with ts? */
+
+	pthread_mutex_lock(&stream->stream_mutex);
+
 	caff_end_broadcast(stream->broadcast);
 	caffeine_free_stream_info(stream->stream_info);
+
 	stream->stream_info = NULL;
 	stream->broadcast = NULL;
+
+	pthread_mutex_unlock(&stream->stream_mutex);
+	pthread_join(stream->heartbeat_thread, NULL);
+
 
 	obs_output_end_data_capture(stream->output);
 }
@@ -197,7 +264,16 @@ static void caffeine_raw_video(void *data, struct video_data *frame)
 
 	struct caffeine_output *stream = data;
 
-	/* TODO */
+	if (!stream->broadcast)
+		return;
+
+	uint32_t width = 1280;
+	uint32_t height = 720;
+	size_t bytes_per_pixel = 4;
+	size_t total_bytes = width * height * bytes_per_pixel;
+
+	caff_send_video(
+		stream->broadcast, frame->data[0], total_bytes, width, height);
 }
 
 static void caffeine_raw_audio(void *data, struct audio_data *frames)
@@ -206,7 +282,10 @@ static void caffeine_raw_audio(void *data, struct audio_data *frames)
 
 	struct caffeine_output *stream = data;
 
-	/* TODO */
+	if (!stream->broadcast)
+		return;
+
+	caff_send_audio(stream->broadcast, frames->data[0], frames->frames);
 }
 
 struct obs_output_info caffeine_output_info = {

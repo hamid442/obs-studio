@@ -11,6 +11,11 @@ find_package(Libcurl REQUIRED)
 include_directories(${LIBCURL_INCLUDE_DIRS})
 add_definitions(${LIBCURL_DEFINITIONS})
 
+if(MSVC)
+	set(caffeine_PLATFORM_DEPS
+		w32-pthreads)
+endif()
+
 include_directories(
 	${OBS_JANSSON_INCLUDE_DIRS}
 	${CAFFEINE_INCLUDE_DIR})
@@ -31,6 +36,7 @@ target_link_libraries(caffeine
 	${CAFFEINE_LIBRARIES}
 	${LIBCURL_LIBRARIES}
 	${OBS_JANSSON_IMPORT}
+	${caffeine_PLATFORM_DEPS}
 	libobs)
 
 #install_obs_plugin_with_data(caffeine data)
