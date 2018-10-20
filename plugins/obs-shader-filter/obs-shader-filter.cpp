@@ -1002,12 +1002,12 @@ public:
 				switch (_numType) {
 				case combobox:
 				case list:
-					_bindings[i].s64i = obs_data_get_int(settings, _names[i].c_str());
-					_values[i].s32i = (int32_t)_bindings[i].s64i;
+					_bindings[i].d = (double)obs_data_get_int(settings, _names[i].c_str());
+					_values[i].s32i = (int32_t)_bindings[i].d;
 					break;
 				default:
-					_bindings[i].s64i = obs_data_get_bool(settings, _names[i].c_str());
-					_values[i].s32i = (int32_t)_bindings[i].s64i;
+					_bindings[i].d = (double)obs_data_get_bool(settings, _names[i].c_str());
+					_values[i].s32i = (int32_t)_bindings[i].d;
 					break;
 				}
 				break;
@@ -1015,8 +1015,8 @@ public:
 			case GS_SHADER_PARAM_INT2:
 			case GS_SHADER_PARAM_INT3:
 			case GS_SHADER_PARAM_INT4:
-				_bindings[i].s64i = obs_data_get_int(settings, _names[i].c_str());
-				_values[i].s32i = (int32_t)_bindings[i].s64i;
+				_bindings[i].d = (double)obs_data_get_int(settings, _names[i].c_str());
+				_values[i].s32i = (int32_t)_bindings[i].d;
 				break;
 			case GS_SHADER_PARAM_FLOAT:
 			case GS_SHADER_PARAM_VEC2:
@@ -1045,7 +1045,7 @@ public:
 				case GS_SHADER_PARAM_BOOL:
 					_filter->compileExpression(_expressions[i]);
 					_bindings[i].d = (double)filter->evaluateExpression<long long>(0);
-					_values[i].s32i = (int32_t)_bindings[i].s64i;
+					_values[i].s32i = (int32_t)_bindings[i].d;
 					break;
 				case GS_SHADER_PARAM_INT:
 				case GS_SHADER_PARAM_INT2:
@@ -1053,7 +1053,7 @@ public:
 				case GS_SHADER_PARAM_INT4:
 					_filter->compileExpression(_expressions[i]);
 					_bindings[i].d = (double)filter->evaluateExpression<long long>(0);
-					_values[i].s32i = (int32_t)_bindings[i].s64i;
+					_values[i].s32i = (int32_t)_bindings[i].d;
 					break;
 				case GS_SHADER_PARAM_FLOAT:
 				case GS_SHADER_PARAM_VEC2:
@@ -1061,7 +1061,7 @@ public:
 				case GS_SHADER_PARAM_VEC4:
 				case GS_SHADER_PARAM_MATRIX4X4:
 					_filter->compileExpression(_expressions[i]);
-					_bindings[i].d = filter->evaluateExpression<double>(0);
+					_bindings[i].d = (double)filter->evaluateExpression<double>(0);
 					_values[i].f = (float)_bindings[i].d;
 					break;
 				default:
@@ -1070,22 +1070,22 @@ public:
 			} else if (_bind) {
 				switch (_paramType) {
 				case GS_SHADER_PARAM_BOOL:
-					_bindings[i].s64i = static_cast<bool *>(_bind)[i];
-					_values[i].s32i = (int32_t)_bindings[i].s64i;
+					_bindings[i].d = (double)static_cast<bool *>(_bind)[i];
+					_values[i].s32i = (int32_t)_bindings[i].d;
 					break;
 				case GS_SHADER_PARAM_INT:
 				case GS_SHADER_PARAM_INT2:
 				case GS_SHADER_PARAM_INT3:
 				case GS_SHADER_PARAM_INT4:
-					_bindings[i].s64i = static_cast<int *>(_bind)[i];
-					_values[i].s32i = (int32_t)_bindings[i].s64i;
+					_bindings[i].d = (double)static_cast<int *>(_bind)[i];
+					_values[i].s32i = (int32_t)_bindings[i].d;
 					break;
 				case GS_SHADER_PARAM_FLOAT:
 				case GS_SHADER_PARAM_VEC2:
 				case GS_SHADER_PARAM_VEC3:
 				case GS_SHADER_PARAM_VEC4:
 				case GS_SHADER_PARAM_MATRIX4X4:
-					_bindings[i].d = static_cast<float *>(_bind)[i];
+					_bindings[i].d = (double)static_cast<float *>(_bind)[i];
 					_values[i].f = (float)_bindings[i].d;
 					break;
 				default:
@@ -1724,32 +1724,6 @@ public:
 				gs_copy_texture(_tex, texture);
 				_param->setValue<gs_texture_t *>(&_tex, sizeof(gs_texture *));
 				obs_leave_graphics();
-				/*
-				double tw = 0;
-				double th = 0;
-				double bytes = 0;
-				if (_tex) {
-					tw = gs_texture_get_width(_tex);
-					th = gs_texture_get_height(_tex);
-				}
-				bytes = 4 * 4 * tw * th;
-				obs_enter_graphics();
-				gs_texture_destroy(_tex);
-				if (texture) {
-					_sourceWidth = gs_texture_get_width(texture);
-					_sourceHeight = gs_texture_get_height(texture);
-					if (!_data) {
-						_data = (uint8_t*)bmalloc(4 * 4 * gs_texture_get_width(texture) * gs_texture_get_height(texture));
-					} else if (_data && (bytes != _sourceWidth * _sourceHeight * 16)) {
-						_data = (uint8_t*)brealloc(_data, _sourceWidth * _sourceHeight * 16);
-					}
-					_tex = gs_texture_create(gs_texture_get_width(texture), gs_texture_get_height(texture), gs_texture_get_color_format(texture), 1, (const uint8_t **)&_data, 0);
-					
-					gs_copy_texture(_tex, texture);
-				}
-				obs_enter_graphics();
-				_param->setValue<gs_texture_t *>(&_tex, sizeof(gs_texture *));
-				*/
 			}
 		}
 	}
@@ -1786,33 +1760,6 @@ public:
 				gs_copy_texture(_tex, texture);
 				_param->setValue<gs_texture_t *>(&_tex, sizeof(gs_texture *));
 				obs_leave_graphics();
-				//gs_copy_texture();
-				/*
-				double tw = 0;
-				double th = 0;
-				double bytes = 0;
-				if (_tex) {
-					tw = gs_texture_get_width(_tex);
-					th = gs_texture_get_height(_tex);
-				}
-				bytes = 4 * 4 * tw * th;
-				obs_enter_graphics();
-				gs_texture_destroy(_tex);
-				if (texture) {
-					_sourceWidth = gs_texture_get_width(texture);
-					_sourceHeight = gs_texture_get_height(texture);
-					if (!_data) {
-						_data = (uint8_t*)bmalloc(4 * 4 * gs_texture_get_width(texture) * gs_texture_get_height(texture));
-					} else if (_data && (bytes != _sourceWidth * _sourceHeight * 16)) {
-						_data = (uint8_t*)brealloc(_data, _sourceWidth * _sourceHeight * 16);
-					}
-					_tex = gs_texture_create(gs_texture_get_width(texture), gs_texture_get_height(texture), gs_texture_get_color_format(texture), 1, (const uint8_t **)&_data, 0);
-
-					gs_copy_texture(_tex, texture);
-				}
-				obs_enter_graphics();
-				_param->setValue<gs_texture_t *>(&_tex, sizeof(gs_texture *));
-				*/
 			}
 		}
 	}
@@ -2015,6 +1962,10 @@ void ShaderFilter::appendVariable(te_variable var)
 	{
 		blog(LOG_INFO, "appending %s", var.name);
 		expression.push_back(var);
+		/* Enforce alphabetical order for binary search */
+		std::sort(expression.begin(), expression.end(), [](te_variable a, te_variable b) {
+			return strcmp(a.name, b.name) < 0;
+		});
 	}
 }
 
@@ -2026,6 +1977,10 @@ void ShaderFilter::appendVariable(std::string &name, double *binding)
 	if (!expression.hasVariable(name)) {
 		blog(LOG_INFO, "appending %s", var.name);
 		expression.push_back(var);
+		/* Enforce alphabetical order for binary search */
+		std::sort(expression.begin(), expression.end(), [](te_variable a, te_variable b) {
+			return strcmp(a.name, b.name) < 0;
+		});
 	}
 }
 
@@ -2128,6 +2083,8 @@ void ShaderFilter::reload()
 		delete p;
 		p = nullptr;
 	}
+	for (i = 0; i < resizeExpressions->size(); i++)
+		resizeExpressions[i] = "";
 	paramMap.clear();
 	evaluationList.clear();
 	expression.clear();
@@ -2165,10 +2122,6 @@ void ShaderFilter::reload()
 
 	/* Enforce alphabetical order for binary search */
 	std::sort(expression.begin(), expression.end(), [](te_variable a, te_variable b) {
-		/*
-		std::string astr = std::string(a.name);
-		std::string bstr = std::string(b.name);
-		*/
 		return strcmp(a.name, b.name) < 0;
 	});
 
