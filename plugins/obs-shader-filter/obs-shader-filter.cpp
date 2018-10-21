@@ -1973,12 +1973,14 @@ void ShaderSource::clearExpression()
 void ShaderSource::appendVariable(te_variable var)
 {
 	if (!expression.hasVariable(std::string(var.name))) {
-		blog(LOG_INFO, "appending %s", var.name);
+		blog(LOG_DEBUG, "appending %s", var.name);
 		expression.push_back(var);
 		/* Enforce alphabetical order for binary search */
 		std::sort(expression.begin(), expression.end(), [](te_variable a, te_variable b) {
 			return strcmp(a.name, b.name) < 0;
 		});
+	} else {
+		blog(LOG_WARNING, "%s already appended", var.name);
 	}
 }
 
@@ -1988,12 +1990,14 @@ void ShaderSource::appendVariable(std::string &name, double *binding)
 	var.address = binding;
 	var.name = name.c_str();
 	if (!expression.hasVariable(name)) {
-		blog(LOG_INFO, "appending %s", var.name);
+		blog(LOG_DEBUG, "appending %s", var.name);
 		expression.push_back(var);
 		/* Enforce alphabetical order for binary search */
 		std::sort(expression.begin(), expression.end(), [](te_variable a, te_variable b) {
 			return strcmp(a.name, b.name) < 0;
 		});
+	} else {
+		blog(LOG_WARNING, "%s already appended", var.name);
 	}
 }
 
