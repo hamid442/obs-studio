@@ -558,10 +558,7 @@ te_expr *te_compile(const char *expression, const te_variable *variables, int va
 	s.lookup_len = var_count;
 
 	if (variables && var_count) {
-		size_t size = sizeof(te_variable) * var_count;
-		s.ordered_lookup = malloc(size);
-		memcpy(s.ordered_lookup, variables, size);
-		//qsort(s.ordered_lookup, var_count, sizeof(te_variable), compare_te_variables);
+		s.ordered_lookup = variables;
 	} else {
 		s.ordered_lookup = NULL;
 	}
@@ -575,12 +572,10 @@ te_expr *te_compile(const char *expression, const te_variable *variables, int va
 			*error = (s.next - s.start);
 			if (*error == 0) *error = 1;
 		}
-		free(s.ordered_lookup);
 		return 0;
 	} else {
 		optimize(root);
 		if (error) *error = 0;
-		free(s.ordered_lookup);
 		return root;
 	}
 }
