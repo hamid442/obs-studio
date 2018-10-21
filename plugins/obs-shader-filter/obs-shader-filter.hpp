@@ -215,7 +215,7 @@ public:
 
 class EVal;
 class EParam;
-class ShaderFilter;
+class ShaderSource;
 class ShaderData;
 
 class ShaderParameter {
@@ -230,10 +230,10 @@ protected:
 
 	ShaderData *    _shaderData = nullptr;
 	obs_property_t *_property = nullptr;
-	ShaderFilter *  _filter = nullptr;
+	ShaderSource *  _filter = nullptr;
 
 public:
-	ShaderParameter(gs_eparam_t *param, ShaderFilter *filter);
+	ShaderParameter(gs_eparam_t *param, ShaderSource *filter);
 	~ShaderParameter();
 
 	void init(gs_shader_param_type paramType);
@@ -245,15 +245,15 @@ public:
 
 	void lock();
 	void unlock();
-	void videoTick(ShaderFilter *filter, float elapsed_time, float seconds);
-	void videoRender(ShaderFilter *filter);
-	void update(ShaderFilter *filter);
-	void getProperties(ShaderFilter *filter, obs_properties_t *props);
-	void onPass(ShaderFilter *filter, const char *technique, size_t pass, gs_texture_t *texture);
-	void onTechniqueEnd(ShaderFilter *filter, const char *technique, gs_texture_t *texture);
+	void videoTick(ShaderSource *filter, float elapsed_time, float seconds);
+	void videoRender(ShaderSource *filter);
+	void update(ShaderSource *filter);
+	void getProperties(ShaderSource *filter, obs_properties_t *props);
+	void onPass(ShaderSource *filter, const char *technique, size_t pass, gs_texture_t *texture);
+	void onTechniqueEnd(ShaderSource *filter, const char *technique, gs_texture_t *texture);
 };
 
-class ShaderFilter {
+class ShaderSource {
 protected:
 	std::string _effectPath;
 	std::string _effectString;
@@ -360,8 +360,8 @@ public:
 	bool                              expressionCompiled();
 	std::string                       expressionError();
 
-	ShaderFilter(obs_data_t *settings, obs_source_t *source);
-	~ShaderFilter();
+	ShaderSource(obs_data_t *settings, obs_source_t *source);
+	~ShaderSource();
 
 	void lock();
 	void unlock();
