@@ -211,7 +211,7 @@ std::string toCamelCase(std::string str)
 {
 	size_t i;
 	char   c, c2;
-	for (i = 0; i < str.size()-1; i++) {
+	for (i = 0; i < str.size() - 1; i++) {
 		c = str[i];
 		if (c == '_') {
 			c2 = str[i + 1];
@@ -1762,7 +1762,7 @@ public:
 				if (!_data || bytes != size) {
 					_data = (uint8_t*)brealloc(_data, size);
 					obs_enter_graphics();
-					if(_tex)
+					if (_tex)
 						gs_texture_destroy(_tex);
 					obs_leave_graphics();
 					_tex = nullptr;
@@ -1972,8 +1972,7 @@ void ShaderSource::clearExpression()
 
 void ShaderSource::appendVariable(te_variable var)
 {
-	if (!expression.hasVariable(std::string(var.name)))
-	{
+	if (!expression.hasVariable(std::string(var.name))) {
 		blog(LOG_INFO, "appending %s", var.name);
 		expression.push_back(var);
 		/* Enforce alphabetical order for binary search */
@@ -2103,6 +2102,10 @@ void ShaderSource::reload()
 	expression.clear();
 
 	prepFunctions(&expression, this);
+	/* Enforce alphabetical order for binary search */
+	std::sort(expression.begin(), expression.end(), [](te_variable a, te_variable b) {
+		return strcmp(a.name, b.name) < 0;
+	});
 
 	obs_enter_graphics();
 	gs_effect_destroy(effect);
@@ -2457,7 +2460,10 @@ void ShaderSource::videoRenderSource(void *data, gs_effect_t *effect)
 		texture = gs_texrender_get_texture(filter->filterTexrender);
 		if (texture) {
 			const char *techName = "Draw";
-			gs_effect_t *   effect = obs_get_base_effect(OBS_EFFECT_DEFAULT);
+			gs_effect_t *effect = obs_get_base_effect(OBS_EFFECT_DEFAULT);
+			gs_eparam_t *img = gs_effect_get_param_by_name(effect, "image");
+			if (img)
+				gs_effect_set_texture(img, texture);
 			renderSprite(filter, effect, texture, techName, filter->totalWidth, filter->totalHeight);
 		}
 	}
@@ -2717,7 +2723,7 @@ static void getMouseCursor(void *data)
 	filter->_screenMouseVisible = true;
 	UNUSED_PARAMETER(data);
 #endif
-}
+	}
 
 static void getScreenSizes(void *data)
 {
