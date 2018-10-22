@@ -727,12 +727,16 @@ payload_json_error:
 	return result;
 }
 
-void add_text_part(curl_mime * mime, char const * name, char const * text)
+void add_text_part(
+	struct curl_httppost ** post,
+	struct curl_httppost ** last,
+	char const * name,
+	char const * text)
 {
-	curl_mimepart * part = curl_mime_addpart(mime);
-	curl_mime_name(part, name);
-	curl_mime_type(part, "text/plain");
-	curl_mime_data(part, text, CURL_ZERO_TERMINATED);
+	curl_formadd(post, last,
+		CURLFORM_COPYNAME, name,
+		CURLFORM_COPYCONTENTS, text,
+		CURLFORM_END);
 }
 
 bool create_broadcast(struct caffeine_auth_info const * auth_info)
@@ -745,15 +749,17 @@ bool create_broadcast(struct caffeine_auth_info const * auth_info)
 		return false;
 	}
 
-	curl_mime * mime = curl_mime_init(curl);
-	add_text_part(mime, "broadcast[name]", "OBS Test");
-	add_text_part(mime, "broadcast[description]", "");
-	add_text_part(mime, "broadcast[content_rating]", "PG");
-	add_text_part(mime, "broadcast[platform]", "PC");
-	add_text_part(mime, "broadcast[state]", "ONLINE");
-	add_text_part(mime, "broadcast[game_id]", "79");
+	struct curl_httppost * post = NULL;
+	struct curl_httppost * last = NULL;
 
-	curl_easy_setopt(curl, CURLOPT_MIMEPOST, mime);
+	add_text_part(&post, &last, "broadcast[name]", "OBS Test");
+	add_text_part(&post, &last, "broadcast[description]", "");
+	add_text_part(&post, &last, "broadcast[content_rating]", "PG");
+	add_text_part(&post, &last, "broadcast[platform]", "PC");
+	add_text_part(&post, &last, "broadcast[state]", "ONLINE");
+	add_text_part(&post, &last, "broadcast[game_id]", "79");
+
+	curl_easy_setopt(curl, CURLOPT_HTTPPOST, post);
 
 	curl_easy_setopt(curl, CURLOPT_URL, BROADCAST_URL);
 
@@ -810,7 +816,7 @@ json_failed_error:
 request_error:
 	dstr_free(&response_str);
 	curl_slist_free_all(headers);
-	curl_mime_free(mime);
+	curl_formfree(post);
 	curl_easy_cleanup(curl);
 
 	return result;
