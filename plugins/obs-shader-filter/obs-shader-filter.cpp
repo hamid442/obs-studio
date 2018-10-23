@@ -11,6 +11,9 @@ OBS_MODULE_USE_DEFAULT_LOCALE("obs_shader_filter", "en-US")
 #define xdisp (XCompcap::disp())
 #endif
 
+static const float farZ = 2097152.0f; // 2 pow 21
+static const float nearZ = 1.0f / farZ;
+
 static void sidechain_capture(void *p, obs_source_t *source, const struct audio_data *audio_data, bool muted);
 
 static bool shader_filter_reload_effect_clicked(obs_properties_t *props, obs_property_t *property, void *data);
@@ -814,6 +817,7 @@ protected:
 	enum NumericalType {
 		combobox, list, num, slider, color
 	};
+
 	NumericalType _numType;
 
 public:
@@ -1234,8 +1238,8 @@ private:
 			return;
 		}
 
-		gs_texture_t *tex = gs_texrender_get_texture(_texrender);
-		gs_effect_set_texture(*param, tex);
+		//gs_texture_t *tex = gs_texrender_get_texture(_texrender);
+		//gs_effect_set_texture(*param, tex);
 	}
 
 	uint32_t processAudio(size_t samples)
@@ -1276,7 +1280,7 @@ private:
 		_tex = gs_texture_create(
 			(uint32_t)pxWidth, (uint32_t)_channels, GS_R32F, 1, (const uint8_t **)&_data, 0);
 		obs_leave_graphics();
-		gs_effect_set_texture(*param, _tex);
+		//gs_effect_set_texture(*param, _tex);
 	}
 
 	void updateAudioSource(std::string name)
@@ -1309,6 +1313,7 @@ protected:
 	std::vector<float> _audio[MAX_AV_PLANES];
 	std::vector<float> _tempAudio[MAX_AV_PLANES];
 	bool               _isFFT = false;
+	bool               _isParticle = false;
 	std::vector<float> _fft_data[MAX_AV_PLANES];
 	size_t             _channels = 0;
 	size_t             _maxAudioSize = AUDIO_OUTPUT_FRAMES * 2;
@@ -1336,6 +1341,22 @@ protected:
 	double      _mediaSourceLength;
 	double      _mediaSourceFrames;
 
+	struct transformAlpha {
+		matrix4 position;
+
+		float rotateX;
+		float rotateY;
+		float rotateZ;
+
+		float translateX;
+		float translateY;
+		float translateZ;
+
+		//matrix4 m;
+		float f;
+	};
+	gs_texrender_t * _particlerender = nullptr;
+	std::vector<transformAlpha> _particles;
 public:
 	TextureData(ShaderParameter *parent, ShaderSource *filter)
 		: ShaderData(parent, filter), _maxAudioSize(AUDIO_OUTPUT_FRAMES * 2)
@@ -1655,7 +1676,7 @@ public:
 		ShaderData::videoRender(filter);
 		uint32_t      srcWidth = obs_source_get_width(filter->context);
 		uint32_t      srcHeight = obs_source_get_height(filter->context);
-		gs_texture_t *t;
+		gs_texture_t *t = nullptr;
 		size_t        pixels;
 		size_t        i;
 		uint8_t       u;
@@ -1663,14 +1684,17 @@ public:
 		case media:
 		case source:
 			renderSource(_param, srcWidth, srcHeight);
+			t = gs_texrender_get_texture(_texrender);
 			break;
 		case audio:
 			renderAudioSource(_param, AUDIO_OUTPUT_FRAMES);
+			t = _tex;
 			break;
 		case image:
 			t = _image ? _image->texture : NULL;
-			if (_param)
-				_param->setValue<gs_texture_t *>(&t, sizeof(gs_texture_t *));
+
+			//if (_param)
+			//	_param->setValue<gs_texture_t *>(&t, sizeof(gs_texture_t *));
 			break;
 		case random:
 			pixels = srcHeight * srcWidth;
@@ -1694,14 +1718,133 @@ public:
 			_tex = gs_texture_create(
 				(uint32_t)srcWidth, (uint32_t)srcHeight, GS_R8, 1, (const uint8_t **)&_data, 0);
 			obs_leave_graphics();
-			_param->setValue<gs_texture_t *>(&_tex, sizeof(gs_texture_t *));
-			//gs_effect_set_texture(*_param, _tex);
+			t = _tex;
+			//_param->setValue<gs_texture_t *>(&_tex, sizeof(gs_texture_t *));
 			break;
 		case buffer:
-			_param->setValue<gs_texture_t *>(&_tex, sizeof(gs_texture *));
+			t = _tex;
+			//_param->setValue<gs_texture_t *>(&_tex, sizeof(gs_texture_t *));
 			break;
 		default:
 			break;
+		}
+#define DEBUG_PARTICLES
+#ifdef DEBUG_PARTICLES
+		_isParticle = true;
+		if (_particles.size() == 0) {
+			transformAlpha p = {0};
+			matrix4_identity(&p.position);
+			p.rotateX = 0.01;
+			//p.translateX = 1;
+			_particles.push_back(p);
+		}
+#endif // DEBUG_PARTICLES
+		if (_isParticle) {
+			if (!_particlerender)
+				_particlerender = gs_texrender_create(GS_RGBA, GS_ZS_NONE);
+			gs_effect_t *default_effect = obs_get_base_effect(OBS_EFFECT_DEFAULT);
+			gs_texrender_reset(_particlerender);
+			// Allocate memory for data.
+			size_t vCap = 4;
+			gs_vb_data *m_vertexbufferdata = gs_vbdata_create();
+			m_vertexbufferdata->num = vCap;
+			m_vertexbufferdata->points = (vec3*)bmalloc(sizeof(vec3) * m_vertexbufferdata->num);
+			m_vertexbufferdata->normals = (vec3*)bmalloc(sizeof(vec3) * m_vertexbufferdata->num);
+			m_vertexbufferdata->tangents = (vec3*)bmalloc(sizeof(vec3) * m_vertexbufferdata->num);
+			m_vertexbufferdata->colors = (uint32_t*)bmalloc(sizeof(uint32_t) * m_vertexbufferdata->num);
+			m_vertexbufferdata->tvarray = (gs_tvertarray*)bmalloc(sizeof(gs_tvertarray));
+			m_vertexbufferdata->tvarray->array = (vec2*)bmalloc(sizeof(vec2) * m_vertexbufferdata->num);
+			m_vertexbufferdata->tvarray->width = 2;//m_vertexbufferdata->num;
+			//m_vertexbufferdata->tvarray = (vec4*)bmalloc(sizeof(vec3) * m_vertexbufferdata->num);
+			gs_vertbuffer_t *vbuf = gs_vertexbuffer_create(m_vertexbufferdata, GS_DYNAMIC);
+
+			if (gs_texrender_begin(_particlerender, _filter->totalWidth, _filter->totalHeight)) {
+				/*
+				gs_set_cull_mode(GS_NEITHER);
+				gs_enable_blending(false);
+				gs_enable_depth_test(false);
+				gs_depth_function(gs_depth_test::GS_ALWAYS);
+				gs_enable_stencil_test(false);
+				gs_enable_stencil_write(false);
+				gs_enable_color(true, true, true, true);
+				*/
+				/*
+				if (is_orthographic) {
+					gs_ortho(-1.0, 1.0, -1.0, 1.0, -farZ, farZ);
+				} else {
+					gs_perspective(field_of_view, float_t(_filter->totalWidth) / float_t(_filter->totalHeight), nearZ, farZ);
+					// Fix camera pointing at -Z instead of +Z.
+					gs_matrix_scale3f(1.0, 1.0, -1.0);
+					// Move backwards so we can actually see stuff.
+					gs_matrix_translate3f(0, 0, 1.0);
+				}
+				*/
+				gs_set_cull_mode(GS_NEITHER);
+				//gs_enable_blending(false);
+				gs_enable_depth_test(false);
+				gs_depth_function(gs_depth_test::GS_ALWAYS);
+				gs_ortho(0, 1.0, 0, 1.0, -farZ, farZ);
+				gs_enable_stencil_test(false);
+				gs_enable_stencil_write(false);
+				gs_enable_color(true, true, true, true);
+
+				struct vec4 clearColor;
+				vec4_zero(&clearColor);
+
+				gs_clear(GS_CLEAR_COLOR | GS_CLEAR_DEPTH, &clearColor, 1, 0);
+
+				for (i = 0; i < _particles.size(); i++) {
+					transformAlpha *p = &_particles[i];
+					//rotate matrix
+					matrix4_rotate_aa4f(&p->position, &p->position, 1, 0, 0, p->rotateX);
+					matrix4_rotate_aa4f(&p->position, &p->position, 0, 1, 0, p->rotateY);
+					matrix4_rotate_aa4f(&p->position, &p->position, 0, 0, 1, p->rotateZ);
+					//transalte matrix
+					matrix4_translate3f(&p->position, &p->position, p->translateX, p->translateY, p->translateZ);
+
+					vec2 *ar = (vec2 *)m_vertexbufferdata->tvarray->array;
+					m_vertexbufferdata->colors[0] = 0xFFFFFFFF;
+					m_vertexbufferdata->colors[1] = 0xFFFFFFFF;
+					m_vertexbufferdata->colors[2] = 0xFFFFFFFF;
+					m_vertexbufferdata->colors[3] = 0xFFFFFFFF;
+
+					vec2_set(&ar[0], 0, 0);
+					vec2_set(&ar[1], 1, 0);
+					vec2_set(&ar[2], 0, 1);
+					vec2_set(&ar[3], 1, 1);
+					uint32_t w = gs_texture_get_width(t);
+					uint32_t h = gs_texture_get_height(t);
+
+					vec3_set(&m_vertexbufferdata->points[0], 0, 0, 0);
+					vec3_set(&m_vertexbufferdata->points[1], w, 0, 0);
+					vec3_set(&m_vertexbufferdata->points[2], 0, h, 0);
+					vec3_set(&m_vertexbufferdata->points[3], w, h, 0);
+
+					vec3_transform(&m_vertexbufferdata->points[0], &m_vertexbufferdata->points[0], &p->position);
+					vec3_transform(&m_vertexbufferdata->points[1], &m_vertexbufferdata->points[1], &p->position);
+					vec3_transform(&m_vertexbufferdata->points[2], &m_vertexbufferdata->points[2], &p->position);
+					vec3_transform(&m_vertexbufferdata->points[3], &m_vertexbufferdata->points[3], &p->position);
+
+					gs_load_vertexbuffer(vbuf);
+					gs_vertexbuffer_flush(vbuf);
+					while (gs_effect_loop(default_effect, "Draw")) {
+						gs_effect_set_texture(gs_effect_get_param_by_name(default_effect, "image"), t);
+						gs_draw(GS_TRISTRIP, 0, 4);
+					}
+				}
+
+				gs_texrender_end(_particlerender);
+
+				//gs_texture_t *tex = gs_texrender_get_texture(_texrender);
+				gs_texture_t *tex = gs_texrender_get_texture(_texrender);
+				_param->setValue<gs_texture_t *>(&tex, sizeof(gs_texture_t *));
+			}
+			gs_vertexbuffer_destroy(vbuf);
+			//gs_vbdata_destroy(m_vertexbufferdata);
+			//bfree(m_vertexbufferdata);
+		} else {
+			if (_param)
+				_param->setValue<gs_texture_t *>(&t, sizeof(gs_texture_t *));
 		}
 	}
 
@@ -2727,7 +2870,7 @@ static void getMouseCursor(void *data)
 	filter->_screenMouseVisible = true;
 	UNUSED_PARAMETER(data);
 #endif
-	}
+}
 
 static void getScreenSizes(void *data)
 {
