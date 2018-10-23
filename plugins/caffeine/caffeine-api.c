@@ -13,18 +13,18 @@
 #define log_info(format, ...)  do_log(LOG_INFO, format, ##__VA_ARGS__)
 #define log_debug(format, ...)  do_log(LOG_DEBUG, format, ##__VA_ARGS__)
 
-#define API_ENDPOINT "https://api.caffeine.tv"
+#define API_ENDPOINT       "https://api.caffeine.tv/"
 
-#define SIGNIN_URL       API_ENDPOINT "/v1/account/signin"
-#define GETUSER_URL_F    API_ENDPOINT "/v1/users/%s"
-#define STREAM_URL       API_ENDPOINT "/v2/broadcasts/streams"
-#define TRICKLE_URL_F    API_ENDPOINT "/v2/broadcasts/streams/%s"
-#define BROADCAST_URL    API_ENDPOINT "/v1/broadcasts"
-#define HEARTBEAT_URL_F  API_ENDPOINT "/v2/broadcasts/streams/%s/heartbeat"
+#define SIGNIN_URL         API_ENDPOINT "v1/account/signin"
+#define GETUSER_URL_F      API_ENDPOINT "v1/users/%s"
+#define STREAM_URL         API_ENDPOINT "v2/broadcasts/streams"
+#define TRICKLE_URL_F      API_ENDPOINT "v2/broadcasts/streams/%s"
+#define BROADCAST_URL      API_ENDPOINT "v1/broadcasts"
+#define HEARTBEAT_URL_F    API_ENDPOINT "v2/broadcasts/streams/%s/heartbeat"
 
-#define REALTIME_ENDPOINT "https://realtime.caffeine.tv"
+#define REALTIME_ENDPOINT  "https://realtime.caffeine.tv/"
 
-#define STAGE_STATE_URL_F  REALTIME_ENDPOINT "/v2/stages/%s/details"
+#define STAGE_STATE_URL_F  REALTIME_ENDPOINT "v2/stages/%s/details"
 
 
 static size_t caffeine_curl_write_callback(char * ptr, size_t size,
@@ -582,6 +582,12 @@ request_json_error:
 	return response;
 }
 
+
+
+/* TODO: Here be dragons
+ *
+ * Stuff below here likely won't stay
+ */
 
 char * set_stage_live(
 	bool isLive,
