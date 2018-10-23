@@ -39,6 +39,7 @@ target_link_libraries(caffeine
 	${caffeine_PLATFORM_DEPS}
 	libobs)
 
-#install_obs_plugin_with_data(caffeine data)
-install_obs_plugin(caffeine)
+install_obs_plugin_with_data(caffeine data)
+
+# TODO: this doesn't do the right thing on linux
 install_obs_bin(caffeine "" ${CAFFEINE_SHARED})
