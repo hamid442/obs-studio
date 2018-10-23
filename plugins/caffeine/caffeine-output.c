@@ -26,13 +26,14 @@ struct caffeine_output
 	struct caffeine_stream_info * stream_info;
 	pthread_mutex_t stream_mutex;
 	pthread_t heartbeat_thread;
+
 };
 
 static const char *caffeine_get_name(void *data)
 {
 	UNUSED_PARAMETER(data);
 
-	return obs_module_text("CaffeineOutput"); /* TODO localize */
+	return obs_module_text("CaffeineOutput");
 }
 
 /* Converts caffeine-rtc (webrtc) log levels to OBS levels. NONE or unrecognized

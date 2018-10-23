@@ -22,7 +22,7 @@ static char const * caffeine_service_name(void * unused)
 {
 	UNUSED_PARAMETER(unused);
 
-	return "Caffeine.tv";
+	return obs_module_text("CaffeineService");
 }
 
 static void caffeine_service_free_contents(struct caffeine_service * service)
