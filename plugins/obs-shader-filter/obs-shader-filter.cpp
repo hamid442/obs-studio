@@ -1678,7 +1678,7 @@ public:
 		uint32_t      srcHeight = obs_source_get_height(filter->context);
 		gs_texture_t *t = nullptr;
 		size_t        pixels;
-		size_t        i;
+		size_t        i, j;
 		uint8_t       u;
 		switch (_texType) {
 		case media:
@@ -1730,7 +1730,8 @@ public:
 		}
 #define DEBUG_PARTICLES
 #ifdef DEBUG_PARTICLES
-		_isParticle = true;
+		if(_texType == audio)
+			_isParticle = true;
 		if (_particles.size() == 0) {
 			transformAlpha p = {0};
 			matrix4_identity(&p.position);
@@ -1755,6 +1756,7 @@ public:
 			m_vertexbufferdata->tvarray = (gs_tvertarray*)bmalloc(sizeof(gs_tvertarray));
 			m_vertexbufferdata->tvarray->array = (vec4*)bmalloc(sizeof(vec4) * m_vertexbufferdata->num);
 			m_vertexbufferdata->tvarray->width = 4;//m_vertexbufferdata->num;
+			m_vertexbufferdata->num_tex = 1;
 			//m_vertexbufferdata->tvarray = (vec4*)bmalloc(sizeof(vec3) * m_vertexbufferdata->num);
 			gs_vertbuffer_t *vbuf = gs_vertexbuffer_create(m_vertexbufferdata, GS_DYNAMIC);
 
@@ -1829,20 +1831,23 @@ public:
 					vec3_transform(&m_vertexbufferdata->points[2], &m_vertexbufferdata->points[2], &p->position);
 					vec3_transform(&m_vertexbufferdata->points[3], &m_vertexbufferdata->points[3], &p->position);
 
-					gs_load_vertexbuffer(vbuf);
-					gs_load_indexbuffer(nullptr);
-					//gs_vertexbuffer_flush(vbuf);
-					const char *techName = "Draw";
-					gs_technique_t *tech = gs_effect_get_technique(default_effect, techName);
-
-					size_t passes = gs_technique_begin(tech);
-					for (i = 0; i < passes; i++) {
-						gs_technique_begin_pass(tech, i);
-						gs_effect_set_texture(gs_effect_get_param_by_name(default_effect, "image"), t);
-						gs_technique_end_pass(tech);
+					if (t) {
+						gs_vertexbuffer_flush(vbuf);
+						gs_load_vertexbuffer(vbuf);
+						gs_load_indexbuffer(nullptr);
+						const char *techName = "Draw";
+						gs_technique_t *tech = gs_effect_get_technique(default_effect, techName);
+						size_t passes = gs_technique_begin(tech);
+						for (i = 0; i < passes; i++) {
+							gs_technique_begin_pass(tech, i);
+							gs_effect_set_texture(gs_effect_get_param_by_name(default_effect, "image"), t);
+							gs_draw(GS_TRISTRIP, 0, 4);
+							gs_technique_end_pass(tech);
+						}
+						gs_technique_end(tech);
+					} else {
+						blog(LOG_WARNING, "No Particle!");
 					}
-					//gs_draw(GS_TRISTRIP, 0, 4);
-					gs_technique_end(tech);
 					/*
 					while (gs_effect_loop(default_effect, "Draw")) {
 						gs_effect_set_texture(gs_effect_get_param_by_name(default_effect, "image"), t);
@@ -1855,7 +1860,10 @@ public:
 
 				//gs_texture_t *tex = gs_texrender_get_texture(_texrender);
 				gs_texture_t *tex = gs_texrender_get_texture(_texrender);
-				_param->setValue<gs_texture_t *>(&tex, sizeof(gs_texture_t *));
+				if (tex)
+					_param->setValue<gs_texture_t *>(&tex, sizeof(gs_texture_t *));
+				else
+					blog(LOG_WARNING, "No Particle Output!");
 			}
 			gs_vertexbuffer_destroy(vbuf);
 			//gs_vbdata_destroy(m_vertexbufferdata);
