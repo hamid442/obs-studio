@@ -1783,15 +1783,16 @@ public:
 				//gs_enable_blending(false);
 				gs_enable_depth_test(false);
 				gs_depth_function(gs_depth_test::GS_ALWAYS);
-				gs_ortho(0, 1.0, 0, 1.0, -farZ, farZ);
-				gs_enable_stencil_test(false);
-				gs_enable_stencil_write(false);
+				gs_ortho(-1.0, 1.0, -1.0, 1.0, -farZ, farZ);
+				//gs_ortho(0, 1.0, 0, 1.0, -farZ, farZ);
+				//gs_enable_stencil_test(false);
+				//gs_enable_stencil_write(false);
 				gs_enable_color(true, true, true, true);
 
 				struct vec4 clearColor;
 				vec4_zero(&clearColor);
 
-				gs_clear(GS_CLEAR_COLOR | GS_CLEAR_DEPTH, &clearColor, 1, 0);
+				gs_clear(GS_CLEAR_COLOR | GS_CLEAR_DEPTH, &clearColor, farZ, 0);
 
 				for (i = 0; i < _particles.size(); i++) {
 					transformAlpha *p = &_particles[i];
@@ -1829,11 +1830,25 @@ public:
 					vec3_transform(&m_vertexbufferdata->points[3], &m_vertexbufferdata->points[3], &p->position);
 
 					gs_load_vertexbuffer(vbuf);
-					gs_vertexbuffer_flush(vbuf);
-					gs_effect_set_texture(gs_effect_get_param_by_name(default_effect, "image"), t);
+					gs_load_indexbuffer(nullptr);
+					//gs_vertexbuffer_flush(vbuf);
+					const char *techName = "Draw";
+					gs_technique_t *tech = gs_effect_get_technique(default_effect, techName);
+
+					size_t passes = gs_technique_begin(tech);
+					for (i = 0; i < passes; i++) {
+						gs_technique_begin_pass(tech, i);
+						gs_effect_set_texture(gs_effect_get_param_by_name(default_effect, "image"), t);
+						gs_technique_end_pass(tech);
+					}
+					//gs_draw(GS_TRISTRIP, 0, 4);
+					gs_technique_end(tech);
+					/*
 					while (gs_effect_loop(default_effect, "Draw")) {
+						gs_effect_set_texture(gs_effect_get_param_by_name(default_effect, "image"), t);
 						gs_draw(GS_TRISTRIP, 0, 4);
 					}
+					*/
 				}
 
 				gs_texrender_end(_particlerender);
