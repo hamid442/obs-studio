@@ -102,14 +102,25 @@ static void *caffeine_create(obs_data_t *settings, obs_output_t *output)
 	return context;
 }
 
-static void caffeine_destroy(void *data)
+static char const * caffeine_offer_generated(void * data, char const * sdp_offer);
+static bool caffeine_ice_gathered(void *data, caff_ice_candidates candidates, size_t num_candidates);
+static void caffeine_stream_started(void *data);
+static void caffeine_stream_failed(void *data, caff_error error);
+
+static bool caffeine_start(void *data)
 {
 	struct caffeine_output *context = data;
-	log_info("caffeine_destroy");
-	caff_deinitialize(context->interface);
-	pthread_mutex_destroy(&context->stream_mutex);
+	log_info("caffeine_start");
 
-	bfree(data);
+	if (!obs_output_can_begin_data_capture(context->output, 0))
+		return false;
+
+	context->stream =
+		caff_start_stream(context->interface, context,
+			caffeine_offer_generated, caffeine_ice_gathered,
+			caffeine_stream_started, caffeine_stream_failed);
+
+	return context->stream != NULL;
 }
 
 static char const * caffeine_offer_generated(
@@ -145,6 +156,26 @@ static bool caffeine_ice_gathered(
 
 	return caffeine_trickle_candidates(
 		candidates, num_candidates, auth_info, context->stream_info);
+}
+
+static void * heartbeat(void * data);
+
+static void caffeine_stream_started(void *data)
+{
+	struct caffeine_output *context = data;
+	log_info("caffeine_stream_started");
+
+	obs_output_begin_data_capture(context->output, 0);
+
+	pthread_create(&context->heartbeat_thread, NULL, heartbeat, context);
+}
+
+static void caffeine_stream_failed(void *data, caff_error error)
+{
+	struct caffeine_output *context = data;
+	log_error("caffeine_stream_failed: %d", error);
+
+	obs_output_signal_stop(context->output, caffeine_to_obs_error(error));
 }
 
 static void * heartbeat(void * data)
@@ -196,62 +227,6 @@ static void * heartbeat(void * data)
 	return NULL;
 }
 
-static void caffeine_stream_started(void *data)
-{
-	struct caffeine_output *context = data;
-	log_info("caffeine_stream_started");
-
-	obs_output_begin_data_capture(context->output, 0);
-
-	pthread_create(&context->heartbeat_thread, NULL, heartbeat, context);
-}
-
-static void caffeine_stream_failed(void *data, caff_error error)
-{
-	struct caffeine_output *context = data;
-	log_error("caffeine_stream_failed: %d", error);
-
-	obs_output_signal_stop(context->output, caffeine_to_obs_error(error));
-}
-
-static bool caffeine_start(void *data)
-{
-	struct caffeine_output *context = data;
-	log_info("caffeine_start");
-
-	if (!obs_output_can_begin_data_capture(context->output, 0))
-		return false;
-
-	context->stream =
-		caff_start_stream(context->interface, context,
-			caffeine_offer_generated, caffeine_ice_gathered,
-			caffeine_stream_started, caffeine_stream_failed);
-
-	return context->stream != NULL;
-}
-
-static void caffeine_stop(void *data, uint64_t ts)
-{
-	UNUSED_PARAMETER(ts);
-
-	struct caffeine_output *context = data;
-	log_info("caffeine_stop");
-
-	/* TODO: do something with ts? */
-
-	obs_output_end_data_capture(context->output);
-	pthread_mutex_lock(&context->stream_mutex);
-
-	caff_end_stream(context->stream);
-	caffeine_free_stream_info(context->stream_info);
-
-	context->stream_info = NULL;
-	context->stream = NULL;
-
-	pthread_mutex_unlock(&context->stream_mutex);
-	pthread_join(context->heartbeat_thread, NULL);
-}
-
 static void caffeine_raw_video(void *data, struct video_data *frame)
 {
 	UNUSED_PARAMETER(frame);
@@ -282,14 +257,46 @@ static void caffeine_raw_audio(void *data, struct audio_data *frames)
 	caff_send_audio(context->stream, frames->data[0], frames->frames);
 }
 
+static void caffeine_stop(void *data, uint64_t ts)
+{
+	UNUSED_PARAMETER(ts);
+
+	struct caffeine_output *context = data;
+	log_info("caffeine_stop");
+
+	/* TODO: do something with ts? */
+
+	obs_output_end_data_capture(context->output);
+	pthread_mutex_lock(&context->stream_mutex);
+
+	caff_end_stream(context->stream);
+	caffeine_free_stream_info(context->stream_info);
+
+	context->stream_info = NULL;
+	context->stream = NULL;
+
+	pthread_mutex_unlock(&context->stream_mutex);
+	pthread_join(context->heartbeat_thread, NULL);
+}
+
+static void caffeine_destroy(void *data)
+{
+	struct caffeine_output *context = data;
+	log_info("caffeine_destroy");
+	caff_deinitialize(context->interface);
+	pthread_mutex_destroy(&context->stream_mutex);
+
+	bfree(data);
+}
+
 struct obs_output_info caffeine_output_info = {
 	.id        = "caffeine_output",
 	.flags     = OBS_OUTPUT_AV | OBS_OUTPUT_SERVICE,
 	.get_name  = caffeine_get_name,
 	.create    = caffeine_create,
-	.destroy   = caffeine_destroy,
 	.start     = caffeine_start,
-	.stop      = caffeine_stop,
 	.raw_video = caffeine_raw_video,
 	.raw_audio = caffeine_raw_audio,
+	.stop      = caffeine_stop,
+	.destroy   = caffeine_destroy,
 };
