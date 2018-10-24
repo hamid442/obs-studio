@@ -1753,8 +1753,8 @@ public:
 			m_vertexbufferdata->tangents = (vec3*)bmalloc(sizeof(vec3) * m_vertexbufferdata->num);
 			m_vertexbufferdata->colors = (uint32_t*)bmalloc(sizeof(uint32_t) * m_vertexbufferdata->num);
 			m_vertexbufferdata->tvarray = (gs_tvertarray*)bmalloc(sizeof(gs_tvertarray));
-			m_vertexbufferdata->tvarray->array = (vec2*)bmalloc(sizeof(vec2) * m_vertexbufferdata->num);
-			m_vertexbufferdata->tvarray->width = 2;//m_vertexbufferdata->num;
+			m_vertexbufferdata->tvarray->array = (vec4*)bmalloc(sizeof(vec4) * m_vertexbufferdata->num);
+			m_vertexbufferdata->tvarray->width = 4;//m_vertexbufferdata->num;
 			//m_vertexbufferdata->tvarray = (vec4*)bmalloc(sizeof(vec3) * m_vertexbufferdata->num);
 			gs_vertbuffer_t *vbuf = gs_vertexbuffer_create(m_vertexbufferdata, GS_DYNAMIC);
 
@@ -1802,23 +1802,26 @@ public:
 					//transalte matrix
 					matrix4_translate3f(&p->position, &p->position, p->translateX, p->translateY, p->translateZ);
 
-					vec2 *ar = (vec2 *)m_vertexbufferdata->tvarray->array;
+					vec4 *ar = (vec4 *)m_vertexbufferdata->tvarray->array;
 					m_vertexbufferdata->colors[0] = 0xFFFFFFFF;
 					m_vertexbufferdata->colors[1] = 0xFFFFFFFF;
 					m_vertexbufferdata->colors[2] = 0xFFFFFFFF;
 					m_vertexbufferdata->colors[3] = 0xFFFFFFFF;
 
-					vec2_set(&ar[0], 0, 0);
-					vec2_set(&ar[1], 1, 0);
-					vec2_set(&ar[2], 0, 1);
-					vec2_set(&ar[3], 1, 1);
+					vec4_set(&ar[0], 0, 0, 0, 0);
+					vec4_set(&ar[1], 1, 0, 0, 0);
+					vec4_set(&ar[2], 0, 1, 0, 0);
+					vec4_set(&ar[3], 1, 1, 0, 0);
+					/*
 					uint32_t w = gs_texture_get_width(t);
 					uint32_t h = gs_texture_get_height(t);
-
-					vec3_set(&m_vertexbufferdata->points[0], 0, 0, 0);
-					vec3_set(&m_vertexbufferdata->points[1], w, 0, 0);
-					vec3_set(&m_vertexbufferdata->points[2], 0, h, 0);
-					vec3_set(&m_vertexbufferdata->points[3], w, h, 0);
+					*/
+					uint32_t w = 1;
+					uint32_t h = 1;
+					vec3_set(&m_vertexbufferdata->points[0], w / -2.0, h / -2.0, 0);
+					vec3_set(&m_vertexbufferdata->points[1], w / 2.0, h / -2.0, 0);
+					vec3_set(&m_vertexbufferdata->points[2], w / -2.0, h / 2.0, 0);
+					vec3_set(&m_vertexbufferdata->points[3], w / 2.0, h / 2.0, 0);
 
 					vec3_transform(&m_vertexbufferdata->points[0], &m_vertexbufferdata->points[0], &p->position);
 					vec3_transform(&m_vertexbufferdata->points[1], &m_vertexbufferdata->points[1], &p->position);
@@ -1827,8 +1830,8 @@ public:
 
 					gs_load_vertexbuffer(vbuf);
 					gs_vertexbuffer_flush(vbuf);
+					gs_effect_set_texture(gs_effect_get_param_by_name(default_effect, "image"), t);
 					while (gs_effect_loop(default_effect, "Draw")) {
-						gs_effect_set_texture(gs_effect_get_param_by_name(default_effect, "image"), t);
 						gs_draw(GS_TRISTRIP, 0, 4);
 					}
 				}
