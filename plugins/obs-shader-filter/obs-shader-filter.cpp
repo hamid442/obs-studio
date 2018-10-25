@@ -1264,9 +1264,12 @@ public:
 	{
 		if (size() > 0) {
 			_indexBufferData = indexBuffer(size());
-			if (indexBuffer)
+			if (_indexBuffer && (gs_indexbuffer_get_num_indices(_indexBuffer)) != 6 * size()) {
 				gs_indexbuffer_destroy(_indexBuffer);
-			_indexBuffer = gs_indexbuffer_create(GS_UNSIGNED_LONG, _indexBufferData.data(), _indexBufferData.size(), GS_DYNAMIC | GS_DUP_BUFFER);
+				_indexBuffer = nullptr;
+			}
+			if(!_indexBuffer)
+				_indexBuffer = gs_indexbuffer_create(GS_UNSIGNED_LONG, _indexBufferData.data(), _indexBufferData.size(), GS_DYNAMIC | GS_DUP_BUFFER);
 		}
 	}
 
@@ -1275,8 +1278,26 @@ public:
 		if (size() > 0) {
 			if (_vertexBufferData && _vertexBufferData->num != 4 * size()) {
 				gs_vbdata_destroy(_vertexBufferData);
+				_vertexBufferData = nullptr;
+			}
+			if (!_vertexBufferData) {
+				_vertexBufferData = gs_vbdata_create();
+				_vertexBufferData->num = size() * 4;
+				_vertexBufferData->points = (vec3*)bmalloc(sizeof(vec3) * _vertexBufferData->num);
+				_vertexBufferData->normals = (vec3*)bmalloc(sizeof(vec3) * _vertexBufferData->num);
+				_vertexBufferData->tangents = (vec3*)bmalloc(sizeof(vec3) * _vertexBufferData->num);
+				_vertexBufferData->colors = (uint32_t*)bmalloc(sizeof(uint32_t) * _vertexBufferData->num);
+				_vertexBufferData->tvarray = (gs_tvertarray*)bmalloc(sizeof(gs_tvertarray));
+				_vertexBufferData->tvarray->array = (vec4*)bmalloc(sizeof(vec4) * _vertexBufferData->num);
+				_vertexBufferData->tvarray->width = 4;//m_vertexbufferdata->num;
+				_vertexBufferData->num_tex = 1;
+				if (_vertexBuffer) {
+					gs_vertexbuffer_destroy(_vertexBuffer);
+					_vertexBuffer = nullptr;
+				}
 			}
 			if (!_vertexBuffer)
+				_vertexBuffer = gs_vertexbuffer_create(_vertexBufferData, GS_DYNAMIC | GS_DUP_BUFFER);
 		}
 		for (size_t i = 0; i < size(); i++) {
 			transformAlpha *p = &this->at(i);
