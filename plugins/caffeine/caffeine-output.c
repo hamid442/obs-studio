@@ -301,12 +301,25 @@ static void * heartbeat(void * data)
 		goto create_broadcast_error;
 	}
 
+	/* TODO: use wall time instead */
+	long const heartbeat_interval = 5000; /* ms */
+	long const check_interval = 100;
+	long const num_intervals = heartbeat_interval / check_interval;
+
+	long interval = heartbeat_interval;
+
 	while (get_state(context) == ONLINE)
 	{
-		set_stage_live(true, session_id, stage_id, stream_id, auth_info);
-		send_heartbeat(stream_id, signed_payload, auth_info);
-		os_sleep_ms(5000);
+		if (interval >= heartbeat_interval) {
+			set_stage_live(true, session_id, stage_id, stream_id, auth_info);
+			send_heartbeat(stream_id, signed_payload, auth_info);
+			interval = 0;
+		}
+		os_sleep_ms(check_interval);
+		interval += check_interval;
 	}
+
+	set_stage_live(false, session_id, stage_id, stream_id, auth_info);
 
 create_broadcast_error:
 	bfree(session_id);
