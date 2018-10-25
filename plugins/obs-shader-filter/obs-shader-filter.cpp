@@ -1206,6 +1206,189 @@ static void fillAudioSourceList(obs_property_t *p)
 	obs_enum_sources(&fillPropertiesAudioSourceList, (void *)p);
 }
 
+static struct transformAlpha {
+	matrix4 position;
+
+	float rotateX;
+	float rotateY;
+	float rotateZ;
+
+	float translateX;
+	float translateY;
+	float translateZ;
+
+	float decayAlpha;
+	float alpha;
+	float lifeTime;
+	float localLifeTime;
+};
+
+static std::vector<uint32_t> indexBuffer(uint32_t particles)
+{
+	std::vector<uint32_t> ret;
+	ret.reserve(particles * 6);
+	for (uint32_t i = 0; i < particles; i++) {
+		ret.push_back(0 + i * 4);
+		ret.push_back(1 + i * 4);
+		ret.push_back(2 + i * 4);
+		ret.push_back(1 + i * 4);
+		ret.push_back(2 + i * 4);
+		ret.push_back(3 + i * 4);
+	}
+	return ret;
+}
+
+class ParticleData : public std::vector<transformAlpha> {
+private:
+	std::vector<uint32_t> _indexBufferData;
+	gs_vb_data *_vertexBufferData = nullptr;
+	gs_indexbuffer_t *_indexBuffer = nullptr;
+	gs_vertbuffer_t *_vertexBuffer = nullptr;
+	gs_texrender_t *_particlerender = nullptr;
+public:
+	~ParticleData()
+	{
+		obs_enter_graphics();
+		if (_vertexBuffer)
+			gs_vertexbuffer_destroy(_vertexBuffer);
+		if (_vertexBufferData)
+			gs_vbdata_destroy(_vertexBufferData);
+		if (_indexBuffer)
+			gs_indexbuffer_destroy(_indexBuffer);
+		if (_particlerender)
+			gs_texrender_destroy(_particlerender);
+		obs_leave_graphics();
+	}
+
+	void updateIndexBuffer()
+	{
+		if (size() > 0) {
+			_indexBufferData = indexBuffer(size());
+			if (indexBuffer)
+				gs_indexbuffer_destroy(_indexBuffer);
+			_indexBuffer = gs_indexbuffer_create(GS_UNSIGNED_LONG, _indexBufferData.data(), _indexBufferData.size(), GS_DYNAMIC | GS_DUP_BUFFER);
+		}
+	}
+
+	void updateVertexBuffer()
+	{
+		if (size() > 0) {
+			if (_vertexBufferData && _vertexBufferData->num != 4 * size()) {
+				gs_vbdata_destroy(_vertexBufferData);
+			}
+			if (!_vertexBuffer)
+		}
+		for (size_t i = 0; i < size(); i++) {
+			transformAlpha *p = &this->at(i);
+			vec4 *ar = (vec4 *)_vertexBufferData->tvarray->array;
+			size_t index_0 = i * 4;
+			size_t index_1 = index_0 + 1;
+			size_t index_2 = index_0 + 2;
+			size_t index_3 = index_0 + 3;
+			_vertexBufferData->colors[index_0] = 0xFFFFFF00 | ((uint8_t)(p->alpha * 255.0));
+			_vertexBufferData->colors[index_1] = 0xFFFFFF00 | ((uint8_t)(p->alpha * 255.0));
+			_vertexBufferData->colors[index_2] = 0xFFFFFF00 | ((uint8_t)(p->alpha * 255.0));
+			_vertexBufferData->colors[index_3] = 0xFFFFFF00 | ((uint8_t)(p->alpha * 255.0));
+
+			vec4_set(&ar[index_0], 0, 0, 0, 0);
+			vec4_set(&ar[index_1], 1, 0, 0, 0);
+			vec4_set(&ar[index_2], 0, 1, 0, 0);
+			vec4_set(&ar[index_3], 1, 1, 0, 0);
+
+			uint32_t w = 1;
+			uint32_t h = 1;
+
+			vec3_set(&_vertexBufferData->points[index_0], w / -2.0, h / -2.0, 0);
+			vec3_set(&_vertexBufferData->points[index_1], w / 2.0, h / -2.0, 0);
+			vec3_set(&_vertexBufferData->points[index_2], w / -2.0, h / 2.0, 0);
+			vec3_set(&_vertexBufferData->points[index_3], w / 2.0, h / 2.0, 0);
+
+			vec3_transform(&_vertexBufferData->points[index_0], &_vertexBufferData->points[index_0], &p->position);
+			vec3_transform(&_vertexBufferData->points[index_1], &_vertexBufferData->points[index_1], &p->position);
+			vec3_transform(&_vertexBufferData->points[index_2], &_vertexBufferData->points[index_2], &p->position);
+			vec3_transform(&_vertexBufferData->points[index_3], &_vertexBufferData->points[index_3], &p->position);
+		}
+	}
+	ParticleData() : std::vector<transformAlpha>()
+	{
+
+	}
+	void updateTransforms()
+	{
+		/*Transform*/
+		for (size_t i = 0; i < size(); i++) {
+			transformAlpha *p = &this->at(i);
+			//rotate matrix
+			matrix4_rotate_aa4f(&p->position, &p->position, 1, 0, 0, p->rotateX);
+			matrix4_rotate_aa4f(&p->position, &p->position, 0, 1, 0, p->rotateY);
+			matrix4_rotate_aa4f(&p->position, &p->position, 0, 0, 1, p->rotateZ);
+			//translate matrix
+			matrix4_translate3f(&p->position, &p->position, p->translateX, p->translateY, p->translateZ);
+		}
+	}
+
+	void sortZ()
+	{
+		std::sort(begin(), end(), [](transformAlpha a, transformAlpha b) {
+			vec3 av = { 0 };
+			vec3 bv = { 0 };
+			vec3_transform(&av, &av, &a.position);
+			vec3_transform(&bv, &bv, &b.position);
+
+			return (pow(av.x, 2) + pow(av.y, 2) + pow(av.z, 2)) > (pow(bv.x, 2) + pow(bv.y, 2) + pow(bv.z, 2));
+		});
+	};
+
+	gs_texture_t *render(gs_texture_t *particle, uint32_t cx, uint32_t cy)
+	{
+		if (size() > 0) {
+			if (!_particlerender)
+				_particlerender = gs_texrender_create(GS_RGBA, GS_ZS_NONE);
+			gs_texrender_reset(_particlerender);
+			if (gs_texrender_begin(_particlerender, cx, cy)) {
+				gs_set_cull_mode(GS_NEITHER);
+				//gs_enable_blending(false);
+				gs_enable_depth_test(false);
+				gs_depth_function(gs_depth_test::GS_ALWAYS);
+				gs_ortho(-1.0, 1.0, -1.0, 1.0, -farZ, farZ);
+				//gs_enable_stencil_test(false);
+				//gs_enable_stencil_write(false);
+				gs_enable_color(true, true, true, true);
+
+				struct vec4 clearColor;
+				vec4_zero(&clearColor);
+
+				gs_clear(GS_CLEAR_COLOR | GS_CLEAR_DEPTH, &clearColor, farZ, 0);
+
+				size_t i;
+				gs_effect_t *default_effect = obs_get_base_effect(OBS_EFFECT_DEFAULT);
+				uint32_t vertexes = 4 * size();
+				if (particle) {
+					gs_vertexbuffer_flush(_vertexBuffer);
+					gs_load_vertexbuffer(_vertexBuffer);
+					gs_indexbuffer_flush(_indexBuffer);
+					gs_load_indexbuffer(_indexBuffer);
+					const char *techName = "Draw";
+					gs_technique_t *tech = gs_effect_get_technique(default_effect, techName);
+					gs_eparam_t *particleParam = gs_effect_get_param_by_name(default_effect, "image");
+					gs_effect_set_texture(particleParam, particle);
+					size_t passes = gs_technique_begin(tech);
+					for (i = 0; i < passes; i++) {
+						gs_technique_begin_pass(tech, i);
+						gs_draw(GS_TRIS, 0, vertexes);
+						gs_technique_end_pass(tech);
+					}
+					gs_technique_end(tech);
+				} else {
+					blog(LOG_WARNING, "No Particle!");
+				}
+				return gs_texrender_get_texture(_particlerender);
+			}
+		}
+		return nullptr;
+	}
+};
+
 class TextureData : public ShaderData {
 private:
 	void renderSource(EParam *param, uint32_t cx, uint32_t cy)
@@ -1349,40 +1532,9 @@ protected:
 	double _particleLifeTime = 10;
 	size_t _spawnRate = 0;
 
-	struct transformAlpha {
-		matrix4 position;
-
-		float rotateX;
-		float rotateY;
-		float rotateZ;
-
-		float translateX;
-		float translateY;
-		float translateZ;
-
-		float decayAlpha;
-		float alpha;
-		float lifeTime;
-		float localLifeTime;
-	};
 	gs_texrender_t * _particlerender = nullptr;
 	std::vector<transformAlpha> _particles;
 public:
-	std::vector<uint32_t> indexBuffer(uint32_t particles)
-	{
-		std::vector<uint32_t> ret;
-		ret.reserve(particles * 6);
-		for (uint32_t i = 0; i < particles; i++) {
-			ret.push_back(0 + i * 4);
-			ret.push_back(1 + i * 4);
-			ret.push_back(2 + i * 4);
-			ret.push_back(1 + i * 4);
-			ret.push_back(2 + i * 4);
-			ret.push_back(3 + i * 4);
-		}
-		return ret;
-	}
-
 	TextureData(ShaderParameter *parent, ShaderSource *filter)
 		: ShaderData(parent, filter), _maxAudioSize(AUDIO_OUTPUT_FRAMES * 2)
 	{
@@ -1706,11 +1858,23 @@ public:
 #ifdef DEBUG_PARTICLES
 		if (_texType == audio)
 			_isParticle = true;
-		if (_particles.size() == 0) {
+		if (_particles.size() == 0 && elapsedTime < 1.0) {
 			transformAlpha p = { 0 };
 			matrix4_identity(&p.position);
 			p.rotateX = 0.01;
-			p.localLifeTime = 10.0;
+			matrix4_identity(&p.position);
+			p.rotateX = random_double(-1, 1);
+			p.rotateY = random_double(-1, 1);
+			p.rotateZ = random_double(-1, 1);
+			/*
+			p.translateX = random_double(-0.1, 0.1);
+			p.translateY = random_double(-0.1, 0.1);
+			p.translateY = random_double(-0.1, 0.1);
+			*/
+			p.localLifeTime = random_double(5.0, 10.0);
+			p.lifeTime = -seconds;
+			p.alpha = random_double(0.5, 1);
+			p.decayAlpha = random_double(0, 0.05);
 			//p.translateX = 1;
 			_particles.push_back(p);
 		}
@@ -1744,7 +1908,8 @@ public:
 				}
 				p->alpha = hlsl_clamp(p->alpha - p->decayAlpha, 0, 255);
 			}
-
+			if (_particles.size() == 0)
+				return;
 			if (!_vertexBufferData || oldSize != _particles.size()) {
 				// Allocate memory for data.
 				size_t vCap = 4 * _particles.size();
@@ -1811,10 +1976,8 @@ public:
 			}
 			/*Z Order*/
 			std::sort(_particles.begin(), _particles.end(), [](transformAlpha a, transformAlpha b) {
-				vec3 av;
-				vec3 bv;
-				vec3_set(&av, 0, 0, 0);
-				vec3_set(&bv, 0, 0, 0);
+				vec3 av = { 0 };
+				vec3 bv = { 0 };
 				vec3_transform(&av, &av, &a.position);
 				vec3_transform(&bv, &bv, &b.position);
 
