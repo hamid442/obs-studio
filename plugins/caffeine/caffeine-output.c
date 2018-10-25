@@ -1,5 +1,6 @@
 #include <obs-module.h>
 
+#include <util/base.h>
 #include <util/platform.h>
 #include <util/threading.h>
 
@@ -18,6 +19,13 @@
 #define log_info(format, ...)  do_log(LOG_INFO, format, ##__VA_ARGS__)
 #define log_debug(format, ...)  do_log(LOG_DEBUG, format, ##__VA_ARGS__)
 
+enum state {
+	OFFLINE = 0,
+	STARTING,
+	ONLINE,
+	STOPPING,
+};
+
 struct caffeine_output
 {
 	obs_output_t * output;
@@ -27,6 +35,7 @@ struct caffeine_output
 	pthread_mutex_t stream_mutex;
 	pthread_t heartbeat_thread;
 
+	volatile long state;
 };
 
 static const char *caffeine_get_name(void *data)
@@ -87,10 +96,9 @@ static void *caffeine_create(obs_data_t *settings, obs_output_t *output)
 
 	struct caffeine_output *context = bzalloc(sizeof(struct caffeine_output));
 	context->output = output;
-	pthread_mutex_init_value(&context->stream_mutex);
-	pthread_mutex_init(&context->stream_mutex, NULL);
-
 	log_info("caffeine_create");
+
+	context->stream_mutex = PTHREAD_MUTEX_INITIALIZER;
 
 	context->interface = caff_initialize(caffeine_log, CAFF_LOG_INFO);
 	if (!context->interface) {
@@ -100,6 +108,42 @@ static void *caffeine_create(obs_data_t *settings, obs_output_t *output)
 	}
 
 	return context;
+}
+
+static inline enum state get_state(struct caffeine_output * context)
+{
+	return (enum state)os_atomic_load_long(&context->state);
+}
+
+static inline bool require_state(
+	struct caffeine_output * context,
+	enum state expected_state)
+{
+	enum state state = get_state(context);
+	if (state != expected_state) {
+		log_error("In state %ld when expecting %ld",
+			state, (long)expected_state);
+		return false;
+	}
+	return true;
+}
+
+static inline void set_state(struct caffeine_output * context, enum state state)
+{
+	os_atomic_set_long(&context->state, (long)state);
+}
+
+static inline bool transition_state(
+	struct caffeine_output * context,
+	enum state old_state,
+	enum state new_state)
+{
+	bool result = os_atomic_compare_swap_long(&context->state, (long)old_state,
+					(long)new_state);
+	if (!result)
+		log_error("Transitioning to state %ld expects state %ld",
+			new_state, old_state);
+	return result;
 }
 
 static char const * caffeine_offer_generated(void * data, char const * sdp_offer);
@@ -115,14 +159,27 @@ static bool caffeine_start(void *data)
 	if (!obs_output_can_begin_data_capture(context->output, 0))
 		return false;
 
-	context->stream =
+	if (!transition_state(context, OFFLINE, STARTING))
+		return false;
+
+	caff_stream_handle stream =
 		caff_start_stream(context->interface, context,
 			caffeine_offer_generated, caffeine_ice_gathered,
 			caffeine_stream_started, caffeine_stream_failed);
+	if (!stream) {
+		set_state(context, OFFLINE);
+		log_error("Failed to start stream");
+		return false;
+	}
 
-	return context->stream != NULL;
+	pthread_mutex_lock(&context->stream_mutex);
+	context->stream = stream;
+	pthread_mutex_unlock(&context->stream_mutex);
+
+	return true;
 }
 
+/* Called from another thread, blocking OK */
 static char const * caffeine_offer_generated(
 	void * data,
 	char const * sdp_offer)
@@ -130,18 +187,26 @@ static char const * caffeine_offer_generated(
 	struct caffeine_output * context = data;
 	log_info("caffeine_offer_generated");
 
+	if (!require_state(context, STARTING))
+		return NULL;
+
 	obs_service_t * service = obs_output_get_service(context->output);
 	char const * stage_id =
 		obs_service_query(service, CAFFEINE_QUERY_STAGE_ID);
 	struct caffeine_auth_info const * auth_info =
 		obs_service_query(service, CAFFEINE_QUERY_AUTH_INFO);
 
-	context->stream_info =
+	struct caffeine_stream_info * stream_info =
 		caffeine_start_stream(stage_id, sdp_offer, auth_info);
 
-	return context->stream_info ? context->stream_info->sdp_answer : NULL;
+	pthread_mutex_lock(&context->stream_mutex);
+	context->stream_info = stream_info;
+	pthread_mutex_unlock(&context->stream_mutex);
+
+	return stream_info ? stream_info->sdp_answer : NULL;
 }
 
+/* Called from another thread, blocking OK */
 static bool caffeine_ice_gathered(
 	void *data,
 	caff_ice_candidates candidates,
@@ -154,8 +219,22 @@ static bool caffeine_ice_gathered(
 	struct caffeine_auth_info const * auth_info =
 		obs_service_query(service, CAFFEINE_QUERY_AUTH_INFO);
 
-	return caffeine_trickle_candidates(
+	pthread_mutex_lock(&context->stream_mutex);
+	struct caffeine_stream_info info = {
+		.stream_id = bstrdup(context->stream_info->stream_id),
+		.sdp_answer = bstrdup(context->stream_info->sdp_answer),
+		.signed_payload = bstrdup(context->stream_info->signed_payload),
+	};
+	pthread_mutex_unlock(&context->stream_mutex);
+
+	bool result = caffeine_trickle_candidates(
 		candidates, num_candidates, auth_info, context->stream_info);
+
+	bfree(info.stream_id);
+	bfree(info.sdp_answer);
+	bfree(info.signed_payload);
+
+	return result;
 }
 
 static void * heartbeat(void * data);
@@ -164,6 +243,10 @@ static void caffeine_stream_started(void *data)
 {
 	struct caffeine_output *context = data;
 	log_info("caffeine_stream_started");
+
+	if (!transition_state(context, STARTING, ONLINE)) {
+		return;
+	}
 
 	obs_output_begin_data_capture(context->output, 0);
 
@@ -175,52 +258,59 @@ static void caffeine_stream_failed(void *data, caff_error error)
 	struct caffeine_output *context = data;
 	log_error("caffeine_stream_failed: %d", error);
 
+	pthread_mutex_lock(&context->stream_mutex);
+	if (context->stream_info) {
+		caffeine_free_stream_info(context->stream_info);
+	}
+	if (context->stream) {
+		caff_end_stream(context->stream);
+	}
+	set_state(context, OFFLINE);
+	pthread_mutex_unlock(&context->stream_mutex);
+
 	obs_output_signal_stop(context->output, caffeine_to_obs_error(error));
 }
 
 static void * heartbeat(void * data)
 {
 	struct caffeine_output * context = data;
-	log_info("caffeine_golive");
-
-	pthread_mutex_lock(&context->stream_mutex);
+	log_info("caffeine_heartbeat");
 
 	obs_service_t * service = obs_output_get_service(context->output);
-
 	char * stage_id = bstrdup(
 		obs_service_query(service, CAFFEINE_QUERY_STAGE_ID));
 	struct caffeine_auth_info const * auth_info =
 		obs_service_query(service, CAFFEINE_QUERY_AUTH_INFO);
 
+	pthread_mutex_lock(&context->stream_mutex);
+	if (!require_state(context, ONLINE)) {
+		pthread_mutex_unlock(&context->stream_mutex);
+		return NULL;
+	}
 	char * stream_id = bstrdup(context->stream_info->stream_id);
 	char * signed_payload = bstrdup(context->stream_info->signed_payload);
 	pthread_mutex_unlock(&context->stream_mutex);
 
-	char * session_id = NULL;
-
-	if ((session_id = set_stage_live(false, session_id, stage_id, stream_id, auth_info)) == NULL) {
-		return NULL;
+	char * session_id = set_stage_live(false, NULL, stage_id,
+					stream_id, auth_info);
+	if (!session_id) {
+		goto get_session_error;
 	}
 
 	if (!create_broadcast(auth_info)) {
-		bfree(session_id);
-		return NULL;
+		goto create_broadcast_error;
 	}
 
-	set_stage_live(true, session_id, stage_id, stream_id, auth_info);
-
-	pthread_mutex_lock(&context->stream_mutex);
-	while (context->stream)
+	while (get_state(context) == ONLINE)
 	{
-		send_heartbeat(stream_id, signed_payload, auth_info);
-		pthread_mutex_unlock(&context->stream_mutex);
-		os_sleep_ms(3000);
-		pthread_mutex_lock(&context->stream_mutex);
 		set_stage_live(true, session_id, stage_id, stream_id, auth_info);
+		send_heartbeat(stream_id, signed_payload, auth_info);
+		os_sleep_ms(5000);
 	}
-	pthread_mutex_unlock(&context->stream_mutex);
 
+create_broadcast_error:
 	bfree(session_id);
+get_session_error:
 	bfree(signed_payload);
 	bfree(stream_id);
 	bfree(stage_id);
@@ -233,16 +323,16 @@ static void caffeine_raw_video(void *data, struct video_data *frame)
 
 	struct caffeine_output *context = data;
 
-	if (!context->stream)
-		return;
-
 	uint32_t width = 1280;
 	uint32_t height = 720;
 	size_t bytes_per_pixel = 4;
 	size_t total_bytes = width * height * bytes_per_pixel;
 
-	caff_send_video(
-		context->stream, frame->data[0], total_bytes, width, height);
+	pthread_mutex_lock(&context->stream_mutex);
+	if (context->stream)
+		caff_send_video(context->stream, frame->data[0],
+			total_bytes, width, height);
+	pthread_mutex_unlock(&context->stream_mutex);
 }
 
 static void caffeine_raw_audio(void *data, struct audio_data *frames)
@@ -251,10 +341,11 @@ static void caffeine_raw_audio(void *data, struct audio_data *frames)
 
 	struct caffeine_output *context = data;
 
-	if (!context->stream)
-		return;
-
-	caff_send_audio(context->stream, frames->data[0], frames->frames);
+	pthread_mutex_lock(&context->stream_mutex);
+	if (context->stream)
+		caff_send_audio(context->stream, frames->data[0],
+			frames->frames);
+	pthread_mutex_unlock(&context->stream_mutex);
 }
 
 static void caffeine_stop(void *data, uint64_t ts)
@@ -264,9 +355,12 @@ static void caffeine_stop(void *data, uint64_t ts)
 	struct caffeine_output *context = data;
 	log_info("caffeine_stop");
 
-	/* TODO: do something with ts? */
+	if (!transition_state(context, ONLINE, STOPPING))
+		return;
 
+	/* TODO: do something with ts? */
 	obs_output_end_data_capture(context->output);
+
 	pthread_mutex_lock(&context->stream_mutex);
 
 	caff_end_stream(context->stream);
@@ -276,7 +370,10 @@ static void caffeine_stop(void *data, uint64_t ts)
 	context->stream = NULL;
 
 	pthread_mutex_unlock(&context->stream_mutex);
+
 	pthread_join(context->heartbeat_thread, NULL);
+
+	transition_state(context, STOPPING, OFFLINE);
 }
 
 static void caffeine_destroy(void *data)
