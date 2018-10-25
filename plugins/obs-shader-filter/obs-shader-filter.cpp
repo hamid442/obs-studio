@@ -1251,8 +1251,6 @@ public:
 		obs_enter_graphics();
 		if (_vertexBuffer)
 			gs_vertexbuffer_destroy(_vertexBuffer);
-		if (_vertexBufferData)
-			gs_vbdata_destroy(_vertexBufferData);
 		if (_indexBuffer)
 			gs_indexbuffer_destroy(_indexBuffer);
 		if (_particlerender)
@@ -1263,6 +1261,7 @@ public:
 	void updateIndexBuffer()
 	{
 		if (size() > 0) {
+			obs_enter_graphics();
 			_indexBufferData = indexBuffer(size());
 			if (_indexBuffer && (gs_indexbuffer_get_num_indices(_indexBuffer)) != 6 * size()) {
 				gs_indexbuffer_destroy(_indexBuffer);
@@ -1270,17 +1269,15 @@ public:
 			}
 			if(!_indexBuffer)
 				_indexBuffer = gs_indexbuffer_create(GS_UNSIGNED_LONG, _indexBufferData.data(), _indexBufferData.size(), GS_DYNAMIC | GS_DUP_BUFFER);
+			obs_leave_graphics();
 		}
 	}
 
 	void updateVertexBuffer()
 	{
 		if (size() > 0) {
-			if (_vertexBufferData && _vertexBufferData->num != 4 * size()) {
-				gs_vbdata_destroy(_vertexBufferData);
-				_vertexBufferData = nullptr;
-			}
-			if (!_vertexBufferData) {
+			obs_enter_graphics();
+			if (!_vertexBufferData || _vertexBufferData->num != 4 * size()) {
 				_vertexBufferData = gs_vbdata_create();
 				_vertexBufferData->num = size() * 4;
 				_vertexBufferData->points = (vec3*)bmalloc(sizeof(vec3) * _vertexBufferData->num);
@@ -1297,7 +1294,8 @@ public:
 				}
 			}
 			if (!_vertexBuffer)
-				_vertexBuffer = gs_vertexbuffer_create(_vertexBufferData, GS_DYNAMIC | GS_DUP_BUFFER);
+				_vertexBuffer = gs_vertexbuffer_create(_vertexBufferData, GS_DYNAMIC);
+			obs_leave_graphics();
 		}
 		for (size_t i = 0; i < size(); i++) {
 			transformAlpha *p = &this->at(i);
@@ -1330,10 +1328,7 @@ public:
 			vec3_transform(&_vertexBufferData->points[index_3], &_vertexBufferData->points[index_3], &p->position);
 		}
 	}
-	ParticleData() : std::vector<transformAlpha>()
-	{
 
-	}
 	void updateTransforms()
 	{
 		/*Transform*/
@@ -1360,51 +1355,74 @@ public:
 		});
 	};
 
+	transformAlpha spawn(float elapstedTime, float seconds)
+	{
+		transformAlpha ret = { 0 };
+		matrix4_identity(&ret.position);
+		ret.lifeTime = -seconds;
+		return ret;
+	}
+
+	void videoTick(float elapsedTime, float seconds)
+	{
+		erase(std::remove_if(begin(), end(), [seconds](transformAlpha a) {
+			bool remove = (a.lifeTime + seconds) > a.localLifeTime;
+			if (remove)
+				return true;
+			else
+				return false;
+		}),end());
+		for (size_t i = 0; i < size(); i++)
+			this->at(i).lifeTime += seconds;
+
+		updateIndexBuffer();
+		updateVertexBuffer();
+		sortZ();
+	}
+
 	gs_texture_t *render(gs_texture_t *particle, uint32_t cx, uint32_t cy)
 	{
-		if (size() > 0) {
-			if (!_particlerender)
-				_particlerender = gs_texrender_create(GS_RGBA, GS_ZS_NONE);
-			gs_texrender_reset(_particlerender);
-			if (gs_texrender_begin(_particlerender, cx, cy)) {
-				gs_set_cull_mode(GS_NEITHER);
-				//gs_enable_blending(false);
-				gs_enable_depth_test(false);
-				gs_depth_function(gs_depth_test::GS_ALWAYS);
-				gs_ortho(-1.0, 1.0, -1.0, 1.0, -farZ, farZ);
-				//gs_enable_stencil_test(false);
-				//gs_enable_stencil_write(false);
-				gs_enable_color(true, true, true, true);
+		if (!_particlerender)
+			_particlerender = gs_texrender_create(GS_RGBA, GS_ZS_NONE);
+		gs_texrender_reset(_particlerender);
+		if (gs_texrender_begin(_particlerender, cx, cy)) {
+			gs_set_cull_mode(GS_NEITHER);
+			//gs_enable_blending(false);
+			gs_enable_depth_test(false);
+			gs_depth_function(gs_depth_test::GS_ALWAYS);
+			gs_ortho(-1.0, 1.0, -1.0, 1.0, -farZ, farZ);
+			//gs_enable_stencil_test(false);
+			//gs_enable_stencil_write(false);
+			gs_enable_color(true, true, true, true);
 
-				struct vec4 clearColor;
-				vec4_zero(&clearColor);
+			struct vec4 clearColor;
+			vec4_zero(&clearColor);
 
-				gs_clear(GS_CLEAR_COLOR | GS_CLEAR_DEPTH, &clearColor, farZ, 0);
+			gs_clear(GS_CLEAR_COLOR | GS_CLEAR_DEPTH, &clearColor, farZ, 0);
 
-				size_t i;
-				gs_effect_t *default_effect = obs_get_base_effect(OBS_EFFECT_DEFAULT);
-				uint32_t vertexes = 4 * size();
-				if (particle) {
-					gs_vertexbuffer_flush(_vertexBuffer);
-					gs_load_vertexbuffer(_vertexBuffer);
-					gs_indexbuffer_flush(_indexBuffer);
-					gs_load_indexbuffer(_indexBuffer);
-					const char *techName = "Draw";
-					gs_technique_t *tech = gs_effect_get_technique(default_effect, techName);
+			size_t i;
+			gs_effect_t *default_effect = obs_get_base_effect(OBS_EFFECT_DEFAULT);
+			uint32_t vertexes = 4 * size();
+			if (particle && vertexes > 0) {
+				gs_vertexbuffer_flush(_vertexBuffer);
+				gs_load_vertexbuffer(_vertexBuffer);
+				gs_indexbuffer_flush(_indexBuffer);
+				gs_load_indexbuffer(_indexBuffer);
+				const char *techName = "Draw";
+				gs_technique_t *tech = gs_effect_get_technique(default_effect, techName);
+				size_t passes = gs_technique_begin(tech);
+				for (i = 0; i < passes; i++) {
+					gs_technique_begin_pass(tech, i);
 					gs_eparam_t *particleParam = gs_effect_get_param_by_name(default_effect, "image");
 					gs_effect_set_texture(particleParam, particle);
-					size_t passes = gs_technique_begin(tech);
-					for (i = 0; i < passes; i++) {
-						gs_technique_begin_pass(tech, i);
-						gs_draw(GS_TRIS, 0, vertexes);
-						gs_technique_end_pass(tech);
-					}
-					gs_technique_end(tech);
-				} else {
-					blog(LOG_WARNING, "No Particle!");
+					gs_draw(GS_TRIS, 0, vertexes);
+					gs_technique_end_pass(tech);
 				}
-				return gs_texrender_get_texture(_particlerender);
+				gs_technique_end(tech);
+			} else {
+				//blog(LOG_WARNING, "No Particle!");
 			}
+			return gs_texrender_get_texture(_particlerender);
 		}
 		return nullptr;
 	}
@@ -1554,7 +1572,7 @@ protected:
 	size_t _spawnRate = 0;
 
 	gs_texrender_t * _particlerender = nullptr;
-	std::vector<transformAlpha> _particles;
+	ParticleData _particles;
 public:
 	TextureData(ShaderParameter *parent, ShaderSource *filter)
 		: ShaderData(parent, filter), _maxAudioSize(AUDIO_OUTPUT_FRAMES * 2)
@@ -1577,15 +1595,16 @@ public:
 		gs_image_file_free(_image);
 		if (_tex)
 			gs_texture_destroy(_tex);
+		/*
 		if (_vertexBuffer)
 			gs_vertexbuffer_destroy(_vertexBuffer);
-		/*
 		if (_indexBuffer)
 			gs_indexbuffer_destroy(_indexBuffer);
 			*/
 		//gs_vbdata_destroy(_vertexBufferData);
 		//bfree(_vertexBufferData);
 		obs_leave_graphics();
+
 		_texrender = nullptr;
 		_tex = nullptr;
 		if (_image)
@@ -1883,24 +1902,26 @@ public:
 			transformAlpha p = { 0 };
 			matrix4_identity(&p.position);
 			p.rotateX = 0.01;
-			matrix4_identity(&p.position);
+			/*
 			p.rotateX = random_double(-1, 1);
 			p.rotateY = random_double(-1, 1);
 			p.rotateZ = random_double(-1, 1);
+			*/
 			/*
 			p.translateX = random_double(-0.1, 0.1);
 			p.translateY = random_double(-0.1, 0.1);
 			p.translateY = random_double(-0.1, 0.1);
 			*/
-			p.localLifeTime = random_double(5.0, 10.0);
+			p.localLifeTime = random_double(20.0, 30.0);
 			p.lifeTime = -seconds;
-			p.alpha = random_double(0.5, 1);
-			p.decayAlpha = random_double(0, 0.05);
+			p.alpha = 1;
+			p.decayAlpha = 0;
 			//p.translateX = 1;
 			_particles.push_back(p);
 		}
 #endif // DEBUG_PARTICLES
 		if (_isParticle) {
+
 			/*Spawn new particles, clear old*/
 			size_t oldSize = _particles.size();
 			size_t spawn = floor(_spawnRate); // +random_double();
@@ -1920,6 +1941,7 @@ public:
 				//p.translateX = 1;
 				_particles.push_back(p);
 			}
+			/*
 			for (size_t i = 0; i < _particles.size(); i++) {
 				transformAlpha *p = &_particles[i];
 				p->lifeTime += seconds;
@@ -1929,8 +1951,16 @@ public:
 				}
 				p->alpha = hlsl_clamp(p->alpha - p->decayAlpha, 0, 255);
 			}
+			*/
 			if (_particles.size() == 0)
 				return;
+			_particles.videoTick(elapsedTime, seconds);
+			for (size_t i = 0; i < _particles.size(); i++) {
+				transformAlpha *p = &_particles[i];
+				p->alpha = hlsl_clamp(p->alpha - p->decayAlpha, 0, 255);
+			}
+
+			/*
 			if (!_vertexBufferData || oldSize != _particles.size()) {
 				// Allocate memory for data.
 				size_t vCap = 4 * _particles.size();
@@ -1956,8 +1986,9 @@ public:
 				_indexBufferData = indexBuffer(_particles.size());
 				_indexBuffer = gs_indexbuffer_create(gs_index_type::GS_UNSIGNED_LONG, _indexBufferData.data(), _particles.size() * 6, GS_DYNAMIC);
 			}
-
+			*/
 			/*Transform*/
+			/*
 			for (size_t i = 0; i < _particles.size(); i++) {
 				transformAlpha *p = &_particles[i];
 				//rotate matrix
@@ -1995,7 +2026,9 @@ public:
 				vec3_transform(&_vertexBufferData->points[index_2], &_vertexBufferData->points[index_2], &p->position);
 				vec3_transform(&_vertexBufferData->points[index_3], &_vertexBufferData->points[index_3], &p->position);
 			}
+			*/
 			/*Z Order*/
+			/*
 			std::sort(_particles.begin(), _particles.end(), [](transformAlpha a, transformAlpha b) {
 				vec3 av = { 0 };
 				vec3 bv = { 0 };
@@ -2004,6 +2037,7 @@ public:
 
 				return (pow(av.x, 2) + pow(av.y, 2) + pow(av.z, 2)) > (pow(bv.x, 2) + pow(bv.y, 2) + pow(bv.z, 2));
 			});
+			*/
 		}
 		obs_leave_graphics();
 	}
@@ -2067,6 +2101,13 @@ public:
 		}
 
 		if (_isParticle) {
+			gs_texture_t *tex = _particles.render(t, _filter->totalWidth, _filter->totalHeight);
+			if (tex)
+				_param->setValue<gs_texture_t *>(&tex, sizeof(gs_texture_t *));
+			else
+				blog(LOG_WARNING, "No Particle Output!");
+			return;
+
 			if (!_particlerender)
 				_particlerender = gs_texrender_create(GS_RGBA, GS_ZS_NONE);
 			gs_effect_t *default_effect = obs_get_base_effect(OBS_EFFECT_DEFAULT);
