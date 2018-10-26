@@ -283,14 +283,6 @@ static void * heartbeat(void * data)
 	struct caffeine_output * context = data;
 	log_info("caffeine_heartbeat");
 
-	obs_service_t * service = obs_output_get_service(context->output);
-	char * stage_id = bstrdup(
-		obs_service_query(service, CAFFEINE_QUERY_STAGE_ID));
-	char * title = bstrdup(
-		obs_service_query(service, CAFFEINE_QUERY_BROADCAST_TITLE));
-	struct caffeine_auth_info const * auth_info =
-		obs_service_query(service, CAFFEINE_QUERY_AUTH_INFO);
-
 	pthread_mutex_lock(&context->stream_mutex);
 	if (!require_state(context, ONLINE)) {
 		pthread_mutex_unlock(&context->stream_mutex);
@@ -299,6 +291,14 @@ static void * heartbeat(void * data)
 	char * stream_id = bstrdup(context->stream_info->stream_id);
 	char * signed_payload = bstrdup(context->stream_info->signed_payload);
 	pthread_mutex_unlock(&context->stream_mutex);
+
+	obs_service_t * service = obs_output_get_service(context->output);
+	char * stage_id = bstrdup(
+		obs_service_query(service, CAFFEINE_QUERY_STAGE_ID));
+	char * title = bstrdup(
+		obs_service_query(service, CAFFEINE_QUERY_BROADCAST_TITLE));
+	struct caffeine_auth_info const * auth_info =
+		obs_service_query(service, CAFFEINE_QUERY_AUTH_INFO);
 
 	char * session_id = set_stage_live(false, NULL, stage_id,
 					stream_id, title, auth_info);
@@ -332,10 +332,10 @@ static void * heartbeat(void * data)
 create_broadcast_error:
 	bfree(session_id);
 get_session_error:
-	bfree(signed_payload);
-	bfree(stream_id);
 	bfree(title);
 	bfree(stage_id);
+	bfree(signed_payload);
+	bfree(stream_id);
 	return NULL;
 }
 
@@ -372,16 +372,18 @@ static void caffeine_raw_audio(void *data, struct audio_data *frames)
 
 static void caffeine_stop(void *data, uint64_t ts)
 {
+	/* TODO: do something with this? */
 	UNUSED_PARAMETER(ts);
 
 	struct caffeine_output *context = data;
 	log_info("caffeine_stop");
 
+	obs_output_end_data_capture(context->output);
+
 	if (!transition_state(context, ONLINE, STOPPING))
 		return;
 
-	/* TODO: do something with ts? */
-	obs_output_end_data_capture(context->output);
+	pthread_join(context->heartbeat_thread, NULL);
 
 	pthread_mutex_lock(&context->stream_mutex);
 
@@ -392,8 +394,6 @@ static void caffeine_stop(void *data, uint64_t ts)
 	context->stream = NULL;
 
 	pthread_mutex_unlock(&context->stream_mutex);
-
-	pthread_join(context->heartbeat_thread, NULL);
 
 	transition_state(context, STOPPING, OFFLINE);
 }
