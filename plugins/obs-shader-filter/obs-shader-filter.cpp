@@ -1569,7 +1569,7 @@ protected:
 	gs_vertbuffer_t *_vertexBuffer = nullptr;
 
 	double _particleLifeTime = 10;
-	size_t _spawnRate = 0;
+	size_t _spawnRate = 1;
 
 	gs_texrender_t * _particlerender = nullptr;
 	std::vector<transformAlpha> _particles;
@@ -2110,34 +2110,10 @@ public:
 			gs_texrender_reset(_particlerender);
 
 			if (gs_texrender_begin(_particlerender, _filter->totalWidth, _filter->totalHeight)) {
-				/*
 				gs_set_cull_mode(GS_NEITHER);
-				gs_enable_blending(false);
-				gs_enable_depth_test(false);
-				gs_depth_function(gs_depth_test::GS_ALWAYS);
-				gs_enable_stencil_test(false);
-				gs_enable_stencil_write(false);
-				gs_enable_color(true, true, true, true);
-				*/
-				/*
-				if (is_orthographic) {
-					gs_ortho(-1.0, 1.0, -1.0, 1.0, -farZ, farZ);
-				} else {
-					gs_perspective(field_of_view, float_t(_filter->totalWidth) / float_t(_filter->totalHeight), nearZ, farZ);
-					// Fix camera pointing at -Z instead of +Z.
-					gs_matrix_scale3f(1.0, 1.0, -1.0);
-					// Move backwards so we can actually see stuff.
-					gs_matrix_translate3f(0, 0, 1.0);
-				}
-				*/
-				gs_set_cull_mode(GS_NEITHER);
-				//gs_enable_blending(false);
 				gs_enable_depth_test(false);
 				gs_depth_function(gs_depth_test::GS_ALWAYS);
 				gs_ortho(-1.0, 1.0, -1.0, 1.0, -farZ, farZ);
-				//gs_ortho(0, 1.0, 0, 1.0, -farZ, farZ);
-				//gs_enable_stencil_test(false);
-				//gs_enable_stencil_write(false);
 				gs_enable_color(true, true, true, true);
 
 				struct vec4 clearColor;
@@ -2147,17 +2123,17 @@ public:
 
 				if(_particles.size() > 0) {
 					uint32_t vertexes = 4 * _particles.size();
-					if (t) {
+					if (t && _vertexBuffer && _indexBuffer) {
 						gs_vertexbuffer_flush(_vertexBuffer);
 						gs_load_vertexbuffer(_vertexBuffer);
 						gs_indexbuffer_flush(_indexBuffer);
 						gs_load_indexbuffer(_indexBuffer);
 						const char *techName = "Draw";
 						gs_technique_t *tech = gs_effect_get_technique(default_effect, techName);
+						gs_effect_set_texture(gs_effect_get_param_by_name(default_effect, "image"), t);
 						size_t passes = gs_technique_begin(tech);
 						for (i = 0; i < passes; i++) {
 							gs_technique_begin_pass(tech, i);
-							gs_effect_set_texture(gs_effect_get_param_by_name(default_effect, "image"), t);
 							gs_draw(GS_TRIS, 0, vertexes);
 							gs_technique_end_pass(tech);
 						}
@@ -2169,7 +2145,6 @@ public:
 
 				gs_texrender_end(_particlerender);
 
-				//gs_texture_t *tex = gs_texrender_get_texture(_texrender);
 				gs_texture_t *tex = gs_texrender_get_texture(_particlerender);
 				if (tex)
 					_param->setValue<gs_texture_t *>(&tex, sizeof(gs_texture_t *));
