@@ -55,13 +55,16 @@ bool caffeine_trickle_candidates(
 	struct caffeine_auth_info const * auth_info,
 	struct caffeine_stream_info const * stream_info);
 
-bool create_broadcast(struct caffeine_auth_info const * auth_info);
+bool create_broadcast(
+	char const * title,
+	struct caffeine_auth_info const * auth_info);
 
 char * set_stage_live(
 	bool isLive,
 	char const * session_id,
 	char const * stage_id,
 	char const * stream_id,
+	char const * title,
 	struct caffeine_auth_info const * auth_info);
 
 bool send_heartbeat(

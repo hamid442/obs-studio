@@ -594,6 +594,7 @@ char * set_stage_live(
 	char const * session_id,
 	char const * stage_id,
 	char const * stream_id,
+	char const * title,
 	struct caffeine_auth_info const * auth_info)
 {
 	json_t * stream_json = json_pack("{s:s,s:s,s:s,s:{s:b,s:b}}",
@@ -611,7 +612,7 @@ char * set_stage_live(
 
 	json_t * payload_json = json_pack("{s:s,s:s,s:s,s:[o],s:s}",
 		"state", isLive ? "ONLINE" : "OFFLINE",
-		"title", "OBS Test",
+		"title", title,
 		"game_id", "79",
 		"streams", stream_json,
 		"host_connection_quality", "GOOD");
@@ -745,7 +746,9 @@ void add_text_part(
 		CURLFORM_END);
 }
 
-bool create_broadcast(struct caffeine_auth_info const * auth_info)
+bool create_broadcast(
+	char const * title,
+	struct caffeine_auth_info const * auth_info)
 {
 	CURL * curl = curl_easy_init();
 
@@ -758,7 +761,7 @@ bool create_broadcast(struct caffeine_auth_info const * auth_info)
 	struct curl_httppost * post = NULL;
 	struct curl_httppost * last = NULL;
 
-	add_text_part(&post, &last, "broadcast[name]", "OBS Test");
+	add_text_part(&post, &last, "broadcast[name]", title);
 	add_text_part(&post, &last, "broadcast[description]", "");
 	add_text_part(&post, &last, "broadcast[content_rating]", "PG");
 	add_text_part(&post, &last, "broadcast[platform]", "PC");

@@ -279,6 +279,8 @@ static void * heartbeat(void * data)
 	obs_service_t * service = obs_output_get_service(context->output);
 	char * stage_id = bstrdup(
 		obs_service_query(service, CAFFEINE_QUERY_STAGE_ID));
+	char * title = bstrdup(
+		obs_service_query(service, CAFFEINE_QUERY_BROADCAST_TITLE));
 	struct caffeine_auth_info const * auth_info =
 		obs_service_query(service, CAFFEINE_QUERY_AUTH_INFO);
 
@@ -292,12 +294,12 @@ static void * heartbeat(void * data)
 	pthread_mutex_unlock(&context->stream_mutex);
 
 	char * session_id = set_stage_live(false, NULL, stage_id,
-					stream_id, auth_info);
+					stream_id, title, auth_info);
 	if (!session_id) {
 		goto get_session_error;
 	}
 
-	if (!create_broadcast(auth_info)) {
+	if (!create_broadcast(title, auth_info)) {
 		goto create_broadcast_error;
 	}
 
@@ -311,7 +313,7 @@ static void * heartbeat(void * data)
 	while (get_state(context) == ONLINE)
 	{
 		if (interval >= heartbeat_interval) {
-			set_stage_live(true, session_id, stage_id, stream_id, auth_info);
+			set_stage_live(true, session_id, stage_id, stream_id, title, auth_info);
 			send_heartbeat(stream_id, signed_payload, auth_info);
 			interval = 0;
 		}
@@ -319,13 +321,14 @@ static void * heartbeat(void * data)
 		interval += check_interval;
 	}
 
-	set_stage_live(false, session_id, stage_id, stream_id, auth_info);
+	set_stage_live(false, session_id, stage_id, stream_id, title, auth_info);
 
 create_broadcast_error:
 	bfree(session_id);
 get_session_error:
 	bfree(signed_payload);
 	bfree(stream_id);
+	bfree(title);
 	bfree(stage_id);
 	return NULL;
 }
