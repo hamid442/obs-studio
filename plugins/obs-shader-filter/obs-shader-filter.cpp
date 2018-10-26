@@ -1572,7 +1572,7 @@ protected:
 	size_t _spawnRate = 0;
 
 	gs_texrender_t * _particlerender = nullptr;
-	ParticleData _particles;
+	std::vector<transformAlpha> _particles;
 public:
 	TextureData(ShaderParameter *parent, ShaderSource *filter)
 		: ShaderData(parent, filter), _maxAudioSize(AUDIO_OUTPUT_FRAMES * 2)
@@ -1941,7 +1941,7 @@ public:
 				//p.translateX = 1;
 				_particles.push_back(p);
 			}
-			/*
+			
 			for (size_t i = 0; i < _particles.size(); i++) {
 				transformAlpha *p = &_particles[i];
 				p->lifeTime += seconds;
@@ -1951,16 +1951,16 @@ public:
 				}
 				p->alpha = hlsl_clamp(p->alpha - p->decayAlpha, 0, 255);
 			}
-			*/
 			if (_particles.size() == 0)
 				return;
+			/*
 			_particles.videoTick(elapsedTime, seconds);
 			for (size_t i = 0; i < _particles.size(); i++) {
 				transformAlpha *p = &_particles[i];
 				p->alpha = hlsl_clamp(p->alpha - p->decayAlpha, 0, 255);
 			}
-
-			/*
+			*/
+			
 			if (!_vertexBufferData || oldSize != _particles.size()) {
 				// Allocate memory for data.
 				size_t vCap = 4 * _particles.size();
@@ -1986,9 +1986,7 @@ public:
 				_indexBufferData = indexBuffer(_particles.size());
 				_indexBuffer = gs_indexbuffer_create(gs_index_type::GS_UNSIGNED_LONG, _indexBufferData.data(), _particles.size() * 6, GS_DYNAMIC);
 			}
-			*/
 			/*Transform*/
-			/*
 			for (size_t i = 0; i < _particles.size(); i++) {
 				transformAlpha *p = &_particles[i];
 				//rotate matrix
@@ -2026,9 +2024,7 @@ public:
 				vec3_transform(&_vertexBufferData->points[index_2], &_vertexBufferData->points[index_2], &p->position);
 				vec3_transform(&_vertexBufferData->points[index_3], &_vertexBufferData->points[index_3], &p->position);
 			}
-			*/
 			/*Z Order*/
-			/*
 			std::sort(_particles.begin(), _particles.end(), [](transformAlpha a, transformAlpha b) {
 				vec3 av = { 0 };
 				vec3 bv = { 0 };
@@ -2037,7 +2033,6 @@ public:
 
 				return (pow(av.x, 2) + pow(av.y, 2) + pow(av.z, 2)) > (pow(bv.x, 2) + pow(bv.y, 2) + pow(bv.z, 2));
 			});
-			*/
 		}
 		obs_leave_graphics();
 	}
@@ -2101,13 +2096,14 @@ public:
 		}
 
 		if (_isParticle) {
+			/*
 			gs_texture_t *tex = _particles.render(t, _filter->totalWidth, _filter->totalHeight);
 			if (tex)
 				_param->setValue<gs_texture_t *>(&tex, sizeof(gs_texture_t *));
 			else
 				blog(LOG_WARNING, "No Particle Output!");
 			return;
-
+			*/
 			if (!_particlerender)
 				_particlerender = gs_texrender_create(GS_RGBA, GS_ZS_NONE);
 			gs_effect_t *default_effect = obs_get_base_effect(OBS_EFFECT_DEFAULT);
