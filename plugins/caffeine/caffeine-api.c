@@ -620,7 +620,8 @@ char * set_stage_live(
 	if (!payload_json)
 	{
 		log_error("Failed to create request JSON");
-		goto payload_json_error;
+		json_decref(stream_json);
+		return NULL;
 	}
 
 	char const * request_type = "POST";
@@ -633,18 +634,19 @@ char * set_stage_live(
 	if (!request_json)
 	{
 		log_error("Failed to create request JSON");
-		goto request_json_error;
+		json_decref(payload_json);
+		return NULL;
 	}
 
 	char * request_body = json_dumps(request_json, 0);
+	json_decref(request_json);
 	if (!request_body)
 	{
 		log_error("Failed to serialize request JSON");
-		goto request_serialize_error;
+		return NULL;
 	}
 
 	CURL * curl = curl_easy_init();
-
 	if (!curl)
 	{
 		log_error("Failed to initialize cURL");
@@ -724,12 +726,6 @@ request_error:
 	dstr_free(&url_str);
 curl_init_error:
 	free(request_body);
-request_serialize_error:
-	json_decref(request_json);
-request_json_error:
-	json_decref(payload_json);
-payload_json_error:
-	json_decref(stream_json);
 
 	return result;
 }
@@ -910,7 +906,6 @@ bool send_heartbeat(
 		log_error("Error sending heartbeat: %s", error_text);
 		goto json_parsed_error;
 	}
-
 
 	if (response_code / 100 == 2)
 		result = true;
