@@ -156,6 +156,13 @@ static bool caffeine_start(void *data)
 	struct caffeine_output *context = data;
 	log_info("caffeine_start");
 
+	struct audio_convert_info conversion = {
+		.format = AUDIO_FORMAT_16BIT,
+		.speakers = SPEAKERS_STEREO,
+		.samples_per_sec = 48000
+	};
+	obs_output_set_audio_conversion(context->output, &conversion);
+
 	if (!obs_output_can_begin_data_capture(context->output, 0))
 		return false;
 
