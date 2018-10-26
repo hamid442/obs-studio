@@ -98,7 +98,7 @@ static void *caffeine_create(obs_data_t *settings, obs_output_t *output)
 	context->output = output;
 	log_info("caffeine_create");
 
-	context->stream_mutex = PTHREAD_MUTEX_INITIALIZER;
+	pthread_mutex_init(&context->stream_mutex, NULL);
 
 	context->interface = caff_initialize(caffeine_log, CAFF_LOG_INFO);
 	if (!context->interface) {
@@ -121,8 +121,8 @@ static inline bool require_state(
 {
 	enum state state = get_state(context);
 	if (state != expected_state) {
-		log_error("In state %ld when expecting %ld",
-			state, (long)expected_state);
+		log_error("In state %d when expecting %d",
+			state, expected_state);
 		return false;
 	}
 	return true;
@@ -141,7 +141,7 @@ static inline bool transition_state(
 	bool result = os_atomic_compare_swap_long(&context->state, (long)old_state,
 					(long)new_state);
 	if (!result)
-		log_error("Transitioning to state %ld expects state %ld",
+		log_error("Transitioning to state %d expects state %d",
 			new_state, old_state);
 	return result;
 }
@@ -313,7 +313,6 @@ static void * heartbeat(void * data)
 	/* TODO: use wall time instead */
 	long const heartbeat_interval = 5000; /* ms */
 	long const check_interval = 100;
-	long const num_intervals = heartbeat_interval / check_interval;
 
 	long interval = heartbeat_interval;
 

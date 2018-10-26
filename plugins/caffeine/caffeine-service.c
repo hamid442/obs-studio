@@ -78,6 +78,7 @@ static void caffeine_service_destroy(void * data)
 
 static obs_properties_t * caffeine_service_properties(void * data)
 {
+	UNUSED_PARAMETER(data);
 	obs_properties_t * properties = obs_properties_create();
 
 	/* TODO: show different properties when already logged in */
@@ -101,6 +102,7 @@ static void caffeine_service_defaults(obs_data_t *defaults)
 
 static bool caffeine_service_initialize(void * data, obs_output_t * output)
 {
+	UNUSED_PARAMETER(output);
 	log_info("caffeine_service_initialize");
 	struct caffeine_service * service = data;
 	struct caffeine_auth_info * auth_info = NULL;
