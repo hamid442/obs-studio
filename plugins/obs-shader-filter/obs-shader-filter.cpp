@@ -1345,7 +1345,15 @@ public:
 
 	void sortZ()
 	{
-		std::sort(begin(), end(), [](transformAlpha a, transformAlpha b) {
+		std::make_heap(begin(), end(), [](transformAlpha a, transformAlpha b) {
+			vec3 av = { 0 };
+			vec3 bv = { 0 };
+			vec3_transform(&av, &av, &a.position);
+			vec3_transform(&bv, &bv, &b.position);
+
+			return (pow(av.x, 2) + pow(av.y, 2) + pow(av.z, 2)) > (pow(bv.x, 2) + pow(bv.y, 2) + pow(bv.z, 2));
+		});
+		std::sort_heap(begin(), end(), [](transformAlpha a, transformAlpha b) {
 			vec3 av = { 0 };
 			vec3 bv = { 0 };
 			vec3_transform(&av, &av, &a.position);
@@ -1592,18 +1600,19 @@ public:
 
 		obs_enter_graphics();
 		gs_texrender_destroy(_texrender);
+		gs_texrender_destroy(_particlerender);
 		gs_image_file_free(_image);
 		if (_tex)
 			gs_texture_destroy(_tex);
-		/*
 		if (_vertexBuffer)
 			gs_vertexbuffer_destroy(_vertexBuffer);
 		if (_indexBuffer)
 			gs_indexbuffer_destroy(_indexBuffer);
-			*/
 		//gs_vbdata_destroy(_vertexBufferData);
 		//bfree(_vertexBufferData);
 		obs_leave_graphics();
+		if (_vertexBufferData)
+			gs_vbdata_destroy(_vertexBufferData);
 
 		_texrender = nullptr;
 		_tex = nullptr;
@@ -1960,32 +1969,56 @@ public:
 				p->alpha = hlsl_clamp(p->alpha - p->decayAlpha, 0, 255);
 			}
 			*/
-			
 			if (!_vertexBufferData || oldSize != _particles.size()) {
-				// Allocate memory for data.
-				size_t vCap = 4 * _particles.size();
-				_vertexBufferData = gs_vbdata_create();
-				_vertexBufferData->num = vCap;
-				_vertexBufferData->points = (vec3*)bmalloc(sizeof(vec3) * _vertexBufferData->num);
-				_vertexBufferData->normals = (vec3*)bmalloc(sizeof(vec3) * _vertexBufferData->num);
-				_vertexBufferData->tangents = (vec3*)bmalloc(sizeof(vec3) * _vertexBufferData->num);
-				_vertexBufferData->colors = (uint32_t*)bmalloc(sizeof(uint32_t) * _vertexBufferData->num);
-				_vertexBufferData->tvarray = (gs_tvertarray*)bmalloc(sizeof(gs_tvertarray));
-				_vertexBufferData->tvarray->array = (vec4*)bmalloc(sizeof(vec4) * _vertexBufferData->num);
-				_vertexBufferData->tvarray->width = 4;//m_vertexbufferdata->num;
-				_vertexBufferData->num_tex = 1;
-				//m_vertexbufferdata->tvarray = (vec4*)bmalloc(sizeof(vec3) * _vertexBufferData->num);
 				if (_vertexBuffer) {
 					gs_vertexbuffer_destroy(_vertexBuffer);
 					_vertexBuffer = nullptr;
 				}
+				// Allocate memory for data.
+				size_t vCap = 4 * _particles.size();
+				if (!_vertexBufferData) {
+					_vertexBufferData = (struct gs_vb_data*)bzalloc(sizeof(struct gs_vb_data));
+				}
+				_vertexBufferData->num = vCap;
+
+				_vertexBufferData->points = (vec3*)brealloc(_vertexBufferData->points, sizeof(vec3) * _vertexBufferData->num);
+				_vertexBufferData->normals = (vec3*)brealloc(_vertexBufferData->normals, sizeof(vec3) * _vertexBufferData->num);
+				_vertexBufferData->tangents = (vec3*)brealloc(_vertexBufferData->tangents, sizeof(vec3) * _vertexBufferData->num);
+				_vertexBufferData->colors = (uint32_t*)brealloc(_vertexBufferData->colors, sizeof(uint32_t) * _vertexBufferData->num);
+				//unitvector array things
+				if(!_vertexBufferData->tvarray)
+					_vertexBufferData->tvarray = (gs_tvertarray*)bzalloc(sizeof(gs_tvertarray));
+				_vertexBufferData->tvarray->array = (vec4*)brealloc(_vertexBufferData->tvarray->array, sizeof(vec4) * _vertexBufferData->num);
+				_vertexBufferData->tvarray->width = 4;//m_vertexbufferdata->num;
+				_vertexBufferData->num_tex = 1;
+				//m_vertexbufferdata->tvarray = (vec4*)bmalloc(sizeof(vec3) * _vertexBufferData->num);
 			}
-			if (!_vertexBuffer || oldSize != _particles.size())
-				_vertexBuffer = gs_vertexbuffer_create(_vertexBufferData, GS_DYNAMIC);
-			if (!_indexBuffer || oldSize != _particles.size()) {
-				_indexBufferData = indexBuffer(_particles.size());
-				_indexBuffer = gs_indexbuffer_create(gs_index_type::GS_UNSIGNED_LONG, _indexBufferData.data(), _particles.size() * 6, GS_DYNAMIC);
-			}
+
+			/*Z Order*/
+			std::make_heap(_particles.begin(), _particles.end(), [](transformAlpha a, transformAlpha b) {
+				vec3 av = { 0 };
+				vec3 bv = { 0 };
+				vec3_transform(&av, &av, &a.position);
+				vec3_transform(&bv, &bv, &b.position);
+
+				return (pow(av.x, 2) + pow(av.y, 2) + pow(av.z, 2)) > (pow(bv.x, 2) + pow(bv.y, 2) + pow(bv.z, 2));
+				/*
+				return av.z > bv.z;
+				*/
+			});
+			std::sort_heap(_particles.begin(), _particles.end(), [](transformAlpha a, transformAlpha b) {
+
+				vec3 av = { 0 };
+				vec3 bv = { 0 };
+				vec3_transform(&av, &av, &a.position);
+				vec3_transform(&bv, &bv, &b.position);
+
+				return (pow(av.x, 2) + pow(av.y, 2) + pow(av.z, 2)) > (pow(bv.x, 2) + pow(bv.y, 2) + pow(bv.z, 2));
+				/*
+				return av.z > bv.z;
+				*/
+			});
+
 			/*Transform*/
 			for (size_t i = 0; i < _particles.size(); i++) {
 				transformAlpha *p = &_particles[i];
@@ -1995,7 +2028,7 @@ public:
 				matrix4_rotate_aa4f(&p->position, &p->position, 0, 0, 1, p->rotateZ);
 				//translate matrix
 				matrix4_translate3f(&p->position, &p->position, p->translateX, p->translateY, p->translateZ);
-		
+
 				vec4 *ar = (vec4 *)_vertexBufferData->tvarray->array;
 				size_t index_0 = i * 4;
 				size_t index_1 = index_0 + 1;
@@ -2024,15 +2057,29 @@ public:
 				vec3_transform(&_vertexBufferData->points[index_2], &_vertexBufferData->points[index_2], &p->position);
 				vec3_transform(&_vertexBufferData->points[index_3], &_vertexBufferData->points[index_3], &p->position);
 			}
-			/*Z Order*/
-			std::sort(_particles.begin(), _particles.end(), [](transformAlpha a, transformAlpha b) {
-				vec3 av = { 0 };
-				vec3 bv = { 0 };
-				vec3_transform(&av, &av, &a.position);
-				vec3_transform(&bv, &bv, &b.position);
 
-				return (pow(av.x, 2) + pow(av.y, 2) + pow(av.z, 2)) > (pow(bv.x, 2) + pow(bv.y, 2) + pow(bv.z, 2));
-			});
+			if (!_vertexBuffer) {
+				_vertexBuffer = gs_vertexbuffer_create(_vertexBufferData, GS_DYNAMIC | GS_DUP_BUFFER);
+			} else {
+				if (oldSize != _particles.size()) {
+					if (_vertexBuffer) {
+						gs_vertexbuffer_destroy(_vertexBuffer);
+						_vertexBuffer = nullptr;
+					}
+					_vertexBuffer = gs_vertexbuffer_create(_vertexBufferData, GS_DYNAMIC | GS_DUP_BUFFER);
+				}
+			}
+
+			if (!_indexBuffer) {
+				_indexBufferData = indexBuffer(_particles.size());
+				_indexBuffer = gs_indexbuffer_create(gs_index_type::GS_UNSIGNED_LONG, _indexBufferData.data(), _particles.size() * 6, GS_DYNAMIC | GS_DUP_BUFFER);
+			} else {
+				if (oldSize != _particles.size()) {
+					gs_indexbuffer_destroy(_indexBuffer);
+					_indexBufferData = indexBuffer(_particles.size());
+					_indexBuffer = gs_indexbuffer_create(gs_index_type::GS_UNSIGNED_LONG, _indexBufferData.data(), _particles.size() * 6, GS_DYNAMIC | GS_DUP_BUFFER);
+				}
+			}
 		}
 		obs_leave_graphics();
 	}
@@ -2134,7 +2181,7 @@ public:
 						size_t passes = gs_technique_begin(tech);
 						for (i = 0; i < passes; i++) {
 							gs_technique_begin_pass(tech, i);
-							gs_draw(GS_TRIS, 0, vertexes);
+							gs_draw(GS_TRISTRIP, 0, vertexes);
 							gs_technique_end_pass(tech);
 						}
 						gs_technique_end(tech);
@@ -2428,7 +2475,10 @@ void ShaderSource::appendVariable(te_variable var)
 		blog(LOG_DEBUG, "appending %s", var.name);
 		expression.push_back(var);
 		/* Enforce alphabetical order for binary search */
-		std::sort(expression.begin(), expression.end(), [](te_variable a, te_variable b) {
+		std::make_heap(expression.begin(), expression.end(), [](te_variable a, te_variable b) {
+			return strcmp(a.name, b.name) < 0;
+		});
+		std::sort_heap(expression.begin(), expression.end(), [](te_variable a, te_variable b) {
 			return strcmp(a.name, b.name) < 0;
 		});
 	} else {
@@ -2445,7 +2495,10 @@ void ShaderSource::appendVariable(std::string &name, double *binding)
 		blog(LOG_DEBUG, "appending %s", var.name);
 		expression.push_back(var);
 		/* Enforce alphabetical order for binary search */
-		std::sort(expression.begin(), expression.end(), [](te_variable a, te_variable b) {
+		std::make_heap(expression.begin(), expression.end(), [](te_variable a, te_variable b) {
+			return strcmp(a.name, b.name) < 0;
+		});
+		std::sort_heap(expression.begin(), expression.end(), [](te_variable a, te_variable b) {
 			return strcmp(a.name, b.name) < 0;
 		});
 	} else {
@@ -2559,7 +2612,10 @@ void ShaderSource::reload()
 
 	prepFunctions(&expression, this);
 	/* Enforce alphabetical order for binary search */
-	std::sort(expression.begin(), expression.end(), [](te_variable a, te_variable b) {
+	std::make_heap(expression.begin(), expression.end(), [](te_variable a, te_variable b) {
+		return strcmp(a.name, b.name) < 0;
+	});
+	std::sort_heap(expression.begin(), expression.end(), [](te_variable a, te_variable b) {
 		return strcmp(a.name, b.name) < 0;
 	});
 
@@ -2593,7 +2649,10 @@ void ShaderSource::reload()
 	}
 
 	/* Enforce alphabetical order for binary search */
-	std::sort(expression.begin(), expression.end(), [](te_variable a, te_variable b) {
+	std::make_heap(expression.begin(), expression.end(), [](te_variable a, te_variable b) {
+		return strcmp(a.name, b.name) < 0;
+	});
+	std::sort_heap(expression.begin(), expression.end(), [](te_variable a, te_variable b) {
 		return strcmp(a.name, b.name) < 0;
 	});
 
