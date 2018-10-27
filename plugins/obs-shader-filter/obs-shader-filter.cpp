@@ -2019,6 +2019,12 @@ public:
 				*/
 			});
 
+			gs_vb_data *vb;
+			if (!_vertexBufferData || oldSize != _particles.size())
+				vb = _vertexBufferData;
+			else
+				vb = (gs_vb_data *)gs_vertexbuffer_get_data(_vertexBuffer);
+
 			/*Transform*/
 			for (size_t i = 0; i < _particles.size(); i++) {
 				transformAlpha *p = &_particles[i];
@@ -2029,15 +2035,15 @@ public:
 				//translate matrix
 				matrix4_translate3f(&p->position, &p->position, p->translateX, p->translateY, p->translateZ);
 
-				vec4 *ar = (vec4 *)_vertexBufferData->tvarray->array;
+				vec4 *ar = (vec4 *)vb->tvarray->array;
 				size_t index_0 = i * 4;
 				size_t index_1 = index_0 + 1;
 				size_t index_2 = index_0 + 2;
 				size_t index_3 = index_0 + 3;
-				_vertexBufferData->colors[index_0] = 0xFFFFFF00 | ((uint8_t)(p->alpha * 255.0));
-				_vertexBufferData->colors[index_1] = 0xFFFFFF00 | ((uint8_t)(p->alpha * 255.0));
-				_vertexBufferData->colors[index_2] = 0xFFFFFF00 | ((uint8_t)(p->alpha * 255.0));
-				_vertexBufferData->colors[index_3] = 0xFFFFFF00 | ((uint8_t)(p->alpha * 255.0));
+				vb->colors[index_0] = 0xFFFFFF00 | ((uint8_t)(p->alpha * 255.0));
+				vb->colors[index_1] = 0xFFFFFF00 | ((uint8_t)(p->alpha * 255.0));
+				vb->colors[index_2] = 0xFFFFFF00 | ((uint8_t)(p->alpha * 255.0));
+				vb->colors[index_3] = 0xFFFFFF00 | ((uint8_t)(p->alpha * 255.0));
 
 				vec4_set(&ar[index_0], 0, 0, 0, 0);
 				vec4_set(&ar[index_1], 1, 0, 0, 0);
@@ -2047,15 +2053,15 @@ public:
 				uint32_t w = 1;
 				uint32_t h = 1;
 
-				vec3_set(&_vertexBufferData->points[index_0], w / -2.0, h / -2.0, 0);
-				vec3_set(&_vertexBufferData->points[index_1], w / 2.0, h / -2.0, 0);
-				vec3_set(&_vertexBufferData->points[index_2], w / -2.0, h / 2.0, 0);
-				vec3_set(&_vertexBufferData->points[index_3], w / 2.0, h / 2.0, 0);
+				vec3_set(&vb->points[index_0], w / -2.0, h / -2.0, 0);
+				vec3_set(&vb->points[index_1], w / 2.0, h / -2.0, 0);
+				vec3_set(&vb->points[index_2], w / -2.0, h / 2.0, 0);
+				vec3_set(&vb->points[index_3], w / 2.0, h / 2.0, 0);
 
-				vec3_transform(&_vertexBufferData->points[index_0], &_vertexBufferData->points[index_0], &p->position);
-				vec3_transform(&_vertexBufferData->points[index_1], &_vertexBufferData->points[index_1], &p->position);
-				vec3_transform(&_vertexBufferData->points[index_2], &_vertexBufferData->points[index_2], &p->position);
-				vec3_transform(&_vertexBufferData->points[index_3], &_vertexBufferData->points[index_3], &p->position);
+				vec3_transform(&vb->points[index_0], &vb->points[index_0], &p->position);
+				vec3_transform(&vb->points[index_1], &vb->points[index_1], &p->position);
+				vec3_transform(&vb->points[index_2], &vb->points[index_2], &p->position);
+				vec3_transform(&vb->points[index_3], &vb->points[index_3], &p->position);
 			}
 
 			if (!_vertexBuffer) {
