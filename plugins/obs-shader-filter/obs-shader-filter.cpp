@@ -130,6 +130,7 @@ const static double flt_min = FLT_MIN;
 const static double int_min = INT_MIN;
 const static double int_max = INT_MAX;
 static double       sample_rate;
+static double       frame_rate;
 static double       output_channels;
 static std::string  dir[4] = { "left", "right", "top", "bottom" };
 
@@ -1577,7 +1578,8 @@ protected:
 	gs_vertbuffer_t *_vertexBuffer = nullptr;
 
 	double _particleLifeTime = 10;
-	size_t _spawnRate = 1;
+	double _spawnRate = 1;
+	double _spawnCount = 0;
 
 	gs_texrender_t * _particlerender = nullptr;
 	std::vector<transformAlpha> _particles;
@@ -1608,8 +1610,6 @@ public:
 			gs_vertexbuffer_destroy(_vertexBuffer);
 		if (_indexBuffer)
 			gs_indexbuffer_destroy(_indexBuffer);
-		//gs_vbdata_destroy(_vertexBufferData);
-		//bfree(_vertexBufferData);
 		obs_leave_graphics();
 		if (_vertexBufferData)
 			gs_vbdata_destroy(_vertexBufferData);
@@ -1748,6 +1748,9 @@ public:
 			_filter->appendVariable(_sizeWBinding, &_sourceWidth);
 			_filter->appendVariable(_sizeHBinding, &_sourceHeight);
 		}
+
+		_isParticle = _param->getAnnotationValue<bool>("is_particle", false);
+		_spawnRate = hlsl_clamp(_param->getAnnotationValue<float>("spawn_rate", 0), 0, 1000);
 	}
 
 	void getProperties(ShaderSource *filter, obs_properties_t *props)
@@ -1903,54 +1906,32 @@ public:
 			break;
 		}
 
-#define DEBUG_PARTICLES
-#ifdef DEBUG_PARTICLES
-		if (_texType == audio)
-			_isParticle = true;
-		if (_particles.size() == 0 && elapsedTime < 1.0) {
-			transformAlpha p = { 0 };
-			matrix4_identity(&p.position);
-			p.rotateX = 0.01;
-			/*
-			p.rotateX = random_double(-1, 1);
-			p.rotateY = random_double(-1, 1);
-			p.rotateZ = random_double(-1, 1);
-			*/
-			/*
-			p.translateX = random_double(-0.1, 0.1);
-			p.translateY = random_double(-0.1, 0.1);
-			p.translateY = random_double(-0.1, 0.1);
-			*/
-			p.localLifeTime = random_double(20.0, 30.0);
-			p.lifeTime = -seconds;
-			p.alpha = 1;
-			p.decayAlpha = 0;
-			//p.translateX = 1;
-			_particles.push_back(p);
-		}
-#endif // DEBUG_PARTICLES
 		if (_isParticle) {
 
 			/*Spawn new particles, clear old*/
+			
 			size_t oldSize = _particles.size();
-			size_t spawn = floor(_spawnRate); // +random_double();
-			for (size_t i = 0; i < spawn; i++) {
+			_spawnCount += (_spawnRate / frame_rate);
+
+			//if (_particles.size() <= 1) {
+			for (float i = 0; i < _spawnCount; i++) {
 				transformAlpha p = { 0 };
 				matrix4_identity(&p.position);
-				p.rotateX = random_double(-1, 1);
-				p.rotateY = random_double(-1, 1);
-				p.rotateZ = random_double(-1, 1);
-				p.translateX = random_double(-0.1, 0.1);
-				p.translateY = random_double(-0.1, 0.1);
-				p.translateY = random_double(-0.1, 0.1);
+				p.rotateX = random_double(-0.1, 0.1);
+				p.rotateY = random_double(-0.1, 0.1);
+				p.rotateZ = random_double(-0.1, 0.1);
+				p.translateX = random_double(-0.01, 0.01);
+				p.translateY = random_double(-0.01, 0.01);
+				p.translateZ = random_double(-0.01, 0.01);
 				p.localLifeTime = random_double(1, 5);
 				p.lifeTime = -seconds;
 				p.alpha = random_double(0.5, 1);
 				p.decayAlpha = random_double(0, 0.05);
-				//p.translateX = 1;
 				_particles.push_back(p);
 			}
-			
+
+			_spawnCount -= floor(_spawnCount);
+
 			for (size_t i = 0; i < _particles.size(); i++) {
 				transformAlpha *p = &_particles[i];
 				p->lifeTime += seconds;
@@ -1962,13 +1943,7 @@ public:
 			}
 			if (_particles.size() == 0)
 				return;
-			/*
-			_particles.videoTick(elapsedTime, seconds);
-			for (size_t i = 0; i < _particles.size(); i++) {
-				transformAlpha *p = &_particles[i];
-				p->alpha = hlsl_clamp(p->alpha - p->decayAlpha, 0, 255);
-			}
-			*/
+
 			if (!_vertexBufferData || oldSize != _particles.size()) {
 				if (_vertexBuffer) {
 					gs_vertexbuffer_destroy(_vertexBuffer);
@@ -1991,7 +1966,6 @@ public:
 				_vertexBufferData->tvarray->array = (vec4*)brealloc(_vertexBufferData->tvarray->array, sizeof(vec4) * _vertexBufferData->num);
 				_vertexBufferData->tvarray->width = 4;//m_vertexbufferdata->num;
 				_vertexBufferData->num_tex = 1;
-				//m_vertexbufferdata->tvarray = (vec4*)bmalloc(sizeof(vec3) * _vertexBufferData->num);
 			}
 
 			/*Z Order*/
@@ -2002,9 +1976,6 @@ public:
 				vec3_transform(&bv, &bv, &b.position);
 
 				return (pow(av.x, 2) + pow(av.y, 2) + pow(av.z, 2)) > (pow(bv.x, 2) + pow(bv.y, 2) + pow(bv.z, 2));
-				/*
-				return av.z > bv.z;
-				*/
 			});
 			std::sort_heap(_particles.begin(), _particles.end(), [](transformAlpha a, transformAlpha b) {
 
@@ -2014,9 +1985,6 @@ public:
 				vec3_transform(&bv, &bv, &b.position);
 
 				return (pow(av.x, 2) + pow(av.y, 2) + pow(av.z, 2)) > (pow(bv.x, 2) + pow(bv.y, 2) + pow(bv.z, 2));
-				/*
-				return av.z > bv.z;
-				*/
 			});
 
 			gs_vb_data *vb;
@@ -2029,11 +1997,12 @@ public:
 			for (size_t i = 0; i < _particles.size(); i++) {
 				transformAlpha *p = &_particles[i];
 				//rotate matrix
-				matrix4_rotate_aa4f(&p->position, &p->position, 1, 0, 0, p->rotateX);
-				matrix4_rotate_aa4f(&p->position, &p->position, 0, 1, 0, p->rotateY);
-				matrix4_rotate_aa4f(&p->position, &p->position, 0, 0, 1, p->rotateZ);
+				matrix4_rotate_aa4f(&p->position, &p->position, 1, 0, 0, p->rotateX / frame_rate);
+				matrix4_rotate_aa4f(&p->position, &p->position, 0, 1, 0, p->rotateY / frame_rate);
+				matrix4_rotate_aa4f(&p->position, &p->position, 0, 0, 1, p->rotateZ / frame_rate);
 				//translate matrix
-				matrix4_translate3f(&p->position, &p->position, p->translateX, p->translateY, p->translateZ);
+				matrix4_translate3f(&p->position, &p->position, p->translateX / frame_rate,
+						p->translateY / frame_rate, p->translateZ / frame_rate);
 
 				vec4 *ar = (vec4 *)vb->tvarray->array;
 				size_t index_0 = i * 4;
@@ -2111,9 +2080,6 @@ public:
 			break;
 		case image:
 			t = _image ? _image->texture : NULL;
-
-			//if (_param)
-			//	_param->setValue<gs_texture_t *>(&t, sizeof(gs_texture_t *));
 			break;
 		case random:
 			pixels = srcHeight * srcWidth;
@@ -2138,25 +2104,15 @@ public:
 				(uint32_t)srcWidth, (uint32_t)srcHeight, GS_R8, 1, (const uint8_t **)&_data, 0);
 			obs_leave_graphics();
 			t = _tex;
-			//_param->setValue<gs_texture_t *>(&_tex, sizeof(gs_texture_t *));
 			break;
 		case buffer:
 			t = _tex;
-			//_param->setValue<gs_texture_t *>(&_tex, sizeof(gs_texture_t *));
 			break;
 		default:
 			break;
 		}
 
 		if (_isParticle) {
-			/*
-			gs_texture_t *tex = _particles.render(t, _filter->totalWidth, _filter->totalHeight);
-			if (tex)
-				_param->setValue<gs_texture_t *>(&tex, sizeof(gs_texture_t *));
-			else
-				blog(LOG_WARNING, "No Particle Output!");
-			return;
-			*/
 			if (!_particlerender)
 				_particlerender = gs_texrender_create(GS_RGBA, GS_ZS_NONE);
 			gs_effect_t *default_effect = obs_get_base_effect(OBS_EFFECT_DEFAULT);
@@ -2175,8 +2131,10 @@ public:
 				gs_clear(GS_CLEAR_COLOR | GS_CLEAR_DEPTH, &clearColor, farZ, 0);
 
 				if(_particles.size() > 0) {
-					uint32_t vertexes = 4 * _particles.size();
+					uint32_t vertexes = 6 * _particles.size();
 					if (t && _vertexBuffer && _indexBuffer) {
+						/* Scale texture to original size */
+
 						gs_vertexbuffer_flush(_vertexBuffer);
 						gs_load_vertexbuffer(_vertexBuffer);
 						gs_indexbuffer_flush(_indexBuffer);
@@ -2187,13 +2145,15 @@ public:
 						size_t passes = gs_technique_begin(tech);
 						for (i = 0; i < passes; i++) {
 							gs_technique_begin_pass(tech, i);
-							gs_draw(GS_TRISTRIP, 0, vertexes);
+							gs_draw(GS_TRIS, 0, vertexes);
 							gs_technique_end_pass(tech);
 						}
 						gs_technique_end(tech);
 					} else {
 						blog(LOG_WARNING, "No Particle!");
 					}
+				} else {
+					blog(LOG_WARNING, "No Particles");
 				}
 
 				gs_texrender_end(_particlerender);
@@ -2216,7 +2176,6 @@ public:
 		if (_texType == buffer) {
 			std::string tech = technique;
 			if (tech == _tech && pass == _pass) {
-				//gs_copy_texture();
 				double tw = 0;
 				double th = 0;
 				size_t bytes = 0;
@@ -2703,6 +2662,9 @@ void ShaderSource::videoTick(void *data, float seconds)
 	getMouseCursor(filter);
 	getScreenSizes(filter);
 
+	struct obs_video_info voi;
+	obs_get_video_info(&voi);
+	frame_rate = ((double)voi.fps_num / (double)voi.fps_den);
 
 	size_t i;
 	for (i = 0; i < filter->paramList.size(); i++) {
@@ -2746,6 +2708,10 @@ void ShaderSource::videoTickSource(void *data, float seconds)
 
 	getMouseCursor(filter);
 	getScreenSizes(filter);
+
+	struct obs_video_info voi;
+	obs_get_video_info(&voi);
+	frame_rate = ((double)voi.fps_num / (double)voi.fps_den);
 
 	size_t i;
 	for (i = 0; i < filter->paramList.size(); i++) {
@@ -3015,6 +2981,10 @@ static void renderTransition(void *data, gs_texture_t *a, gs_texture_t *b,
 
 	getMouseCursor(filter);
 	getScreenSizes(filter);
+
+	struct obs_video_info voi;
+	obs_get_video_info(&voi);
+	frame_rate = ((double)voi.fps_num / (double)voi.fps_den);
 
 	for (i = 0; i < filter->paramList.size(); i++) {
 		if (filter->paramList[i])
