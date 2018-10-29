@@ -202,11 +202,11 @@ static char const * caffeine_offer_generated(
 	obs_service_t * service = obs_output_get_service(context->output);
 	char const * stage_id =
 		obs_service_query(service, CAFFEINE_QUERY_STAGE_ID);
-	struct caffeine_auth_info const * auth_info =
-		obs_service_query(service, CAFFEINE_QUERY_AUTH_INFO);
+	struct caffeine_credentials * creds =
+		obs_service_query(service, CAFFEINE_QUERY_CREDENTIALS);
 
 	struct caffeine_stream_info * stream_info =
-		caffeine_start_stream(stage_id, sdp_offer, auth_info);
+		caffeine_start_stream(stage_id, sdp_offer, creds);
 
 	pthread_mutex_lock(&context->stream_mutex);
 	context->stream_info = stream_info;
@@ -225,8 +225,8 @@ static bool caffeine_ice_gathered(
 	log_info("caffeine_ice_gathered");
 
 	obs_service_t * service = obs_output_get_service(context->output);
-	struct caffeine_auth_info const * auth_info =
-		obs_service_query(service, CAFFEINE_QUERY_AUTH_INFO);
+	struct caffeine_credentials * creds =
+		obs_service_query(service, CAFFEINE_QUERY_CREDENTIALS);
 
 	pthread_mutex_lock(&context->stream_mutex);
 	struct caffeine_stream_info info = {
@@ -237,7 +237,7 @@ static bool caffeine_ice_gathered(
 	pthread_mutex_unlock(&context->stream_mutex);
 
 	bool result = caffeine_trickle_candidates(
-		candidates, num_candidates, auth_info, context->stream_info);
+		candidates, num_candidates, creds, context->stream_info);
 
 	bfree(info.stream_id);
 	bfree(info.sdp_answer);
@@ -294,16 +294,16 @@ static void * heartbeat(void * data)
 		obs_service_query(service, CAFFEINE_QUERY_STAGE_ID));
 	char * title = bstrdup(
 		obs_service_query(service, CAFFEINE_QUERY_BROADCAST_TITLE));
-	struct caffeine_auth_info const * auth_info =
-		obs_service_query(service, CAFFEINE_QUERY_AUTH_INFO);
+	struct caffeine_credentials * creds =
+		obs_service_query(service, CAFFEINE_QUERY_CREDENTIALS);
 
 	char * session_id = set_stage_live(false, NULL, stage_id,
-					stream_id, title, auth_info);
+					stream_id, title, creds);
 	if (!session_id) {
 		goto get_session_error;
 	}
 
-	if (!create_broadcast(title, auth_info)) {
+	if (!create_broadcast(title, creds)) {
 		goto create_broadcast_error;
 	}
 
@@ -317,9 +317,9 @@ static void * heartbeat(void * data)
 	{
 		if (interval >= heartbeat_interval) {
 			set_stage_live(true, session_id, stage_id, stream_id,
-					title, auth_info);
+					title, creds);
 			if (!send_heartbeat(stream_id, signed_payload,
-				auth_info))
+				creds))
 			{
 				log_error("Heartbeat failed. Ending stream.");
 				caffeine_stream_failed(data,
@@ -331,7 +331,7 @@ static void * heartbeat(void * data)
 		interval += check_interval;
 	}
 
-	set_stage_live(false, session_id, stage_id, stream_id, title, auth_info);
+	set_stage_live(false, session_id, stage_id, stream_id, title, creds);
 
 create_broadcast_error:
 	bfree(session_id);
