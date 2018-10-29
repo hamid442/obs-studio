@@ -133,6 +133,7 @@ static double       sample_rate;
 static double       frame_rate;
 static double       output_channels;
 static std::string  dir[4] = { "left", "right", "top", "bottom" };
+static gs_effect_t *default_effect = nullptr;
 
 /* Additional likely to be used functions for mathmatical expressions */
 static void prepFunctions(std::vector<te_variable> *vars, ShaderSource *filter)
@@ -2039,7 +2040,7 @@ public:
 		if (_isParticle) {
 			if (!_particlerender)
 				_particlerender = gs_texrender_create(GS_RGBA, GS_ZS_NONE);
-			gs_effect_t *default_effect = obs_get_base_effect(OBS_EFFECT_DEFAULT);
+			//gs_effect_t *default_effect = obs_get_base_effect(OBS_EFFECT_OPAQUE);//OBS_EFFECT_DEFAULT);
 			gs_texrender_reset(_particlerender);
 
 			if (gs_texrender_begin(_particlerender, _filter->totalWidth, _filter->totalHeight)) {
@@ -3293,9 +3294,32 @@ bool obs_module_load(void)
 	sample_rate = (double)aoi.samples_per_sec;
 	output_channels = (double)get_audio_channels(aoi.speakers);
 
+	char * errors = NULL;
+	char *cpath = obs_module_file("default.effect");
+	std::string path = cpath;
+	/* Load default effect text if no file is selected */
+	char *effect_string = nullptr;
+	if (!path.empty()) {
+		effect_string = os_quick_read_utf8_file(path.c_str());
+	} else {
+		bfree(effect_string);
+		bfree(cpath);
+		return false;
+	}
+
+	obs_enter_graphics();
+	default_effect = gs_effect_create(effect_string, NULL, &errors);
+	obs_leave_graphics();
+
+	bfree(effect_string);
+	bfree(cpath);
+
 	return true;
 }
 
 void obs_module_unload(void)
 {
+	obs_enter_graphics();
+	gs_effect_destroy(default_effect);
+	obs_leave_graphics();
 }
