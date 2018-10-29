@@ -19,7 +19,7 @@ struct caffeine_service {
 	char * username;
 	char * password;
 	char * broadcast_title;
-	struct caffeine_auth_info * auth_info;
+	struct caffeine_credentials * creds;
 	struct caffeine_user_info * user_info;
 };
 
@@ -38,7 +38,7 @@ static void caffeine_service_free_contents(struct caffeine_service * service)
 	bfree(service->username);
 	bfree(service->password);
 	bfree(service->broadcast_title);
-	caffeine_free_auth_info(service->auth_info);
+	caffeine_free_credentials(service->creds);
 	caffeine_free_user_info(service->user_info);
 	memset(service, 0, sizeof(struct caffeine_service));
 }
@@ -105,40 +105,42 @@ static bool caffeine_service_initialize(void * data, obs_output_t * output)
 	UNUSED_PARAMETER(output);
 	log_info("caffeine_service_initialize");
 	struct caffeine_service * service = data;
-	struct caffeine_auth_info * auth_info = NULL;
+	struct caffeine_auth_response * response = NULL;
 	struct caffeine_user_info * user_info = NULL;
 
-	/* TODO: refresh tokens if necessary, do stuff asynchronously, etc */
+	/* TODO: make this asynchronous? */
 
-	if (service->auth_info == NULL) {
-		auth_info = caffeine_signin(
+	if (service->creds == NULL) {
+		response = caffeine_signin(
 			service->username, service->password, NULL); 
-		if (!auth_info) {
+		if (!response) {
 			log_error("Failed login");
 			return false;
 		}
-		if (auth_info->next) {
-			if (strcmp(auth_info->next, "mfa_otp_required") == 0) {
+		if (response->next) {
+			if (strcmp(response->next, "mfa_otp_required") == 0) {
 				log_error("One time password NYI");
 				goto cleanup_auth;
 			}
-			if (strcmp(auth_info->next, "legal_acceptance_required")
+			if (strcmp(response->next, "legal_acceptance_required")
 				== 0) {
-				log_error("Can't broadcast until terms of service are accepted");
+				log_error("Can't broadcast until terms of "
+					  "service are accepted");
 				goto cleanup_auth;
 			}
-			if (strcmp(auth_info->next, "email_verification") == 0){
-				log_error("Can't broadcast until email is verified");
+			if (strcmp(response->next, "email_verification") == 0){
+				log_error("Can't broadcast until email is "
+					  "verified");
 				goto cleanup_auth;
 			}
 		}
-		if (!auth_info->credentials) {
+		if (!response->credentials) {
 			log_error("Empty auth response received");
 			goto cleanup_auth;
 		}
 
-		user_info = caffeine_getuser(auth_info->credentials->caid,
-			auth_info);
+		user_info = caffeine_getuser(response->credentials);
+
 		if (!user_info) {
 			goto cleanup_auth;
 		}
@@ -148,7 +150,12 @@ static bool caffeine_service_initialize(void * data, obs_output_t * output)
 			goto cleanup_user;
 		}
 
-		service->auth_info = auth_info;
+		/* Take ownership of creds
+		 * TODO: make this interface cleaner
+		 */
+		service->creds = response->credentials;
+		response->credentials = NULL;
+
 		service->user_info = user_info;
 	}
 
@@ -157,7 +164,7 @@ static bool caffeine_service_initialize(void * data, obs_output_t * output)
 cleanup_user:
 	caffeine_free_user_info(user_info);
 cleanup_auth:
-	caffeine_free_auth_info(auth_info);
+	caffeine_free_auth_response(response);
 	return false;
 }
 
@@ -181,8 +188,8 @@ static void * caffeine_service_query(void * data, int query_id, va_list unused)
 
 	switch (query_id)
 	{
-	case CAFFEINE_QUERY_AUTH_INFO:
-		return service->auth_info;
+	case CAFFEINE_QUERY_CREDENTIALS:
+		return service->creds;
 	case CAFFEINE_QUERY_STAGE_ID:
 		return service->user_info->stage_id;
 	case CAFFEINE_QUERY_BROADCAST_TITLE:

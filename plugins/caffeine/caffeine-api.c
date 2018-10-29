@@ -26,6 +26,12 @@
 
 #define STAGE_STATE_URL_F  REALTIME_ENDPOINT "v2/stages/%s/details"
 
+struct caffeine_credentials {
+	char * access_token;
+	char * refresh_token;
+	char * caid;
+	char * credential;
+};
 
 static size_t caffeine_curl_write_callback(char * ptr, size_t size,
 	size_t nmemb, void * user_data)
@@ -47,18 +53,16 @@ static struct curl_slist * caffeine_basic_headers() {
 }
 
 static struct curl_slist * caffeine_authenticated_headers(
-	struct caffeine_auth_info const * auth_info)
+	struct caffeine_credentials * creds)
 {
 	struct dstr header;
 	dstr_init(&header);
 	struct curl_slist * headers = caffeine_basic_headers();
 
-	dstr_printf(&header, "Authorization: Bearer %s",
-		auth_info->credentials->access_token);
+	dstr_printf(&header, "Authorization: Bearer %s", creds->access_token);
 	headers = curl_slist_append(headers, header.array);
 
-	dstr_printf(&header, "X-Credential: %s",
-		auth_info->credentials->credential);
+	dstr_printf(&header, "X-Credential: %s", creds->credential);
 	headers = curl_slist_append(headers, header.array);
 
 	dstr_free(&header);
@@ -68,12 +72,12 @@ static struct curl_slist * caffeine_authenticated_headers(
 /* TODO: refactor this - lots of dupe code between request types
  * TODO: handle retries, auth token refresh, etc
  */
-struct caffeine_auth_info * caffeine_signin(
+struct caffeine_auth_response * caffeine_signin(
 	char const * username,
 	char const * password,
 	char const * otp)
 {
-	struct caffeine_auth_info * response = NULL;
+	struct caffeine_auth_response * response = NULL;
 
 	json_t * request_json = NULL;
 	if (otp)
@@ -168,7 +172,7 @@ struct caffeine_auth_info * caffeine_signin(
 		goto json_parsed_error;
 	}
 
-	response = bzalloc(sizeof(struct caffeine_auth_info));
+	response = bzalloc(sizeof(struct caffeine_auth_response));
 	if (access_token) {
 		response->credentials =
 			bzalloc(sizeof(struct caffeine_credentials));
@@ -196,20 +200,24 @@ request_json_error:
 	return response;
 }
 
-void caffeine_free_auth_info(struct caffeine_auth_info * auth_response)
+void caffeine_free_credentials(struct caffeine_credentials * credentials)
+{
+	if (!credentials)
+		return;
+	bfree(credentials->access_token);
+	bfree(credentials->caid);
+	bfree(credentials->refresh_token);
+	bfree(credentials->credential);
+	bfree(credentials);
+}
+
+void caffeine_free_auth_response(struct caffeine_auth_response * auth_response)
 {
 	if (auth_response == NULL)
 		return;
 
-	if (auth_response->credentials)
-	{
-		bfree(auth_response->credentials->access_token);
-		bfree(auth_response->credentials->caid);
-		bfree(auth_response->credentials->refresh_token);
-		bfree(auth_response->credentials->credential);
-	}
+	caffeine_free_credentials(auth_response->credentials);
 
-	bfree(auth_response->credentials);
 	bfree(auth_response->next);
 	bfree(auth_response->mfa_otp_method);
 
@@ -217,16 +225,10 @@ void caffeine_free_auth_info(struct caffeine_auth_info * auth_response)
 }
 
 struct caffeine_user_info * caffeine_getuser(
-	char const * caid,
-	struct caffeine_auth_info const * auth_info)
+	struct caffeine_credentials * creds)
 {
-	if (caid == NULL) {
-		log_error("Missing caid");
-		return NULL;
-	}
-
-	if (auth_info == NULL || auth_info->credentials == NULL) {
-		log_error("Missing auth");
+	if (creds == NULL) {
+		log_error("Missing credentials");
 		return NULL;
 	}
 
@@ -243,11 +245,11 @@ struct caffeine_user_info * caffeine_getuser(
 	/* TODO: get urls from data ? */
 	struct dstr url_str;
 	dstr_init(&url_str);
-	dstr_printf(&url_str, GETUSER_URL_F, auth_info->credentials->caid);
+	dstr_printf(&url_str, GETUSER_URL_F, creds->caid);
 
 	curl_easy_setopt(curl, CURLOPT_URL, url_str.array);
 
-	struct curl_slist *headers = caffeine_authenticated_headers(auth_info);
+	struct curl_slist *headers = caffeine_authenticated_headers(creds);
 	headers = curl_slist_append(headers, "Content-Type: application/json");
 	curl_easy_setopt(curl, CURLOPT_HTTPHEADER, headers);
 
@@ -300,14 +302,14 @@ struct caffeine_user_info * caffeine_getuser(
 		goto json_parsed_error;
 	}
 
-	if (strcmp(fetched_caid, caid) != 0) {
+	if (strcmp(fetched_caid, creds->caid) != 0) {
 		log_warn("Somehow got a different user. Original caid: %s - "
 			 "Fetched caid: %s",
-			 caid, fetched_caid);
+			 creds->caid, fetched_caid);
 	}
 
 	user_info = bzalloc(sizeof(struct caffeine_user_info));
-	user_info->caid = bstrdup(caid);
+	user_info->caid = bstrdup(fetched_caid);
 	user_info->username = bstrdup(username);
 	user_info->stage_id = bstrdup(stage_id);
 	user_info->can_broadcast = can_broadcast;
@@ -337,7 +339,7 @@ void caffeine_free_user_info(struct caffeine_user_info * user_info)
 struct caffeine_stream_info * caffeine_start_stream(
 	char const * stage_id,
 	char const * sdp_offer,
-	struct caffeine_auth_info const * auth_info)
+	struct caffeine_credentials * creds)
 {
 	struct caffeine_stream_info * response = NULL;
 
@@ -372,7 +374,7 @@ struct caffeine_stream_info * caffeine_start_stream(
 	curl_easy_setopt(curl, CURLOPT_URL, STREAM_URL);
 	curl_easy_setopt(curl, CURLOPT_POSTFIELDS, request_body);
 
-	struct curl_slist *headers = caffeine_authenticated_headers(auth_info);
+	struct curl_slist *headers = caffeine_authenticated_headers(creds);
 	headers = curl_slist_append(headers, "Content-Type: application/json");
 	curl_easy_setopt(curl, CURLOPT_HTTPHEADER, headers);
 
@@ -460,7 +462,7 @@ void caffeine_free_stream_info(struct caffeine_stream_info * stream_info)
 bool caffeine_trickle_candidates(
 	caff_ice_candidates candidates,
 	size_t num_candidates,
-	struct caffeine_auth_info const * auth_info,
+	struct caffeine_credentials * creds,
 	struct caffeine_stream_info const * stream_info)
 {
 	json_t * ice_candidates = json_array();
@@ -509,7 +511,7 @@ bool caffeine_trickle_candidates(
 	curl_easy_setopt(curl, CURLOPT_POSTFIELDS, request_body);
 	curl_easy_setopt(curl, CURLOPT_CUSTOMREQUEST, "PUT");
 
-	struct curl_slist *headers = caffeine_authenticated_headers(auth_info);
+	struct curl_slist *headers = caffeine_authenticated_headers(creds);
 	headers = curl_slist_append(headers, "Content-Type: application/json");
 	curl_easy_setopt(curl, CURLOPT_HTTPHEADER, headers);
 
@@ -595,7 +597,7 @@ char * set_stage_live(
 	char const * stage_id,
 	char const * stream_id,
 	char const * title,
-	struct caffeine_auth_info const * auth_info)
+	struct caffeine_credentials * creds)
 {
 	json_t * stream_json = json_pack("{s:s,s:s,s:s,s:{s:b,s:b}}",
 		"id", stream_id,
@@ -626,7 +628,8 @@ char * set_stage_live(
 
 	char const * request_type = "POST";
 	if (session_id) {
-		json_object_set_new(payload_json, "session_id", json_string(session_id));
+		json_object_set_new(payload_json,
+			"session_id", json_string(session_id));
 		request_type = "PUT";
 	}
 
@@ -661,7 +664,7 @@ char * set_stage_live(
 	curl_easy_setopt(curl, CURLOPT_POSTFIELDS, request_body);
 	curl_easy_setopt(curl, CURLOPT_CUSTOMREQUEST, request_type);
 
-	struct curl_slist *headers = caffeine_authenticated_headers(auth_info);
+	struct curl_slist *headers = caffeine_authenticated_headers(creds);
 	headers = curl_slist_append(headers, "Content-Type: application/json");
 	curl_easy_setopt(curl, CURLOPT_HTTPHEADER, headers);
 
@@ -708,7 +711,8 @@ char * set_stage_live(
 
 	if (!session_id) {
 		char const * new_session_id;
-		if (json_unpack(response_json, "{s:s}", "session_id", &new_session_id) != 0) {
+		if (json_unpack(response_json, "{s:s}",
+			"session_id", &new_session_id) != 0) {
 			goto request_error;
 		}
 		log_info("got session id %s", new_session_id);
@@ -744,7 +748,7 @@ void add_text_part(
 
 bool create_broadcast(
 	char const * title,
-	struct caffeine_auth_info const * auth_info)
+	struct caffeine_credentials * creds)
 {
 	CURL * curl = curl_easy_init();
 
@@ -768,7 +772,7 @@ bool create_broadcast(
 
 	curl_easy_setopt(curl, CURLOPT_URL, BROADCAST_URL);
 
-	struct curl_slist *headers = caffeine_authenticated_headers(auth_info);
+	struct curl_slist *headers = caffeine_authenticated_headers(creds);
 	headers = curl_slist_append(headers, "Content-Type: multipart/form-data");
 	curl_easy_setopt(curl, CURLOPT_HTTPHEADER, headers);
 
@@ -830,7 +834,7 @@ request_error:
 bool send_heartbeat(
 	char const * stage_id,
 	char const * signed_payload,
-	struct caffeine_auth_info const * auth_info)
+	struct caffeine_credentials * creds)
 {
 	bool result = false;
 
@@ -865,7 +869,7 @@ bool send_heartbeat(
 	curl_easy_setopt(curl, CURLOPT_URL, url_str.array);
 	curl_easy_setopt(curl, CURLOPT_POSTFIELDS, request_body);
 
-	struct curl_slist *headers = caffeine_authenticated_headers(auth_info);
+	struct curl_slist *headers = caffeine_authenticated_headers(creds);
 	headers = curl_slist_append(headers, "Content-Type: application/json");
 	curl_easy_setopt(curl, CURLOPT_HTTPHEADER, headers);
 
