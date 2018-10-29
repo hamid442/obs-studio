@@ -1383,6 +1383,12 @@ protected:
 	double _spawnRate = 1;
 	double _spawnCount = 0;
 
+	std::string _emitterXExpr = "";
+	std::string _emitterYExpr = "";
+	std::string _emitterZExpr = "";
+	std::string _emitterXRotateExpr = "";
+	std::string _emitterYRotateExpr = "";
+	std::string _emitterZRotateExpr = "";
 	std::string _rotateXExpr = "";
 	std::string _rotateYExpr = "";
 	std::string _rotateZExpr = "";
@@ -1565,6 +1571,24 @@ public:
 		_spawnRate = hlsl_clamp(_param->getAnnotationValue<float>("spawn_rate", 0), 0, 1000);
 		if (_isParticle) {
 			EVal *l = nullptr;
+			l = _param->getAnnotationValue("emitter_x");
+			if (l)
+				_emitterXExpr = *l;
+			l = _param->getAnnotationValue("emitter_y");
+			if (l)
+				_emitterYExpr = *l;
+			l = _param->getAnnotationValue("emitter_z");
+			if (l)
+				_emitterZExpr = *l;
+			l = _param->getAnnotationValue("emitter_rotate_x");
+			if (l)
+				_emitterXRotateExpr = *l;
+			l = _param->getAnnotationValue("emitter_rotate_y");
+			if (l)
+				_emitterYRotateExpr = *l;
+			l = _param->getAnnotationValue("emitter_rotate_z");
+			if (l)
+				_emitterZRotateExpr = *l;
 			l = _param->getAnnotationValue("rotate_x");
 			if (l)
 				_rotateXExpr = *l;
@@ -1721,6 +1745,36 @@ public:
 	{
 		transformAlpha p = { 0 };
 		matrix4_identity(&p.position);
+		double x = 0;
+		double y = 0;
+		double z = 0;
+		if (!_emitterXExpr.empty()) {
+			_filter->compileExpression(_emitterXExpr);
+			x = _filter->evaluateExpression<double>(0);
+		}
+		if (!_emitterYExpr.empty()) {
+			_filter->compileExpression(_emitterYExpr);
+			y = _filter->evaluateExpression<double>(0);
+		}
+		if (!_emitterZExpr.empty()) {
+			_filter->compileExpression(_emitterZExpr);
+			z = _filter->evaluateExpression<double>(0);
+		}
+		matrix4_translate3f(&p.position, &p.position, x, y, z);
+		if (!_emitterXRotateExpr.empty()) {
+			_filter->compileExpression(_emitterXRotateExpr);
+			x = _filter->evaluateExpression<double>(0);
+		}
+		if (!_emitterYRotateExpr.empty()) {
+			_filter->compileExpression(_emitterYRotateExpr);
+			y = _filter->evaluateExpression<double>(0);
+		}
+		if (!_emitterZRotateExpr.empty()) {
+			_filter->compileExpression(_emitterZRotateExpr);
+			z = _filter->evaluateExpression<double>(0);
+		}
+		matrix4_rotate_aa4f(&p.position, &p.position, x, y, z, 1.0 / frame_rate);
+
 		if (!_rotateXExpr.empty()) {
 			_filter->compileExpression(_rotateXExpr);
 			p.rotateX = _filter->evaluateExpression<double>(0);//random_double(-0.1, 0.1);
@@ -1796,7 +1850,7 @@ public:
 		if (_isParticle) {
 
 			/*Spawn new particles, clear old*/
-			
+
 			size_t oldSize = _particles.size();
 			_spawnCount += (_spawnRate / frame_rate);
 
@@ -1835,7 +1889,7 @@ public:
 				_vertexBufferData->tangents = (vec3*)brealloc(_vertexBufferData->tangents, sizeof(vec3) * _vertexBufferData->num);
 				_vertexBufferData->colors = (uint32_t*)brealloc(_vertexBufferData->colors, sizeof(uint32_t) * _vertexBufferData->num);
 				//unitvector array things
-				if(!_vertexBufferData->tvarray)
+				if (!_vertexBufferData->tvarray)
 					_vertexBufferData->tvarray = (gs_tvertarray*)bzalloc(sizeof(gs_tvertarray));
 				_vertexBufferData->tvarray->array = (vec4*)brealloc(_vertexBufferData->tvarray->array, sizeof(vec4) * _vertexBufferData->num);
 				_vertexBufferData->tvarray->width = 4;//m_vertexbufferdata->num;
@@ -1864,22 +1918,25 @@ public:
 			for (size_t i = 0; i < _particles.size(); i++) {
 				transformAlpha *p = &_particles[i];
 				//rotate matrix
+				matrix4_rotate_aa4f(&p->position, &p->position, p->rotateX, p->rotateY, p->rotateZ, 1.0 / frame_rate);
+				/*
 				matrix4_rotate_aa4f(&p->position, &p->position, 1, 0, 0, p->rotateX / frame_rate);
 				matrix4_rotate_aa4f(&p->position, &p->position, 0, 1, 0, p->rotateY / frame_rate);
 				matrix4_rotate_aa4f(&p->position, &p->position, 0, 0, 1, p->rotateZ / frame_rate);
+				*/
 				//translate matrix
 				matrix4_translate3f(&p->position, &p->position, p->translateX / frame_rate,
-						p->translateY / frame_rate, p->translateZ / frame_rate);
+					p->translateY / frame_rate, p->translateZ / frame_rate);
 
 				vec4 *ar = (vec4 *)vb->tvarray->array;
 				size_t index_0 = i * 4;
 				size_t index_1 = index_0 + 1;
 				size_t index_2 = index_0 + 2;
 				size_t index_3 = index_0 + 3;
-				vb->colors[index_0] = 0xFFFFFF00 | ((uint8_t)(p->alpha * 255.0));
-				vb->colors[index_1] = 0xFFFFFF00 | ((uint8_t)(p->alpha * 255.0));
-				vb->colors[index_2] = 0xFFFFFF00 | ((uint8_t)(p->alpha * 255.0));
-				vb->colors[index_3] = 0xFFFFFF00 | ((uint8_t)(p->alpha * 255.0));
+				vb->colors[index_0] = 0xFFFFFF00 | ((uint8_t)(p->alpha));
+				vb->colors[index_1] = 0xFFFFFF00 | ((uint8_t)(p->alpha));
+				vb->colors[index_2] = 0xFFFFFF00 | ((uint8_t)(p->alpha));
+				vb->colors[index_3] = 0xFFFFFF00 | ((uint8_t)(p->alpha));
 
 				vec4_set(&ar[index_0], 0, 0, 0, 0);
 				vec4_set(&ar[index_1], 1, 0, 0, 0);
@@ -1997,7 +2054,7 @@ public:
 
 				gs_clear(GS_CLEAR_COLOR | GS_CLEAR_DEPTH, &clearColor, farZ, 0);
 
-				if(_particles.size() > 0) {
+				if (_particles.size() > 0) {
 					if (t && _vertexBuffer && _indexBuffer) {
 						uint32_t vertexes = 6 * _particles.size();
 						/* Scale texture to original size */
