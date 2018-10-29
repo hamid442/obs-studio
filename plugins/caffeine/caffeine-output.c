@@ -297,38 +297,50 @@ static void * heartbeat(void * data)
 	struct caffeine_credentials * creds =
 		obs_service_query(service, CAFFEINE_QUERY_CREDENTIALS);
 
+	/* Likely to be removed */
 	char * session_id = set_stage_live(false, NULL, stage_id,
 					stream_id, title, creds);
 	if (!session_id) {
 		goto get_session_error;
 	}
 
+	/* Likely to be removed*/
 	if (!create_broadcast(title, creds)) {
 		goto create_broadcast_error;
 	}
 
-	/* TODO: use wall time instead */
+	/* TODO: use wall time instead of accumulation of sleep time */
 	long const heartbeat_interval = 5000; /* ms */
 	long const check_interval = 100;
 
 	long interval = heartbeat_interval;
 
+	static int const max_failures = 5;
+	int failures = 0;
+
 	while (get_state(context) == ONLINE)
 	{
-		if (interval >= heartbeat_interval) {
-			set_stage_live(true, session_id, stage_id, stream_id,
-					title, creds);
-			if (!send_heartbeat(stream_id, signed_payload,
-				creds))
-			{
-				log_error("Heartbeat failed. Ending stream.");
-				caffeine_stream_failed(data,
-					CAFF_ERROR_DISCONNECTED);
-			}
-			interval = 0;
-		}
 		os_sleep_ms(check_interval);
 		interval += check_interval;
+		if (interval < heartbeat_interval)
+			continue;
+
+		interval = 0;
+
+		/* Likely to be removed */
+		set_stage_live(true, session_id, stage_id, stream_id, title, creds);
+
+		if (send_heartbeat(stream_id, signed_payload, creds)) {
+			failures = 0;
+			continue;
+		}
+
+		++failures;
+		if (failures > max_failures) {
+			log_error("Heartbeat failed %d times; ending stream.",
+				failures);
+			caffeine_stream_failed(data, CAFF_ERROR_DISCONNECTED);
+		}
 	}
 
 	set_stage_live(false, session_id, stage_id, stream_id, title, creds);
