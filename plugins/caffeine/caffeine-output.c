@@ -78,6 +78,8 @@ static int caffeine_to_obs_error(caff_error error)
 	case CAFF_ERROR_ICE_TRICKLE:
 	case CAFF_ERROR_ICE_REMOTE:
 		return OBS_OUTPUT_CONNECT_FAILED;
+	case CAFF_ERROR_DISCONNECTED:
+		return OBS_OUTPUT_DISCONNECTED;
 	default:
 		return OBS_OUTPUT_ERROR;
 	}
@@ -260,20 +262,15 @@ static void caffeine_stream_started(void *data)
 	pthread_create(&context->heartbeat_thread, NULL, heartbeat, context);
 }
 
+static void caffeine_stop_stream(struct caffeine_output * context);
+
 static void caffeine_stream_failed(void *data, caff_error error)
 {
 	struct caffeine_output *context = data;
 	log_error("caffeine_stream_failed: %d", error);
 
-	pthread_mutex_lock(&context->stream_mutex);
-	if (context->stream_info) {
-		caffeine_free_stream_info(context->stream_info);
-	}
-	if (context->stream) {
-		caff_end_stream(context->stream);
-	}
-	set_state(context, OFFLINE);
-	pthread_mutex_unlock(&context->stream_mutex);
+	set_state(context, STOPPING);
+	caffeine_stop_stream(context);
 
 	obs_output_signal_stop(context->output, caffeine_to_obs_error(error));
 }
@@ -319,8 +316,15 @@ static void * heartbeat(void * data)
 	while (get_state(context) == ONLINE)
 	{
 		if (interval >= heartbeat_interval) {
-			set_stage_live(true, session_id, stage_id, stream_id, title, auth_info);
-			send_heartbeat(stream_id, signed_payload, auth_info);
+			set_stage_live(true, session_id, stage_id, stream_id,
+					title, auth_info);
+			if (!send_heartbeat(stream_id, signed_payload,
+				auth_info))
+			{
+				log_error("Heartbeat failed. Ending stream.");
+				caffeine_stream_failed(data,
+					CAFF_ERROR_DISCONNECTED);
+			}
 			interval = 0;
 		}
 		os_sleep_ms(check_interval);
@@ -370,6 +374,24 @@ static void caffeine_raw_audio(void *data, struct audio_data *frames)
 	pthread_mutex_unlock(&context->stream_mutex);
 }
 
+static void caffeine_stop_stream(struct caffeine_output * context)
+{
+	pthread_mutex_lock(&context->stream_mutex);
+
+	if (context->stream)
+		caff_end_stream(context->stream);
+
+	if (context->stream_info)
+		caffeine_free_stream_info(context->stream_info);
+
+	context->stream_info = NULL;
+	context->stream = NULL;
+
+	pthread_mutex_unlock(&context->stream_mutex);
+
+	set_state(context, OFFLINE);
+}
+
 static void caffeine_stop(void *data, uint64_t ts)
 {
 	/* TODO: do something with this? */
@@ -380,22 +402,10 @@ static void caffeine_stop(void *data, uint64_t ts)
 
 	obs_output_end_data_capture(context->output);
 
-	if (!transition_state(context, ONLINE, STOPPING))
-		return;
-
+	set_state(context, STOPPING);
 	pthread_join(context->heartbeat_thread, NULL);
 
-	pthread_mutex_lock(&context->stream_mutex);
-
-	caff_end_stream(context->stream);
-	caffeine_free_stream_info(context->stream_info);
-
-	context->stream_info = NULL;
-	context->stream = NULL;
-
-	pthread_mutex_unlock(&context->stream_mutex);
-
-	transition_state(context, STOPPING, OFFLINE);
+	caffeine_stop_stream(context);
 }
 
 static void caffeine_destroy(void *data)
