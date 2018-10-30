@@ -318,9 +318,10 @@ static void * heartbeat(void * data)
 	static int const max_failures = 5;
 	int failures = 0;
 
-	while (get_state(context) == ONLINE)
+	for (enum state state = get_state(context);
+		state == ONLINE;
+		os_sleep_ms(check_interval), state = get_state(context))
 	{
-		os_sleep_ms(check_interval);
 		interval += check_interval;
 		if (interval < heartbeat_interval)
 			continue;
