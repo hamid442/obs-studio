@@ -23,6 +23,7 @@ include_directories(
 set(caffeine_SOURCES
 	caffeine-api.c
 	caffeine-api.h
+	caffeine-log.h
 	caffeine-module.c
 	caffeine-service.c
 	caffeine-service.h

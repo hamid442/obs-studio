@@ -7,13 +7,8 @@
 #include <util/dstr.h>
 #include <util/threading.h>
 
-#define do_log(level, format, ...) \
-	blog(level, "[caffeine api] " format, ##__VA_ARGS__)
-
-#define log_error(format, ...)  do_log(LOG_ERROR, format, ##__VA_ARGS__)
-#define log_warn(format, ...)  do_log(LOG_WARNING, format, ##__VA_ARGS__)
-#define log_info(format, ...)  do_log(LOG_INFO, format, ##__VA_ARGS__)
-#define log_debug(format, ...)  do_log(LOG_DEBUG, format, ##__VA_ARGS__)
+#define CAFFEINE_LOG_TITLE "caffeine api"
+#include "caffeine-log.h"
 
 /* TODO: load these from config? */
 #define API_ENDPOINT       "https://api.caffeine.tv/"
@@ -85,6 +80,7 @@ struct caffeine_auth_response * caffeine_signin(
 	char const * password,
 	char const * otp)
 {
+	trace();
 	struct caffeine_auth_response * response = NULL;
 
 	json_t * request_json = NULL;
@@ -174,7 +170,7 @@ struct caffeine_auth_response * caffeine_signin(
 		"mfa_otp_method", &mfa_otp_method);
 
 	if (success_result != 0) {
-		log_error("Failed to extract auth info from signin result: [%s]",
+		log_error("Failed to extract response info: [%s]",
 			json_error.text);
 		goto json_parsed_error;
 	}
@@ -182,6 +178,7 @@ struct caffeine_auth_response * caffeine_signin(
 	struct caffeine_credentials * creds = NULL;
 
 	if (access_token) {
+		log_debug("Sign-in complete");
 		creds = bzalloc(sizeof(struct caffeine_credentials));
 		creds->access_token = bstrdup(access_token);
 		creds->caid = bstrdup(caid);
@@ -189,6 +186,11 @@ struct caffeine_auth_response * caffeine_signin(
 		creds->credential = bstrdup(credential);
 		pthread_mutex_init(&creds->mutex, NULL);
 	}
+	else if (response->mfa_otp_method) {
+		log_debug("MFA required");
+	}
+	else
+		log_error("Sign-in response missing");
 
 	response = bzalloc(sizeof(struct caffeine_auth_response));
 
@@ -214,6 +216,7 @@ request_json_error:
 
 void caffeine_free_credentials(struct caffeine_credentials * credentials)
 {
+	trace();
 	if (!credentials)
 		return;
 	pthread_mutex_lock(&credentials->mutex);
@@ -232,6 +235,7 @@ void caffeine_free_credentials(struct caffeine_credentials * credentials)
 
 void caffeine_free_auth_response(struct caffeine_auth_response * auth_response)
 {
+	trace();
 	if (auth_response == NULL)
 		return;
 
@@ -246,6 +250,7 @@ void caffeine_free_auth_response(struct caffeine_auth_response * auth_response)
 struct caffeine_user_info * caffeine_getuser(
 	struct caffeine_credentials * creds)
 {
+	trace();
 	if (creds == NULL) {
 		log_error("Missing credentials");
 		return NULL;
@@ -315,7 +320,7 @@ struct caffeine_user_info * caffeine_getuser(
 		"can_broadcast", &can_broadcast);
 
 	if (success_result != 0) {
-		log_error("Failed to extract user info from getuser result: [%s]",
+		log_error("Failed to extract response info: [%s]",
 			json_error.text);
 		goto json_parsed_error;
 	}
@@ -332,6 +337,8 @@ struct caffeine_user_info * caffeine_getuser(
 	user_info->stage_id = bstrdup(stage_id);
 	user_info->can_broadcast = can_broadcast;
 
+	log_debug("Got user details");
+
 json_parsed_error:
 	json_decref(response_json);
 json_failed_error:
@@ -346,6 +353,7 @@ request_error:
 
 void caffeine_free_user_info(struct caffeine_user_info * user_info)
 {
+	trace();
 	if (user_info == NULL)
 		return;
 
@@ -359,6 +367,7 @@ struct caffeine_stream_info * caffeine_start_stream(
 	char const * sdp_offer,
 	struct caffeine_credentials * creds)
 {
+	trace();
 	struct caffeine_stream_info * response = NULL;
 
 	json_t * request_json = NULL;
@@ -440,7 +449,7 @@ struct caffeine_stream_info * caffeine_start_stream(
 		"signed_payload", &signed_payload);
 
 	if (success_result != 0) {
-		log_error("Failed to extract auth info from signin result: [%s]",
+		log_error("Failed to extract response info: [%s]",
 			json_error.text);
 		goto json_parsed_error;
 	}
@@ -449,6 +458,8 @@ struct caffeine_stream_info * caffeine_start_stream(
 	response->stream_id = bstrdup(stream_id);
 	response->sdp_answer = bstrdup(sdp_answer);
 	response->signed_payload = bstrdup(signed_payload);
+
+	log_debug("Stream started");
 
 json_parsed_error:
 	json_decref(response_json);
@@ -468,6 +479,7 @@ request_json_error:
 
 void caffeine_free_stream_info(struct caffeine_stream_info * stream_info)
 {
+	trace();
 	if (!stream_info)
 		return;
 
@@ -482,6 +494,7 @@ bool caffeine_trickle_candidates(
 	struct caffeine_credentials * creds,
 	struct caffeine_stream_info const * stream_info)
 {
+	trace();
 	json_t * ice_candidates = json_array();
 	for (size_t i = 0; i < num_candidates; ++i)
 	{
@@ -577,12 +590,13 @@ bool caffeine_trickle_candidates(
 		"signed_payload", &new_signed_payload);
 
 	if (success_result != 0) {
-		log_error("Failed to extract auth info from signin result: [%s]",
+		log_error("Failed to extract response info: [%s]",
 			json_error.text);
 		goto json_parsed_error;
 	}
 
 	response = true;
+	log_debug("ICE candidates trickled");
 
 json_parsed_error:
 	json_decref(response_json);
@@ -603,6 +617,7 @@ request_json_error:
 
 bool refresh_credentials(struct caffeine_credentials * creds)
 {
+	trace();
 	pthread_mutex_lock(&creds->mutex);
 	json_t * request_json = json_pack("{s:s}",
 		"refresh_token", creds->refresh_token);
@@ -682,7 +697,7 @@ bool refresh_credentials(struct caffeine_credentials * creds)
 		"credential", &credential);
 
 	if (success_result != 0) {
-		log_error("Failed to extract auth info from refresh result: [%s]",
+		log_error("Failed to extract response info: [%s]",
 			json_error.text);
 		goto json_parsed_error;
 	}
@@ -698,6 +713,8 @@ bool refresh_credentials(struct caffeine_credentials * creds)
 	creds->refresh_token = bstrdup(refresh_token);
 	creds->credential = bstrdup(credential);
 	pthread_mutex_unlock(&creds->mutex);
+
+	log_debug("Auth tokens refreshed");
 
 json_parsed_error:
 	json_decref(response_json);
@@ -720,6 +737,7 @@ bool send_heartbeat(
 	char const * signed_payload,
 	struct caffeine_credentials * creds)
 {
+	trace();
 	bool result = false;
 
 	json_t * request_json =
@@ -779,12 +797,13 @@ bool send_heartbeat(
 
 	/* TODO: implement this more generally (along with retries) */
 	if (response_code == 401) {
+		log_info("Unauthorized - refreshing credentials");
 		refresh_credentials(creds);
 		result = send_heartbeat(stage_id, signed_payload, creds);
 		goto auth_refresh;
 	}
 
-	log_info("Http response code [%ld]", response_code);
+	log_debug("Http response code [%ld]", response_code);
 
 	json_error_t json_error;
 	json_t * response_json = json_loads(response_str.array, 0, &json_error);
@@ -801,8 +820,10 @@ bool send_heartbeat(
 		goto json_parsed_error;
 	}
 
-	if (response_code / 100 == 2)
+	if (response_code / 100 == 2) {
+		log_debug("Heartbeat sent");
 		result = true;
+	}
 
 json_parsed_error:
 	json_decref(response_json);
@@ -836,6 +857,7 @@ char * set_stage_live(
 	char const * title,
 	struct caffeine_credentials * creds)
 {
+	trace();
 	json_t * stream_json = json_pack("{s:s,s:s,s:s,s:{s:b,s:b}}",
 		"id", stream_id,
 		"label", "game",
@@ -925,10 +947,7 @@ char * set_stage_live(
 
 	long response_code;
 	curl_easy_getinfo(curl, CURLINFO_RESPONSE_CODE, &response_code);
-	log_info("Http response [%ld]", response_code);
-
-	if (response_code / 100 != 2)
-		log_info("update stage failed");
+	log_debug("Http response [%ld]", response_code);
 
 	json_error_t json_error;
 	json_t * response_json = json_loads(response_str.array, 0, &json_error);
@@ -945,17 +964,21 @@ char * set_stage_live(
 		goto json_parsed_error;
 	}
 
-
 	if (!session_id) {
 		char const * new_session_id;
 		if (json_unpack(response_json, "{s:s}",
 			"session_id", &new_session_id) != 0) {
 			goto request_error;
 		}
-		log_info("got session id %s", new_session_id);
+		log_debug("got session id %s", new_session_id);
 
 		result = bstrdup(new_session_id);
 	}
+
+	if (response_code / 100 == 2)
+		log_debug("Stage set %s", (isLive ? "live" : "offline"));
+	else
+		log_warn("Failed to set stage state");
 
 json_parsed_error:
 	json_decref(response_json);
@@ -987,6 +1010,7 @@ bool create_broadcast(
 	char const * title,
 	struct caffeine_credentials * creds)
 {
+	trace();
 	CURL * curl = curl_easy_init();
 
 	if (!curl)
@@ -1035,7 +1059,7 @@ bool create_broadcast(
 	long response_code;
 	curl_easy_getinfo(curl, CURLINFO_RESPONSE_CODE, &response_code);
 
-	log_info("Http response code [%ld]", response_code);
+	log_debug("Http response code [%ld]", response_code);
 
 	json_error_t json_error;
 	json_t * response_json = json_loads(response_str.array, 0, &json_error);
@@ -1052,9 +1076,13 @@ bool create_broadcast(
 		goto json_parsed_error;
 	}
 
-
-	if (response_code / 100 == 2)
+	if (response_code / 100 == 2) {
+		log_debug("Stage state updated");
 		result = true;
+	}
+	else {
+		log_error("Failed to update stage state");
+	}
 
 json_parsed_error:
 	json_decref(response_json);
