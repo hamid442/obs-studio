@@ -15,8 +15,11 @@
 #define log_info(format, ...)  do_log(LOG_INFO, format, ##__VA_ARGS__)
 #define log_debug(format, ...)  do_log(LOG_DEBUG, format, ##__VA_ARGS__)
 
+/* TODO: load these from config? */
 #define API_ENDPOINT       "https://api.caffeine.tv/"
+#define REALTIME_ENDPOINT  "https://realtime.caffeine.tv/"
 
+/* TODO: some of these are deprecated */
 #define SIGNIN_URL         API_ENDPOINT "v1/account/signin"
 #define REFRESH_TOKEN_URL  API_ENDPOINT "v1/account/token"
 #define GETUSER_URL_F      API_ENDPOINT "v1/users/%s"
@@ -24,8 +27,6 @@
 #define TRICKLE_URL_F      API_ENDPOINT "v2/broadcasts/streams/%s"
 #define BROADCAST_URL      API_ENDPOINT "v1/broadcasts"
 #define HEARTBEAT_URL_F    API_ENDPOINT "v2/broadcasts/streams/%s/heartbeat"
-
-#define REALTIME_ENDPOINT  "https://realtime.caffeine.tv/"
 
 #define STAGE_STATE_URL_F  REALTIME_ENDPOINT "v2/stages/%s/details"
 
@@ -116,7 +117,6 @@ struct caffeine_auth_response * caffeine_signin(
 		goto curl_init_error;
 	}
 
-	/* TODO: get urls from data ? */
 	curl_easy_setopt(curl, CURLOPT_URL, SIGNIN_URL);
 	curl_easy_setopt(curl, CURLOPT_POSTFIELDS, request_body);
 
@@ -261,7 +261,6 @@ struct caffeine_user_info * caffeine_getuser(
 
 	struct caffeine_user_info * user_info = NULL;
 
-	/* TODO: get urls from data ? */
 	struct dstr url_str;
 	dstr_init(&url_str);
 	dstr_printf(&url_str, GETUSER_URL_F, creds->caid);
@@ -306,7 +305,7 @@ struct caffeine_user_info * caffeine_getuser(
 	char const *fetched_caid = NULL;
 	char const *username = NULL;
 	char const *stage_id = NULL;
-	int can_broadcast = false; /* Using bool causes stack corruption on windows; I guess sizeof(bool) != sizeof(int) */
+	int can_broadcast = false; /* Jansson uses int for bool */
 	int success_result = json_unpack_ex(response_json, &json_error, 0,
 		"{s:{s:s,s:s,s:s,s:b}}",
 		"user",
@@ -389,7 +388,6 @@ struct caffeine_stream_info * caffeine_start_stream(
 		goto curl_init_error;
 	}
 
-	/* TODO: get urls from data ? */
 	curl_easy_setopt(curl, CURLOPT_URL, STREAM_URL);
 	curl_easy_setopt(curl, CURLOPT_POSTFIELDS, request_body);
 
@@ -603,6 +601,226 @@ request_json_error:
 	return response;
 }
 
+bool refresh_credentials(struct caffeine_credentials * creds)
+{
+	pthread_mutex_lock(&creds->mutex);
+	json_t * request_json = json_pack("{s:s}",
+		"refresh_token", creds->refresh_token);
+	pthread_mutex_unlock(&creds->mutex);
+
+	bool result = false;
+
+	if (!request_json)
+	{
+		log_error("Failed to create request JSON");
+		goto request_json_error;
+	}
+
+	char * request_body = json_dumps(request_json, 0);
+	if (!request_body)
+	{
+		log_error("Failed to serialize request JSON");
+		goto request_serialize_error;
+	}
+
+	CURL * curl = curl_easy_init();
+
+	if (!curl)
+	{
+		log_error("Failed to initialize cURL");
+		goto curl_init_error;
+	}
+
+	curl_easy_setopt(curl, CURLOPT_URL, REFRESH_TOKEN_URL);
+	curl_easy_setopt(curl, CURLOPT_POSTFIELDS, request_body);
+
+	struct curl_slist *headers = caffeine_basic_headers();
+	headers = curl_slist_append(headers, "Content-Type: application/json");
+	curl_easy_setopt(curl, CURLOPT_HTTPHEADER, headers);
+
+	struct dstr response_str;
+	dstr_init(&response_str);
+
+	curl_easy_setopt(curl, CURLOPT_WRITEFUNCTION,
+		caffeine_curl_write_callback);
+	curl_easy_setopt(curl, CURLOPT_WRITEDATA, (void*)&response_str);
+
+	char curl_error[CURL_ERROR_SIZE];
+	curl_easy_setopt(curl, CURLOPT_ERRORBUFFER, curl_error);
+
+	CURLcode res = curl_easy_perform(curl);
+	if (res != CURLE_OK) {
+		log_error("HTTP failure refreshing tokens: [%d] %s", res, curl_error);
+		goto request_error;
+	}
+
+	json_error_t json_error;
+	json_t * response_json = json_loads(response_str.array, 0, &json_error);
+	if (!response_json) {
+		log_error("Failed to parse refresh response: %s",
+			json_error.text);
+		goto json_failed_error;
+	}
+	char const *error_text = NULL;
+	int error_result = json_unpack(response_json, "{s:{s:[s!]}}",
+		"errors", "_error", &error_text);
+	if (error_result == 0) {
+		log_error("Error refreshing tokens: %s", error_text);
+		goto json_parsed_error;
+	}
+
+	char const *access_token = NULL;
+	char const *refresh_token = NULL;
+	char const *caid = NULL;
+	char const *credential = NULL;
+	int success_result = json_unpack_ex(response_json, &json_error, 0,
+		"{s:{s:s,s:s,s:s,s:s}}",
+		"credentials",
+		"access_token", &access_token,
+		"refresh_token", &refresh_token,
+		"caid", &caid,
+		"credential", &credential);
+
+	if (success_result != 0) {
+		log_error("Failed to extract auth info from refresh result: [%s]",
+			json_error.text);
+		goto json_parsed_error;
+	}
+
+	pthread_mutex_lock(&creds->mutex);
+	bfree(creds->access_token);
+	bfree(creds->caid);
+	bfree(creds->refresh_token);
+	bfree(creds->credential);
+
+	creds->access_token = bstrdup(access_token);
+	creds->caid = bstrdup(caid);
+	creds->refresh_token = bstrdup(refresh_token);
+	creds->credential = bstrdup(credential);
+	pthread_mutex_unlock(&creds->mutex);
+
+json_parsed_error:
+	json_decref(response_json);
+json_failed_error:
+request_error:
+	dstr_free(&response_str);
+	curl_slist_free_all(headers);
+	curl_easy_cleanup(curl);
+curl_init_error:
+	free(request_body);
+request_serialize_error:
+	json_decref(request_json);
+request_json_error:
+
+	return result;
+}
+
+bool send_heartbeat(
+	char const * stage_id,
+	char const * signed_payload,
+	struct caffeine_credentials * creds)
+{
+	bool result = false;
+
+	json_t * request_json =
+		json_pack("{s:s}", "signed_payload", signed_payload);
+
+	if (!request_json)
+	{
+		log_error("Failed to create request JSON");
+		goto request_json_error;
+	}
+
+	char * request_body = json_dumps(request_json, 0);
+	if (!request_body)
+	{
+		log_error("Failed to serialize request JSON");
+		goto request_serialize_error;
+	}
+
+	CURL * curl = curl_easy_init();
+
+	if (!curl)
+	{
+		log_error("Failed to initialize cURL");
+		goto curl_init_error;
+	}
+
+	struct dstr url_str;
+	dstr_init(&url_str);
+	dstr_printf(&url_str, HEARTBEAT_URL_F, stage_id);
+
+	curl_easy_setopt(curl, CURLOPT_URL, url_str.array);
+	curl_easy_setopt(curl, CURLOPT_POSTFIELDS, request_body);
+
+	struct curl_slist *headers = caffeine_authenticated_headers(creds);
+	headers = curl_slist_append(headers, "Content-Type: application/json");
+	curl_easy_setopt(curl, CURLOPT_HTTPHEADER, headers);
+
+	struct dstr response_str;
+	dstr_init(&response_str);
+
+	curl_easy_setopt(curl, CURLOPT_WRITEFUNCTION,
+		caffeine_curl_write_callback);
+	curl_easy_setopt(curl, CURLOPT_WRITEDATA, (void*)&response_str);
+
+	char curl_error[CURL_ERROR_SIZE];
+	curl_easy_setopt(curl, CURLOPT_ERRORBUFFER, curl_error);
+
+	CURLcode res = curl_easy_perform(curl);
+	if (res != CURLE_OK) {
+		log_error("HTTP failure going live: [%d] %s",
+			res, curl_error);
+		goto request_error;
+	}
+
+	long response_code;
+	curl_easy_getinfo(curl, CURLINFO_RESPONSE_CODE, &response_code);
+
+	/* TODO: implement this more generally (along with retries) */
+	if (response_code == 401) {
+		refresh_credentials(creds);
+		result = send_heartbeat(stage_id, signed_payload, creds);
+		goto auth_refresh;
+	}
+
+	log_info("Http response code [%ld]", response_code);
+
+	json_error_t json_error;
+	json_t * response_json = json_loads(response_str.array, 0, &json_error);
+	if (!response_json) {
+		log_error("Failed to parse heartbeat response: %s",
+			json_error.text);
+		goto json_failed_error;
+	}
+	char const *error_text = NULL;
+	int error_result = json_unpack(response_json, "{s:[s!]}",
+		"_errors", &error_text);
+	if (error_result == 0) {
+		log_error("Error sending heartbeat: %s", error_text);
+		goto json_parsed_error;
+	}
+
+	if (response_code / 100 == 2)
+		result = true;
+
+json_parsed_error:
+	json_decref(response_json);
+json_failed_error:
+request_error:
+auth_refresh:
+	dstr_free(&response_str);
+	curl_slist_free_all(headers);
+	curl_easy_cleanup(curl);
+	dstr_free(&url_str);
+curl_init_error:
+	free(request_body);
+request_serialize_error:
+	json_decref(request_json);
+request_json_error:
+
+	return result;
+}
 
 
 /* TODO: Here be dragons
@@ -846,227 +1064,6 @@ request_error:
 	curl_slist_free_all(headers);
 	curl_formfree(post);
 	curl_easy_cleanup(curl);
-
-	return result;
-}
-
-bool refresh_credentials(struct caffeine_credentials * creds)
-{
-	pthread_mutex_lock(&creds->mutex);
-	json_t * request_json = json_pack("{s:s}",
-		"refresh_token", creds->refresh_token);
-	pthread_mutex_unlock(&creds->mutex);
-
-	bool result = false;
-
-	if (!request_json)
-	{
-		log_error("Failed to create request JSON");
-		goto request_json_error;
-	}
-
-	char * request_body = json_dumps(request_json, 0);
-	if (!request_body)
-	{
-		log_error("Failed to serialize request JSON");
-		goto request_serialize_error;
-	}
-
-	CURL * curl = curl_easy_init();
-
-	if (!curl)
-	{
-		log_error("Failed to initialize cURL");
-		goto curl_init_error;
-	}
-
-	curl_easy_setopt(curl, CURLOPT_URL, REFRESH_TOKEN_URL);
-	curl_easy_setopt(curl, CURLOPT_POSTFIELDS, request_body);
-
-	struct curl_slist *headers = caffeine_basic_headers();
-	headers = curl_slist_append(headers, "Content-Type: application/json");
-	curl_easy_setopt(curl, CURLOPT_HTTPHEADER, headers);
-
-	struct dstr response_str;
-	dstr_init(&response_str);
-
-	curl_easy_setopt(curl, CURLOPT_WRITEFUNCTION,
-		caffeine_curl_write_callback);
-	curl_easy_setopt(curl, CURLOPT_WRITEDATA, (void*)&response_str);
-
-	char curl_error[CURL_ERROR_SIZE];
-	curl_easy_setopt(curl, CURLOPT_ERRORBUFFER, curl_error);
-
-	CURLcode res = curl_easy_perform(curl);
-	if (res != CURLE_OK) {
-		log_error("HTTP failure refreshing tokens: [%d] %s", res, curl_error);
-		goto request_error;
-	}
-
-	json_error_t json_error;
-	json_t * response_json = json_loads(response_str.array, 0, &json_error);
-	if (!response_json) {
-		log_error("Failed to parse refresh response: %s",
-			json_error.text);
-		goto json_failed_error;
-	}
-	char const *error_text = NULL;
-	int error_result = json_unpack(response_json, "{s:{s:[s!]}}",
-		"errors", "_error", &error_text);
-	if (error_result == 0) {
-		log_error("Error refreshing tokens: %s", error_text);
-		goto json_parsed_error;
-	}
-
-	char const *access_token = NULL;
-	char const *refresh_token = NULL;
-	char const *caid = NULL;
-	char const *credential = NULL;
-	int success_result = json_unpack_ex(response_json, &json_error, 0,
-		"{s:{s:s,s:s,s:s,s:s}}",
-		"credentials",
-		"access_token", &access_token,
-		"refresh_token", &refresh_token,
-		"caid", &caid,
-		"credential", &credential);
-
-	if (success_result != 0) {
-		log_error("Failed to extract auth info from refresh result: [%s]",
-			json_error.text);
-		goto json_parsed_error;
-	}
-
-	pthread_mutex_lock(&creds->mutex);
-	bfree(creds->access_token);
-	bfree(creds->caid);
-	bfree(creds->refresh_token);
-	bfree(creds->credential);
-
-	creds->access_token = bstrdup(access_token);
-	creds->caid = bstrdup(caid);
-	creds->refresh_token = bstrdup(refresh_token);
-	creds->credential = bstrdup(credential);
-	pthread_mutex_unlock(&creds->mutex);
-
-json_parsed_error:
-	json_decref(response_json);
-json_failed_error:
-request_error:
-	dstr_free(&response_str);
-	curl_slist_free_all(headers);
-	curl_easy_cleanup(curl);
-curl_init_error:
-	free(request_body);
-request_serialize_error:
-	json_decref(request_json);
-request_json_error:
-
-	return result;
-}
-
-bool send_heartbeat(
-	char const * stage_id,
-	char const * signed_payload,
-	struct caffeine_credentials * creds)
-{
-	bool result = false;
-
-	json_t * request_json =
-		json_pack("{s:s}", "signed_payload", signed_payload);
-
-	if (!request_json)
-	{
-		log_error("Failed to create request JSON");
-		goto request_json_error;
-	}
-
-	char * request_body = json_dumps(request_json, 0);
-	if (!request_body)
-	{
-		log_error("Failed to serialize request JSON");
-		goto request_serialize_error;
-	}
-
-	CURL * curl = curl_easy_init();
-
-	if (!curl)
-	{
-		log_error("Failed to initialize cURL");
-		goto curl_init_error;
-	}
-
-	struct dstr url_str;
-	dstr_init(&url_str);
-	dstr_printf(&url_str, HEARTBEAT_URL_F, stage_id);
-
-	curl_easy_setopt(curl, CURLOPT_URL, url_str.array);
-	curl_easy_setopt(curl, CURLOPT_POSTFIELDS, request_body);
-
-	struct curl_slist *headers = caffeine_authenticated_headers(creds);
-	headers = curl_slist_append(headers, "Content-Type: application/json");
-	curl_easy_setopt(curl, CURLOPT_HTTPHEADER, headers);
-
-	struct dstr response_str;
-	dstr_init(&response_str);
-
-	curl_easy_setopt(curl, CURLOPT_WRITEFUNCTION,
-		caffeine_curl_write_callback);
-	curl_easy_setopt(curl, CURLOPT_WRITEDATA, (void*)&response_str);
-
-	char curl_error[CURL_ERROR_SIZE];
-	curl_easy_setopt(curl, CURLOPT_ERRORBUFFER, curl_error);
-
-	CURLcode res = curl_easy_perform(curl);
-	if (res != CURLE_OK) {
-		log_error("HTTP failure going live: [%d] %s",
-			res, curl_error);
-		goto request_error;
-	}
-
-	long response_code;
-	curl_easy_getinfo(curl, CURLINFO_RESPONSE_CODE, &response_code);
-
-	/* TODO: implement this more generally (along with retries) */
-	if (response_code == 401) {
-		refresh_credentials(creds);
-		result = send_heartbeat(stage_id, signed_payload, creds);
-		goto auth_refresh;
-	}
-
-	log_info("Http response code [%ld]", response_code);
-
-	json_error_t json_error;
-	json_t * response_json = json_loads(response_str.array, 0, &json_error);
-	if (!response_json) {
-		log_error("Failed to parse heartbeat response: %s",
-			json_error.text);
-		goto json_failed_error;
-	}
-	char const *error_text = NULL;
-	int error_result = json_unpack(response_json, "{s:[s!]}",
-		"_errors", &error_text);
-	if (error_result == 0) {
-		log_error("Error sending heartbeat: %s", error_text);
-		goto json_parsed_error;
-	}
-
-	if (response_code / 100 == 2)
-		result = true;
-
-json_parsed_error:
-	json_decref(response_json);
-json_failed_error:
-request_error:
-auth_refresh:
-	dstr_free(&response_str);
-	curl_slist_free_all(headers);
-	curl_easy_cleanup(curl);
-	dstr_free(&url_str);
-curl_init_error:
-	free(request_body);
-request_serialize_error:
-	json_decref(request_json);
-request_json_error:
 
 	return result;
 }
