@@ -9,15 +9,12 @@
 #include "caffeine-api.h"
 #include "caffeine-service.h"
 
+#define CAFFEINE_LOG_TITLE "caffeine output"
+#include "caffeine-log.h"
 
-#define do_log(level, format, ...) \
-	blog(level, "[caffeine output: '%s'] " format, \
-			obs_output_get_name(context->output), ##__VA_ARGS__)
-
-#define log_error(format, ...)  do_log(LOG_ERROR, format, ##__VA_ARGS__)
-#define log_warn(format, ...)  do_log(LOG_WARNING, format, ##__VA_ARGS__)
-#define log_info(format, ...)  do_log(LOG_INFO, format, ##__VA_ARGS__)
-#define log_debug(format, ...)  do_log(LOG_DEBUG, format, ##__VA_ARGS__)
+/* Uncomment this to log each call to raw_audio/video
+#define TRACE_FRAMES
+/**/
 
 enum state {
 	OFFLINE = 0,
@@ -76,7 +73,6 @@ static int caffeine_to_obs_error(caff_error error)
 	case CAFF_ERROR_SDP_OFFER:
 	case CAFF_ERROR_SDP_ANSWER:
 	case CAFF_ERROR_ICE_TRICKLE:
-	case CAFF_ERROR_ICE_REMOTE:
 		return OBS_OUTPUT_CONNECT_FAILED;
 	case CAFF_ERROR_DISCONNECTED:
 		return OBS_OUTPUT_DISCONNECTED;
@@ -85,6 +81,7 @@ static int caffeine_to_obs_error(caff_error error)
 	}
 }
 
+/* TODO: figure out why caffeine-rtc isn't calling this */
 static void caffeine_log(caff_log_severity severity, char const * message)
 {
 	int log_level = caffeine_to_obs_log_level(severity);
@@ -94,11 +91,11 @@ static void caffeine_log(caff_log_severity severity, char const * message)
 
 static void *caffeine_create(obs_data_t *settings, obs_output_t *output)
 {
+	trace();
 	UNUSED_PARAMETER(settings);
 
 	struct caffeine_output *context = bzalloc(sizeof(struct caffeine_output));
 	context->output = output;
-	log_info("caffeine_create");
 
 	pthread_mutex_init(&context->stream_mutex, NULL);
 
@@ -155,8 +152,8 @@ static void caffeine_stream_failed(void *data, caff_error error);
 
 static bool caffeine_start(void *data)
 {
+	trace();
 	struct caffeine_output *context = data;
-	log_info("caffeine_start");
 
 	struct audio_convert_info conversion = {
 		.format = AUDIO_FORMAT_16BIT,
@@ -193,8 +190,8 @@ static char const * caffeine_offer_generated(
 	void * data,
 	char const * sdp_offer)
 {
+	trace();
 	struct caffeine_output * context = data;
-	log_info("caffeine_offer_generated");
 
 	if (!require_state(context, STARTING))
 		return NULL;
@@ -221,8 +218,8 @@ static bool caffeine_ice_gathered(
 	caff_ice_candidates candidates,
 	size_t num_candidates)
 {
+	trace();
 	struct caffeine_output * context = data;
-	log_info("caffeine_ice_gathered");
 
 	obs_service_t * service = obs_output_get_service(context->output);
 	struct caffeine_credentials * creds =
@@ -250,8 +247,8 @@ static void * heartbeat(void * data);
 
 static void caffeine_stream_started(void *data)
 {
+	trace();
 	struct caffeine_output *context = data;
-	log_info("caffeine_stream_started");
 
 	if (!transition_state(context, STARTING, ONLINE)) {
 		return;
@@ -266,8 +263,9 @@ static void caffeine_stop_stream(struct caffeine_output * context);
 
 static void caffeine_stream_failed(void *data, caff_error error)
 {
+	log_error("Stream failed: [%d] %s", error, caff_error_string(error));
+
 	struct caffeine_output *context = data;
-	log_error("caffeine_stream_failed: %d", error);
 
 	set_state(context, STOPPING);
 	caffeine_stop_stream(context);
@@ -277,8 +275,10 @@ static void caffeine_stream_failed(void *data, caff_error error)
 
 static void * heartbeat(void * data)
 {
+	trace();
+	os_set_thread_name("Caffeine heartbeat");
+
 	struct caffeine_output * context = data;
-	log_info("caffeine_heartbeat");
 
 	pthread_mutex_lock(&context->stream_mutex);
 	if (!require_state(context, ONLINE)) {
@@ -334,6 +334,7 @@ static void * heartbeat(void * data)
 			failures = 0;
 			continue;
 		}
+		log_debug("Heartbeat failed");
 
 		++failures;
 		if (failures > max_failures) {
@@ -357,6 +358,9 @@ get_session_error:
 
 static void caffeine_raw_video(void *data, struct video_data *frame)
 {
+#ifdef TRACE_FRAMES
+	trace();
+#endif
 	UNUSED_PARAMETER(frame);
 
 	struct caffeine_output *context = data;
@@ -375,6 +379,9 @@ static void caffeine_raw_video(void *data, struct video_data *frame)
 
 static void caffeine_raw_audio(void *data, struct audio_data *frames)
 {
+#ifdef TRACE_FRAMES
+	trace();
+#endif
 	UNUSED_PARAMETER(frames);
 
 	struct caffeine_output *context = data;
@@ -388,6 +395,7 @@ static void caffeine_raw_audio(void *data, struct audio_data *frames)
 
 static void caffeine_stop_stream(struct caffeine_output * context)
 {
+	trace();
 	pthread_mutex_lock(&context->stream_mutex);
 
 	if (context->stream)
@@ -406,11 +414,11 @@ static void caffeine_stop_stream(struct caffeine_output * context)
 
 static void caffeine_stop(void *data, uint64_t ts)
 {
+	trace();
 	/* TODO: do something with this? */
 	UNUSED_PARAMETER(ts);
 
 	struct caffeine_output *context = data;
-	log_info("caffeine_stop");
 
 	obs_output_end_data_capture(context->output);
 
@@ -422,8 +430,8 @@ static void caffeine_stop(void *data, uint64_t ts)
 
 static void caffeine_destroy(void *data)
 {
+	trace();
 	struct caffeine_output *context = data;
-	log_info("caffeine_destroy");
 	caff_deinitialize(context->interface);
 	pthread_mutex_destroy(&context->stream_mutex);
 

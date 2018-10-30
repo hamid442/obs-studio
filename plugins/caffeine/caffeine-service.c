@@ -3,13 +3,8 @@
 #include "caffeine-api.h"
 #include "caffeine-service.h"
 
-#define do_log(level, format, ...) \
-	blog(level, "[caffeine service] " format, ##__VA_ARGS__)
-
-#define log_error(format, ...)  do_log(LOG_ERROR, format, ##__VA_ARGS__)
-#define log_warn(format, ...)  do_log(LOG_WARNING, format, ##__VA_ARGS__)
-#define log_info(format, ...)  do_log(LOG_INFO, format, ##__VA_ARGS__)
-#define log_debug(format, ...)  do_log(LOG_DEBUG, format, ##__VA_ARGS__)
+#define CAFFEINE_LOG_TITLE "caffeine service"
+#include "caffeine-log.h"
 
 #define OPT_USERNAME         "username"
 #define OPT_PASSWORD         "password"
@@ -32,6 +27,7 @@ static char const * caffeine_service_name(void * unused)
 
 static void caffeine_service_free_contents(struct caffeine_service * service)
 {
+	trace();
 	if (!service)
 		return;
 
@@ -45,12 +41,16 @@ static void caffeine_service_free_contents(struct caffeine_service * service)
 
 static void caffeine_service_update(void * data, obs_data_t * settings)
 {
+	trace();
 	struct caffeine_service * service = data;
 	caffeine_service_free_contents(service);
 
-	service->username = bstrdup(obs_data_get_string(settings, OPT_USERNAME));
-	service->password = bstrdup(obs_data_get_string(settings, OPT_PASSWORD));
-	service->broadcast_title = bstrdup(obs_data_get_string(settings, OPT_BROADCAST_TITLE));
+	service->username =
+		bstrdup(obs_data_get_string(settings, OPT_USERNAME));
+	service->password =
+		bstrdup(obs_data_get_string(settings, OPT_PASSWORD));
+	service->broadcast_title =
+		bstrdup(obs_data_get_string(settings, OPT_BROADCAST_TITLE));
 	/* TODO: load auth tokens into caffeine auth info */
 }
 
@@ -58,7 +58,7 @@ static void * caffeine_service_create(
 	obs_data_t * settings,
 	obs_service_t * unused)
 {
-	log_info("caffeine_service_create");
+	trace();
 	UNUSED_PARAMETER(unused);
 
 	struct caffeine_service * service =
@@ -70,7 +70,7 @@ static void * caffeine_service_create(
 
 static void caffeine_service_destroy(void * data)
 {
-	log_info("caffeine_service_destroy");
+	trace();
 	struct caffeine_service * service = data;
 	caffeine_service_free_contents(service);
 	bfree(service);
@@ -78,6 +78,7 @@ static void caffeine_service_destroy(void * data)
 
 static obs_properties_t * caffeine_service_properties(void * data)
 {
+	trace();
 	UNUSED_PARAMETER(data);
 	obs_properties_t * properties = obs_properties_create();
 
@@ -97,72 +98,72 @@ static obs_properties_t * caffeine_service_properties(void * data)
 
 static void caffeine_service_defaults(obs_data_t *defaults)
 {
-	obs_data_set_default_string(defaults, OPT_BROADCAST_TITLE, "LIVE on Caffeine!");
+	trace();
+	obs_data_set_default_string(defaults, OPT_BROADCAST_TITLE,
+		"LIVE on Caffeine!");
 }
 
 static bool caffeine_service_initialize(void * data, obs_output_t * output)
 {
+	trace();
 	UNUSED_PARAMETER(output);
-	log_info("caffeine_service_initialize");
 	struct caffeine_service * service = data;
 	struct caffeine_auth_response * response = NULL;
 	struct caffeine_user_info * user_info = NULL;
 
+	if (service->creds)
+		return true;
+
 	/* TODO: make this asynchronous? */
+	response = caffeine_signin(service->username, service->password, NULL);
 
-	if (service->creds == NULL) {
-		response = caffeine_signin(
-			service->username, service->password, NULL); 
-		if (!response) {
-			log_error("Failed login");
-			return false;
-		}
-		if (response->next) {
-			if (strcmp(response->next, "mfa_otp_required") == 0) {
-				log_error("One time password NYI");
-				goto cleanup_auth;
-			}
-			if (strcmp(response->next, "legal_acceptance_required")
-				== 0) {
-				log_error("Can't broadcast until terms of "
-					  "service are accepted");
-				goto cleanup_auth;
-			}
-			if (strcmp(response->next, "email_verification") == 0){
-				log_error("Can't broadcast until email is "
-					  "verified");
-				goto cleanup_auth;
-			}
-		}
-		if (!response->credentials) {
-			log_error("Empty auth response received");
+	if (!response) {
+		log_error("Failed login");
+		return false;
+	}
+	if (response->next) {
+		if (strcmp(response->next, "mfa_otp_required") == 0) {
+			log_error("One time password NYI");
 			goto cleanup_auth;
 		}
-
-		user_info = caffeine_getuser(response->credentials);
-
-		if (!user_info) {
+		if (strcmp(response->next, "legal_acceptance_required")
+			== 0) {
+			log_error("Can't broadcast until terms of "
+				"service are accepted");
 			goto cleanup_auth;
 		}
-		if (!user_info->can_broadcast) {
-			log_error("This user is not able to broadcast");
-			caffeine_free_user_info(user_info);
-			goto cleanup_user;
+		if (strcmp(response->next, "email_verification") == 0) {
+			log_error("Can't broadcast until email is "
+				"verified");
+			goto cleanup_auth;
 		}
-
-		/* Take ownership of creds
-		 * TODO: make this interface cleaner
-		 */
-		service->creds = response->credentials;
-		response->credentials = NULL;
-
-		service->user_info = user_info;
+	}
+	if (!response->credentials) {
+		log_error("Empty auth response received");
+		goto cleanup_auth;
 	}
 
+	user_info = caffeine_getuser(response->credentials);
+
+	if (!user_info) {
+		goto cleanup_auth;
+	}
+	if (!user_info->can_broadcast) {
+		log_error("This user is not able to broadcast");
+		caffeine_free_user_info(user_info);
+		goto cleanup_auth;
+	}
+
+	/* Take ownership of creds
+	 * TODO: make this interface cleaner
+	 */
+	service->creds = response->credentials;
+	response->credentials = NULL;
+
+	service->user_info = user_info;
+	log_info("Successfully signed in");
 	return true;
 
-cleanup_user:
-	caffeine_free_user_info(user_info);
 cleanup_auth:
 	caffeine_free_auth_response(response);
 	return false;
@@ -170,21 +171,23 @@ cleanup_auth:
 
 static char const * caffeine_service_username(void * data)
 {
+	trace();
 	struct caffeine_service * service = data;
 	return service->username;
 }
 
 static char const * caffeine_service_password(void * data)
 {
+	trace();
 	struct caffeine_service * service = data;
 	return service->password;
 }
 
 static void * caffeine_service_query(void * data, int query_id, va_list unused)
 {
+	trace();
 	UNUSED_PARAMETER(unused);
 	struct caffeine_service * service = data;
-	log_info("caffeine_service_query");
 
 	switch (query_id)
 	{
