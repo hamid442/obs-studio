@@ -86,8 +86,12 @@ static obs_properties_t * caffeine_service_properties(void * data)
 
 	obs_properties_add_text(properties, OPT_USERNAME,
 		obs_module_text("Username"), OBS_TEXT_DEFAULT);
-	obs_properties_add_text(properties, OPT_PASSWORD,
-		obs_module_text("Password"), OBS_TEXT_PASSWORD);
+
+	obs_property_t *password =
+		obs_properties_add_text(properties, OPT_PASSWORD,
+			obs_module_text("Password"), OBS_TEXT_PASSWORD);
+	obs_property_set_transient(password, true);
+
 	obs_properties_add_text(properties, OPT_BROADCAST_TITLE,
 		obs_module_text("BroadcastTitle"), OBS_TEXT_DEFAULT);
 
