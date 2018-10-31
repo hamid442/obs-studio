@@ -114,6 +114,8 @@ static bool caffeine_service_initialize(void * data, obs_output_t * output)
 	if (service->creds)
 		return true;
 
+	bool result = false;
+
 	/* TODO: make this asynchronous? */
 	response = caffeine_signin(service->username, service->password, NULL);
 
@@ -161,12 +163,14 @@ static bool caffeine_service_initialize(void * data, obs_output_t * output)
 	response->credentials = NULL;
 
 	service->user_info = user_info;
+
 	log_info("Successfully signed in");
-	return true;
+
+	result = true;
 
 cleanup_auth:
 	caffeine_free_auth_response(response);
-	return false;
+	return result;
 }
 
 static char const * caffeine_service_username(void * data)
