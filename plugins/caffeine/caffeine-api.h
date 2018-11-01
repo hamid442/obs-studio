@@ -28,7 +28,12 @@ struct caffeine_auth_response * caffeine_signin(
 	char const * password,
 	char const * otp);
 
+struct caffeine_credentials * caffeine_refresh_auth(
+	char const * refresh_token);
+
 void caffeine_free_credentials(struct caffeine_credentials * creds);
+
+char const * caffeine_refresh_token(struct caffeine_credentials * creds);
 
 void caffeine_free_auth_response(struct caffeine_auth_response * auth_response);
 

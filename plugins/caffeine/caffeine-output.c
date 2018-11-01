@@ -301,6 +301,7 @@ static void * heartbeat(void * data)
 	char * session_id = set_stage_live(false, NULL, stage_id,
 					stream_id, title, creds);
 	if (!session_id) {
+		caffeine_stream_failed(data, CAFF_ERROR_UNKNOWN);
 		goto get_session_error;
 	}
 
