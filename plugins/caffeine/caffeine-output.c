@@ -296,17 +296,20 @@ static void * heartbeat(void * data)
 		obs_service_query(service, CAFFEINE_QUERY_BROADCAST_TITLE));
 	struct caffeine_credentials * creds =
 		obs_service_query(service, CAFFEINE_QUERY_CREDENTIALS);
+	enum caffeine_rating rating = (enum caffeine_rating)
+		obs_service_query(service, CAFFEINE_QUERY_BROADCAST_RATING);
+
 
 	/* Likely to be removed */
 	char * session_id = set_stage_live(false, NULL, stage_id,
-					stream_id, title, creds);
+					stream_id, title, rating, creds);
 	if (!session_id) {
 		caffeine_stream_failed(data, CAFF_ERROR_UNKNOWN);
 		goto get_session_error;
 	}
 
 	/* Likely to be removed*/
-	if (!create_broadcast(title, creds)) {
+	if (!create_broadcast(title, rating, creds)) {
 		goto create_broadcast_error;
 	}
 
@@ -330,7 +333,8 @@ static void * heartbeat(void * data)
 		interval = 0;
 
 		/* Likely to be removed */
-		set_stage_live(true, session_id, stage_id, stream_id, title, creds);
+		set_stage_live(true, session_id, stage_id, stream_id,
+					title, rating, creds);
 
 		if (send_heartbeat(stream_id, signed_payload, creds)) {
 			failures = 0;
@@ -346,7 +350,8 @@ static void * heartbeat(void * data)
 		}
 	}
 
-	set_stage_live(false, session_id, stage_id, stream_id, title, creds);
+	set_stage_live(false, session_id, stage_id, stream_id,
+				title, rating, creds);
 
 create_broadcast_error:
 	bfree(session_id);

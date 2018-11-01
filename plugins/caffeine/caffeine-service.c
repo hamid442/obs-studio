@@ -10,22 +10,25 @@
 #define PASSWORD_KEY         "password"
 #define OTP_KEY              "otp"
 #define SIGNIN_KEY           "signin"
-#define SIGNOUT_KEY           "signout"
+#define SIGNOUT_KEY          "signout"
 
 #define REFRESH_TOKEN_KEY    "refresh_token"
 
 #define GOLIVE_KEY           "golive"
-#define RATING_KEY           "rating"
+#define BROADCAST_RATING_KEY "rating"
 #define BROADCAST_TITLE_KEY  "broadcast_title"
 
 struct caffeine_service {
 	obs_service_t * service;
 
+	/* auth */
 	char * refresh_token;
-	char * broadcast_title;
-
 	struct caffeine_credentials * creds;
 	struct caffeine_user_info * user_info;
+
+	/* settings */
+	char * broadcast_title;
+	enum caffeine_rating broadcast_rating;
 };
 
 static char const * caffeine_service_name(void * unused)
@@ -41,16 +44,18 @@ static void caffeine_service_free_contents(struct caffeine_service * context)
 	if (!context)
 		return;
 
-	if (context->refresh_token) {
-		bfree(context->refresh_token);
-		context->refresh_token = NULL;
-	}
-	if (context->broadcast_title) {
-		bfree(context->broadcast_title);
-		context->broadcast_title = NULL;
-	}
+	bfree(context->refresh_token);
 	caffeine_free_credentials(context->creds);
 	caffeine_free_user_info(context->user_info);
+
+	bfree(context->broadcast_title);
+
+	context->refresh_token = NULL;
+	context->creds = NULL;
+	context->user_info = NULL;
+
+	context->broadcast_title = NULL;
+	context->broadcast_rating = CAFF_RATING_NONE;
 }
 
 static void caffeine_service_update(void * data, obs_data_t * settings)
@@ -63,6 +68,8 @@ static void caffeine_service_update(void * data, obs_data_t * settings)
 		bstrdup(obs_data_get_string(settings, REFRESH_TOKEN_KEY));
 	context->broadcast_title =
 		bstrdup(obs_data_get_string(settings, BROADCAST_TITLE_KEY));
+	context->broadcast_rating =
+		obs_data_get_int(settings, BROADCAST_RATING_KEY);
 }
 
 static void * caffeine_service_create(
@@ -146,7 +153,6 @@ static bool signin_clicked(obs_properties_t * props, obs_property_t * prop,
 
 	/* TODO: figure out a way to make this asynchronous */
 	struct caffeine_auth_response * response = NULL;
-	struct caffeine_user_info * user_info = NULL;
 
 	/* TODO: make this asynchronous? */
 	response = caffeine_signin(username, password, otp);
@@ -219,10 +225,10 @@ static bool golive_changed(obs_properties_t * props,
 
 	bool val = obs_data_get_bool(settings, GOLIVE_KEY);
 
-	obs_property_t * other = obs_properties_get(props, RATING_KEY);
+	obs_property_t * other = obs_properties_get(props, BROADCAST_TITLE_KEY);
 	obs_property_set_visible(other, val);
 
-	other = obs_properties_get(props, BROADCAST_TITLE_KEY);
+	other = obs_properties_get(props, BROADCAST_RATING_KEY);
 	obs_property_set_visible(other, val);
 
 	return true;
@@ -270,7 +276,7 @@ static obs_properties_t * caffeine_service_properties(void * data)
 	obs_properties_add_button3(props, SIGNIN_KEY,
 		obs_module_text("SignIn"), signin_clicked, NULL);
 
-	prop = obs_properties_add_button3(props, SIGNOUT_KEY,
+	obs_properties_add_button3(props, SIGNOUT_KEY,
 		obs_module_text("SignOut"), signout_clicked, NULL);
 
 	/*
@@ -281,6 +287,14 @@ static obs_properties_t * caffeine_service_properties(void * data)
 
 	obs_properties_add_text(props, BROADCAST_TITLE_KEY,
 		obs_module_text("BroadcastTitle"), OBS_TEXT_DEFAULT);
+
+	prop = obs_properties_add_list(props, BROADCAST_RATING_KEY,
+		obs_module_text("Rating"), OBS_COMBO_TYPE_LIST,
+		OBS_COMBO_FORMAT_INT);
+	obs_property_list_add_int(prop, obs_module_text("None"),
+		CAFF_RATING_NONE);
+	obs_property_list_add_int(prop, obs_module_text("SeventeenPlus"),
+		CAFF_RATING_SEVENTEEN_PLUS);
 
 	signed_out_state(props);
 
@@ -371,6 +385,8 @@ static void * caffeine_service_query(void * data, int query_id, va_list unused)
 		return service->user_info->stage_id;
 	case CAFFEINE_QUERY_BROADCAST_TITLE:
 		return service->broadcast_title;
+	case CAFFEINE_QUERY_BROADCAST_RATING:
+		return (void*)service->broadcast_rating;
 	default:
 		log_warn("Unrecognized query [%d]", query_id);
 		return NULL;
