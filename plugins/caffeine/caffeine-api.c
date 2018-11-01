@@ -894,11 +894,21 @@ request_json_error:
 	return result;
 }
 
+static struct dstr make_title(char const * title, enum caffeine_rating rating)
+{
+	static const size_t MAX_TITLE_LENGTH = 60;
+	static char const * rating_strings[] = { "", "[17+] " };
 
-/* TODO: Here be dragons
- *
- * Stuff below here likely won't stay
- */
+	if (rating < CAFF_RATING_NONE || rating >= CAFF_RATING_MAX)
+		rating = CAFF_RATING_NONE;
+
+	struct dstr final_title;
+	dstr_init(&final_title);
+	dstr_printf(&final_title, "%s%s", rating_strings[rating], title);
+	dstr_resize(&final_title, MAX_TITLE_LENGTH);
+
+	return final_title;
+}
 
 char * set_stage_live(
 	bool isLive,
@@ -906,6 +916,7 @@ char * set_stage_live(
 	char const * stage_id,
 	char const * stream_id,
 	char const * title,
+	enum caffeine_rating rating,
 	struct caffeine_credentials * creds)
 {
 	trace();
@@ -920,14 +931,14 @@ char * set_stage_live(
 	if (!stream_json)
 		return NULL;
 
-	char * result = NULL;
-
+	struct dstr final_title = make_title(title, rating);
 	json_t * payload_json = json_pack("{s:s,s:s,s:s,s:[o],s:s}",
 		"state", isLive ? "ONLINE" : "OFFLINE",
-		"title", title,
+		"title", final_title.array,
 		"game_id", "79",
 		"streams", stream_json,
 		"host_connection_quality", "GOOD");
+	dstr_free(&final_title);
 
 	if (!payload_json)
 	{
@@ -958,6 +969,8 @@ char * set_stage_live(
 		log_error("Failed to serialize request JSON");
 		return NULL;
 	}
+
+	char * result = NULL;
 
 	CURL * curl = curl_easy_init();
 	if (!curl)
@@ -1059,6 +1072,7 @@ void add_text_part(
 
 bool create_broadcast(
 	char const * title,
+	enum caffeine_rating rating,
 	struct caffeine_credentials * creds)
 {
 	trace();
@@ -1073,7 +1087,10 @@ bool create_broadcast(
 	struct curl_httppost * post = NULL;
 	struct curl_httppost * last = NULL;
 
-	add_text_part(&post, &last, "broadcast[name]", title);
+	struct dstr final_title = make_title(title, rating);
+	add_text_part(&post, &last, "broadcast[name]", final_title.array);
+	dstr_free(&final_title);
+
 	add_text_part(&post, &last, "broadcast[description]", "");
 	add_text_part(&post, &last, "broadcast[content_rating]", "PG");
 	add_text_part(&post, &last, "broadcast[platform]", "PC");

@@ -23,6 +23,12 @@ struct caffeine_stream_info {
 	char * signed_payload;
 };
 
+enum caffeine_rating {
+	CAFF_RATING_NONE,
+	CAFF_RATING_SEVENTEEN_PLUS,
+	CAFF_RATING_MAX,
+};
+
 struct caffeine_auth_response * caffeine_signin(
 	char const * username,
 	char const * password,
@@ -57,6 +63,7 @@ bool caffeine_trickle_candidates(
 
 bool create_broadcast(
 	char const * title,
+	enum caffeine_rating rating,
 	struct caffeine_credentials * creds);
 
 char * set_stage_live(
@@ -65,6 +72,7 @@ char * set_stage_live(
 	char const * stage_id,
 	char const * stream_id,
 	char const * title,
+	enum caffeine_rating rating,
 	struct caffeine_credentials * creds);
 
 bool send_heartbeat(
