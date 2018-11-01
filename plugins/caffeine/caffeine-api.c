@@ -204,7 +204,7 @@ struct caffeine_auth_response * caffeine_signin(
 		log_debug("Sign-in complete");
 		creds = make_credentials(access_token, caid, refresh_token, credential);
 	}
-	else if (response->mfa_otp_method) {
+	else if (mfa_otp_method) {
 		log_debug("MFA required");
 	}
 	else
