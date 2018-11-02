@@ -117,18 +117,24 @@ static void signed_out_state(obs_properties_t * props)
 
 	set_visible(props, SIGNOUT_KEY, false);
 	set_visible(props, OTP_KEY, false);
+	set_visible(props, GOLIVE_KEY, false);
 	set_visible(props, BROADCAST_TITLE_KEY, false);
+	set_visible(props, BROADCAST_RATING_KEY, false);
 }
 
-static void signed_in_state(obs_properties_t * props)
+static void signed_in_state(obs_data_t * settings, obs_properties_t * props)
 {
+	bool golive = obs_data_get_bool(settings, GOLIVE_KEY);
+
 	set_enabled(props, USERNAME_KEY, false);
 	set_visible(props, PASSWORD_KEY, false);
 	set_visible(props, SIGNIN_KEY, false);
 	set_visible(props, OTP_KEY, false);
 
 	set_visible(props, SIGNOUT_KEY, true);
-	set_visible(props, BROADCAST_TITLE_KEY, false);
+	set_visible(props, GOLIVE_KEY, true);
+	set_visible(props, BROADCAST_RATING_KEY, golive);
+	set_visible(props, BROADCAST_TITLE_KEY, golive);
 }
 
 static bool signin_clicked(obs_properties_t * props, obs_property_t * prop,
@@ -200,7 +206,7 @@ static bool signin_clicked(obs_properties_t * props, obs_property_t * prop,
 	obs_data_erase(settings, PASSWORD_KEY);
 	obs_data_erase(settings, OTP_KEY);
 
-	signed_in_state(props);
+	signed_in_state(settings, props);
 
 	log_info("Successfully signed in");
 
@@ -246,7 +252,7 @@ static bool refresh_token_changed(obs_properties_t * props,
 	if (strcmp(val, "") == 0)
 		signed_out_state(props);
 	else
-		signed_in_state(props);
+		signed_in_state(settings, props);
 
 	return true;
 }
