@@ -1271,9 +1271,6 @@ private:
 		} else {
 			return;
 		}
-
-		//gs_texture_t *tex = gs_texrender_get_texture(_texrender);
-		//gs_effect_set_texture(*param, tex);
 	}
 
 	uint32_t processAudio(size_t samples)
@@ -1314,7 +1311,6 @@ private:
 		_tex = gs_texture_create(
 			(uint32_t)pxWidth, (uint32_t)_channels, GS_R32F, 1, (const uint8_t **)&_data, 0);
 		obs_leave_graphics();
-		//gs_effect_set_texture(*param, _tex);
 	}
 
 	void updateAudioSource(std::string name)
@@ -1778,41 +1774,41 @@ public:
 
 		if (!_rotateXExpr.empty()) {
 			_filter->compileExpression(_rotateXExpr);
-			p.rotateX = _filter->evaluateExpression<double>(0);//random_double(-0.1, 0.1);
+			p.rotateX = _filter->evaluateExpression<double>(0);
 		}
 		if (!_rotateYExpr.empty()) {
 			_filter->compileExpression(_rotateYExpr);
-			p.rotateY = _filter->evaluateExpression<double>(0);//random_double(-0.1, 0.1);
+			p.rotateY = _filter->evaluateExpression<double>(0);
 		}
 		if (!_rotateZExpr.empty()) {
 			_filter->compileExpression(_rotateZExpr);
-			p.rotateZ = _filter->evaluateExpression<double>(0);//random_double(-0.1, 0.1);
+			p.rotateZ = _filter->evaluateExpression<double>(0);
 		}
 		if (!_translateXExpr.empty()) {
 			_filter->compileExpression(_translateXExpr);
-			p.translateX = _filter->evaluateExpression<double>(0);//random_double(-0.01, 0.01);
+			p.translateX = _filter->evaluateExpression<double>(0);
 		}
 		if (!_translateYExpr.empty()) {
 			_filter->compileExpression(_translateYExpr);
-			p.translateY = _filter->evaluateExpression<double>(0);//random_double(-0.01, 0.01);
+			p.translateY = _filter->evaluateExpression<double>(0);
 		}
 		if (!_translateZExpr.empty()) {
 			_filter->compileExpression(_translateZExpr);
-			p.translateZ = _filter->evaluateExpression<double>(0);//random_double(-0.01, 0.01);
+			p.translateZ = _filter->evaluateExpression<double>(0);
 		}
 		if (!_localLifeTimeExpr.empty()) {
 			_filter->compileExpression(_localLifeTimeExpr);
-			p.localLifeTime = _filter->evaluateExpression<double>(0);//random_double(1, 5);
+			p.localLifeTime = _filter->evaluateExpression<double>(0);
 		}
 
 		p.lifeTime = -seconds;
 		if (!_alphaExpr.empty()) {
 			_filter->compileExpression(_alphaExpr);
-			p.alpha = _filter->evaluateExpression<double>(0);//random_double(0.5, 1);
+			p.alpha = _filter->evaluateExpression<double>(0);
 		}
 		if (!_alphaDecayExpr.empty()) {
 			_filter->compileExpression(_alphaDecayExpr);
-			p.decayAlpha = _filter->evaluateExpression<double>(0);//random_double(0, 0.05);
+			p.decayAlpha = _filter->evaluateExpression<double>(0);
 		}
 		_particles.push_back(p);
 	}
@@ -1855,7 +1851,7 @@ public:
 			size_t oldSize = _particles.size();
 			_spawnCount += (_spawnRate / frame_rate);
 
-			//if (_particles.size() <= 1) {
+			//if (_particles.size() <= 1)
 			for (float i = 0; i < _spawnCount; i++)
 				generateParticle(elapsedTime, seconds);
 
@@ -1868,6 +1864,15 @@ public:
 					_particles.erase(_particles.begin() + i--);
 					continue;
 				}
+				/*
+				vec3 av = { 0 };
+				vec3_transform(&av, &av, &p->position);
+				double d = pow(av.x, 2) + pow(av.y, 2);
+				if (d > 2.25) {
+					_particles.erase(_particles.begin() + i--);
+					continue;
+				}
+				*/
 				p->alpha = hlsl_clamp(p->alpha - p->decayAlpha, 0, 255);
 			}
 			if (_particles.size() == 0)
@@ -1889,11 +1894,11 @@ public:
 				_vertexBufferData->normals = (vec3*)brealloc(_vertexBufferData->normals, sizeof(vec3) * _vertexBufferData->num);
 				_vertexBufferData->tangents = (vec3*)brealloc(_vertexBufferData->tangents, sizeof(vec3) * _vertexBufferData->num);
 				_vertexBufferData->colors = (uint32_t*)brealloc(_vertexBufferData->colors, sizeof(uint32_t) * _vertexBufferData->num);
-				//unitvector array things
+
 				if (!_vertexBufferData->tvarray)
 					_vertexBufferData->tvarray = (gs_tvertarray*)bzalloc(sizeof(gs_tvertarray));
 				_vertexBufferData->tvarray->array = (vec4*)brealloc(_vertexBufferData->tvarray->array, sizeof(vec4) * _vertexBufferData->num);
-				_vertexBufferData->tvarray->width = 4;//m_vertexbufferdata->num;
+				_vertexBufferData->tvarray->width = 4;
 				_vertexBufferData->num_tex = 1;
 			}
 
@@ -2252,7 +2257,7 @@ void ShaderParameter::init(gs_shader_param_type paramType)
 		_shaderData = new StringData(this, _filter);
 		break;
 	case GS_SHADER_PARAM_UNKNOWN:
-		_shaderData = new NullData(this, _filter);
+		//_shaderData = new NullData(this, _filter);
 		break;
 	}
 	if (_shaderData)
@@ -3308,7 +3313,8 @@ bool obs_module_load(void)
 	}
 
 	obs_enter_graphics();
-	default_effect = gs_effect_create(effect_string, NULL, &errors);
+	if(!default_effect)
+		default_effect = gs_effect_create(effect_string, NULL, &errors);
 	obs_leave_graphics();
 
 	bfree(effect_string);
@@ -3320,6 +3326,7 @@ bool obs_module_load(void)
 void obs_module_unload(void)
 {
 	obs_enter_graphics();
-	gs_effect_destroy(default_effect);
+	if(default_effect)
+		gs_effect_destroy(default_effect);
 	obs_leave_graphics();
 }
