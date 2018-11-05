@@ -370,8 +370,6 @@ static void caffeine_raw_video(void *data, struct video_data *frame)
 #ifdef TRACE_FRAMES
 	trace();
 #endif
-	UNUSED_PARAMETER(frame);
-
 	struct caffeine_output *context = data;
 
 	uint32_t width = 1280;
@@ -391,8 +389,6 @@ static void caffeine_raw_audio(void *data, struct audio_data *frames)
 #ifdef TRACE_FRAMES
 	trace();
 #endif
-	UNUSED_PARAMETER(frames);
-
 	struct caffeine_output *context = data;
 
 	pthread_mutex_lock(&context->stream_mutex);
