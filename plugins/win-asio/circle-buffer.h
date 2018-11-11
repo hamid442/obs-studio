@@ -419,13 +419,13 @@ public:
 					if (!buffer_prepped) {
 						_source_audio->data[j] = (uint8_t*)bzalloc(buffer_size);
 					} else if (reallocate_buffer) {
-						uint8_t* tmp = (uint8_t*)realloc(_source_audio->data[j], buffer_size);
+						uint8_t* tmp = (uint8_t*)brealloc(_source_audio->data[j], buffer_size);
 						if (tmp == NULL) {
 							buffer_prepped = false;
 							all_prepped = false;
 							return;
 						} else if (tmp == _source_audio->data[j]) {
-							free(tmp);
+							bfree(tmp);
 							tmp = NULL;
 						} else {
 							_source_audio->data[j] = tmp;
