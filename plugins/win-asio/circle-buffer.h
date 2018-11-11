@@ -456,6 +456,8 @@ public:
 		size_t ch_buffer_size = BufSize / device_options.channel_count; //info.inputs;
 		if (ch_buffer_size > buffer_size) {
 			blog(LOG_WARNING, "%s device needs to reallocate memory");
+			buffer_size = ch_buffer_size;
+			re_prep_buffers();
 		}
 		int byte_depth = bytedepth_format(format);
 		size_t interleaved_frame_size = device_options.channel_count * byte_depth; //info.inputs
@@ -500,7 +502,9 @@ public:
 		uint8_t ** input_buffer = (uint8_t**)buffer;
 		size_t ch_buffer_size = BufSize / device_options.channel_count; //info.inputs;
 		if (ch_buffer_size > buffer_size) {
-			blog(LOG_WARNING, "%s device needs to reallocate memory");
+			blog(LOG_WARNING, "%s device needs to reallocate memory %ui to %ui", buffer_size, 2 * ch_buffer_size);
+			buffer_size = 2 * ch_buffer_size;
+			re_prep_buffers();
 		}
 		int byte_depth = bytedepth_format(format);
 		size_t interleaved_frame_size = device_options.channel_count * byte_depth; //info.inputs
