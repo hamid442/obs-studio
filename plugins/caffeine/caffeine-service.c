@@ -14,7 +14,6 @@
 
 #define REFRESH_TOKEN_KEY    "refresh_token"
 
-#define GOLIVE_KEY           "golive"
 #define BROADCAST_RATING_KEY "rating"
 #define BROADCAST_TITLE_KEY  "broadcast_title"
 
@@ -27,7 +26,6 @@ struct caffeine_service {
 	struct caffeine_user_info * user_info;
 
 	/* settings */
-	bool golive;
 	char * broadcast_title;
 	enum caffeine_rating broadcast_rating;
 };
@@ -57,7 +55,6 @@ static void caffeine_service_free_contents(struct caffeine_service * context)
 
 	context->broadcast_title = NULL;
 	context->broadcast_rating = CAFF_RATING_NONE;
-	context->golive = false;
 }
 
 static void caffeine_service_update(void * data, obs_data_t * settings)
@@ -68,7 +65,6 @@ static void caffeine_service_update(void * data, obs_data_t * settings)
 
 	context->refresh_token =
 		bstrdup(obs_data_get_string(settings, REFRESH_TOKEN_KEY));
-	context->golive = obs_data_get_bool(settings, GOLIVE_KEY);
 	context->broadcast_title =
 		bstrdup(obs_data_get_string(settings, BROADCAST_TITLE_KEY));
 	context->broadcast_rating =
@@ -117,24 +113,20 @@ static void signed_out_state(obs_properties_t * props)
 
 	set_visible(props, SIGNOUT_KEY, false);
 	set_visible(props, OTP_KEY, false);
-	set_visible(props, GOLIVE_KEY, false);
 	set_visible(props, BROADCAST_TITLE_KEY, false);
 	set_visible(props, BROADCAST_RATING_KEY, false);
 }
 
 static void signed_in_state(obs_data_t * settings, obs_properties_t * props)
 {
-	bool golive = obs_data_get_bool(settings, GOLIVE_KEY);
-
 	set_enabled(props, USERNAME_KEY, false);
 	set_visible(props, PASSWORD_KEY, false);
 	set_visible(props, SIGNIN_KEY, false);
 	set_visible(props, OTP_KEY, false);
 
 	set_visible(props, SIGNOUT_KEY, true);
-	set_visible(props, GOLIVE_KEY, true);
-	set_visible(props, BROADCAST_RATING_KEY, golive);
-	set_visible(props, BROADCAST_TITLE_KEY, golive);
+	set_visible(props, BROADCAST_RATING_KEY, true);
+	set_visible(props, BROADCAST_TITLE_KEY, true);
 }
 
 static bool signin_clicked(obs_properties_t * props, obs_property_t * prop,
@@ -227,22 +219,6 @@ static bool signout_clicked(obs_properties_t * props, obs_property_t * prop,
 	return true;
 }
 
-static bool golive_changed(obs_properties_t * props,
-	obs_property_t * prop, obs_data_t * settings)
-{
-	trace();
-
-	bool val = obs_data_get_bool(settings, GOLIVE_KEY);
-
-	obs_property_t * other = obs_properties_get(props, BROADCAST_TITLE_KEY);
-	obs_property_set_visible(other, val);
-
-	other = obs_properties_get(props, BROADCAST_RATING_KEY);
-	obs_property_set_visible(other, val);
-
-	return true;
-}
-
 static bool refresh_token_changed(obs_properties_t * props,
 	obs_property_t * prop, obs_data_t * settings)
 {
@@ -287,10 +263,6 @@ static obs_properties_t * caffeine_service_properties(void * data)
 
 	obs_properties_add_button3(props, SIGNOUT_KEY,
 		obs_module_text("SignOut"), signout_clicked, NULL);
-
-	prop = obs_properties_add_bool(props, GOLIVE_KEY,
-		obs_module_text("GoLiveImmediately"));
-	obs_property_set_modified_callback(prop, golive_changed);
 
 	obs_properties_add_text(props, BROADCAST_TITLE_KEY,
 		obs_module_text("BroadcastTitle"), OBS_TEXT_DEFAULT);
@@ -394,8 +366,6 @@ static void * caffeine_service_query(void * data, int query_id, va_list unused)
 		return service->broadcast_title;
 	case CAFFEINE_QUERY_BROADCAST_RATING:
 		return (void*)service->broadcast_rating;
-	case CAFFEINE_QUERY_GOLIVE:
-		return (void*)service->golive;
 	default:
 		log_warn("Unrecognized query [%d]", query_id);
 		return NULL;
