@@ -991,7 +991,6 @@ char * set_stage_live(
 	headers = curl_slist_append(headers, "Content-Type: application/json");
 	curl_easy_setopt(curl, CURLOPT_HTTPHEADER, headers);
 
-
 	struct dstr response_str;
 	dstr_init(&response_str);
 
@@ -1073,6 +1072,8 @@ void add_text_part(
 bool create_broadcast(
 	char const * title,
 	enum caffeine_rating rating,
+	uint8_t const * screenshot_data,
+	size_t screenshot_size,
 	struct caffeine_credentials * creds)
 {
 	trace();
@@ -1096,6 +1097,15 @@ bool create_broadcast(
 	add_text_part(&post, &last, "broadcast[platform]", "PC");
 	add_text_part(&post, &last, "broadcast[state]", "ONLINE");
 	add_text_part(&post, &last, "broadcast[game_id]", "79");
+	if (screenshot_data) {
+		curl_formadd(&post, &last,
+			CURLFORM_COPYNAME, "broadcast[game_image]",
+			CURLFORM_BUFFER, "game_image.jpg",
+			CURLFORM_BUFFERPTR, screenshot_data,
+			CURLFORM_BUFFERLENGTH, screenshot_size,
+			CURLFORM_CONTENTTYPE, "image/jpeg",
+			CURLFORM_END);
+	}
 
 	curl_easy_setopt(curl, CURLOPT_HTTPPOST, post);
 
@@ -1119,7 +1129,7 @@ bool create_broadcast(
 
 	CURLcode res = curl_easy_perform(curl);
 	if (res != CURLE_OK) {
-		log_error("HTTP failure going live: [%d] %s",
+		log_error("HTTP failure creating broadcast: [%d] %s",
 			res, curl_error);
 		goto request_error;
 	}
@@ -1132,7 +1142,7 @@ bool create_broadcast(
 	json_error_t json_error;
 	json_t * response_json = json_loads(response_str.array, 0, &json_error);
 	if (!response_json) {
-		log_error("Failed to stage state response: %s",
+		log_error("Failed to create broadcast: %s",
 			json_error.text);
 		goto json_failed_error;
 	}
@@ -1140,16 +1150,16 @@ bool create_broadcast(
 	int error_result = json_unpack(response_json, "{s:[s!]}",
 		"_errors", &error_text);
 	if (error_result == 0) {
-		log_error("Error updating stage state: %s", error_text);
+		log_error("Error creating broadcast: %s", error_text);
 		goto json_parsed_error;
 	}
 
 	if (response_code / 100 == 2) {
-		log_debug("Stage state updated");
+		log_debug("Broadcast created");
 		result = true;
 	}
 	else {
-		log_error("Failed to update stage state");
+		log_error("Failed to create broadcast");
 	}
 
 json_parsed_error:

@@ -1,22 +1,23 @@
 project(caffeine)
 
-find_package(Caffeine)
+find_package(Caffeine REQUIRED)
 
-if(NOT CAFFEINE_FOUND)
-	message(STATUS "caffeine plugin disabled")
-	return()
-endif()
 
 find_package(Libcurl REQUIRED)
-include_directories(${LIBCURL_INCLUDE_DIRS})
-add_definitions(${LIBCURL_DEFINITIONS})
+find_package(FFmpeg REQUIRED
+	COMPONENTS avcodec avfilter avdevice avutil swscale avformat swresample)
 
 if(MSVC)
 	set(caffeine_PLATFORM_DEPS
 		w32-pthreads)
 endif()
 
+add_definitions(${LIBCURL_DEFINITIONS})
+
 include_directories(
+	../obs-ffmpeg
+	${FFMPEG_INCLUDE_DIRS}
+	${LIBCURL_INCLUDE_DIRS}
 	${OBS_JANSSON_INCLUDE_DIRS}
 	${CAFFEINE_INCLUDE_DIR})
 
@@ -36,6 +37,7 @@ add_library(caffeine MODULE
 target_link_libraries(caffeine
 	${CAFFEINE_LIBRARIES}
 	${LIBCURL_LIBRARIES}
+	${FFMPEG_LIBRARIES}
 	${OBS_JANSSON_IMPORT}
 	${caffeine_PLATFORM_DEPS}
 	libobs)

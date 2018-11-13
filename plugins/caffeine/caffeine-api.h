@@ -64,6 +64,8 @@ bool caffeine_trickle_candidates(
 bool create_broadcast(
 	char const * title,
 	enum caffeine_rating rating,
+	uint8_t const * screenshot_data,
+	size_t screenshot_size,
 	struct caffeine_credentials * creds);
 
 char * set_stage_live(
