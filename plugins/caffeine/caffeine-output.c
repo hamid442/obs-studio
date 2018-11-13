@@ -31,6 +31,7 @@ struct caffeine_output
 	struct caffeine_stream_info * stream_info;
 	pthread_mutex_t stream_mutex;
 	pthread_t heartbeat_thread;
+	struct obs_video_info video_info;
 
 	volatile long state;
 };
@@ -78,6 +79,31 @@ static int caffeine_to_obs_error(caff_error error)
 		return OBS_OUTPUT_DISCONNECTED;
 	default:
 		return OBS_OUTPUT_ERROR;
+	}
+}
+
+caff_format obs_to_caffeine_format(enum video_format format)
+{
+	switch (format)
+	{
+	case VIDEO_FORMAT_I420:
+		return CAFF_FORMAT_I420;
+	case VIDEO_FORMAT_NV12:
+		return CAFF_FORMAT_NV12;
+	case VIDEO_FORMAT_YUY2:
+		return CAFF_FORMAT_YUY2;
+	case VIDEO_FORMAT_UYVY:
+		return CAFF_FORMAT_UYVY;
+	case VIDEO_FORMAT_BGRA:
+		return CAFF_FORMAT_BGRA;
+
+	case VIDEO_FORMAT_RGBA:
+	case VIDEO_FORMAT_I444:
+	case VIDEO_FORMAT_Y800:
+	case VIDEO_FORMAT_BGRX:
+	case VIDEO_FORMAT_YVYU:
+	default:
+		return CAFF_FORMAT_UNKNOWN;
 	}
 }
 
@@ -150,10 +176,42 @@ static bool caffeine_ice_gathered(void *data, caff_ice_candidates candidates, si
 static void caffeine_stream_started(void *data);
 static void caffeine_stream_failed(void *data, caff_error error);
 
+static int const enforced_height = 720;
+static double const max_ratio = 3.0;
+static double const min_ratio = 1.0/3.0;
+
 static bool caffeine_start(void *data)
 {
 	trace();
 	struct caffeine_output *context = data;
+
+	if (!obs_get_video_info(&context->video_info)) {
+		log_error("Failed to get video info");
+		return false;
+	}
+
+	/* TODO: enforce this in UI and/or rescale in RTC layer */
+	if (context->video_info.output_height != enforced_height) {
+		log_error("Video output must be 720 pixels high for Caffeine");
+		return false;
+	}
+
+	double ratio = (double)context->video_info.output_width /
+		context->video_info.output_height;
+	if (ratio < min_ratio || ratio > max_ratio) {
+		log_error("Aspect ratio of output must be >= 1:3 or <= 3:1 for "
+			  "Caffeine");
+		return false;
+	}
+
+	caff_format format =
+		obs_to_caffeine_format(context->video_info.output_format);
+
+	if (format == CAFF_FORMAT_UNKNOWN) {
+		log_error("Unsupported video format %s",
+			get_video_format_name(context->video_info.output_format));
+		return false;
+	}
 
 	struct audio_convert_info conversion = {
 		.format = AUDIO_FORMAT_16BIT,
@@ -372,15 +430,16 @@ static void caffeine_raw_video(void *data, struct video_data *frame)
 #endif
 	struct caffeine_output *context = data;
 
-	uint32_t width = 1280;
-	uint32_t height = 720;
-	size_t bytes_per_pixel = 4;
-	size_t total_bytes = width * height * bytes_per_pixel;
+	uint32_t width = context->video_info.output_width;
+	uint32_t height = context->video_info.output_height;
+	size_t total_bytes = frame->linesize[0] * height;
+	caff_format format =
+		obs_to_caffeine_format(context->video_info.output_format);
 
 	pthread_mutex_lock(&context->stream_mutex);
 	if (context->stream)
-		caff_send_video(context->stream, frame->data[0],
-			total_bytes, width, height);
+		caff_send_video(context->stream, frame->data[0], total_bytes,
+			width, height, format);
 	pthread_mutex_unlock(&context->stream_mutex);
 }
 
