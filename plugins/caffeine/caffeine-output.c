@@ -356,20 +356,16 @@ static void * heartbeat(void * data)
 		obs_service_query(service, CAFFEINE_QUERY_CREDENTIALS);
 	enum caffeine_rating rating = (enum caffeine_rating)
 		obs_service_query(service, CAFFEINE_QUERY_BROADCAST_RATING);
-	bool golive = obs_service_query(service, CAFFEINE_QUERY_GOLIVE);
 
-	char * session_id = NULL;
-	if (golive) {
-		session_id = set_stage_live(false, NULL, stage_id,
-			stream_id, title, rating, creds);
-		if (!session_id) {
-			caffeine_stream_failed(data, CAFF_ERROR_UNKNOWN);
-			goto get_session_error;
-		}
+	char * session_id = set_stage_live(false, NULL, stage_id,
+		stream_id, title, rating, creds);
+	if (!session_id) {
+		caffeine_stream_failed(data, CAFF_ERROR_UNKNOWN);
+		goto get_session_error;
+	}
 
-		if (!create_broadcast(title, rating, creds)) {
-			goto create_broadcast_error;
-		}
+	if (!create_broadcast(title, rating, creds)) {
+		goto create_broadcast_error;
 	}
 
 	/* TODO: use wall time instead of accumulation of sleep time */
@@ -391,9 +387,8 @@ static void * heartbeat(void * data)
 
 		interval = 0;
 
-		if (session_id)
-			set_stage_live(true, session_id, stage_id, stream_id,
-					title, rating, creds);
+		set_stage_live(true, session_id, stage_id, stream_id, title,
+				rating, creds);
 
 		if (send_heartbeat(stream_id, signed_payload, creds)) {
 			failures = 0;
@@ -409,9 +404,8 @@ static void * heartbeat(void * data)
 		}
 	}
 
-	if (session_id)
-		set_stage_live(false, session_id, stage_id, stream_id,
-				title, rating, creds);
+	set_stage_live(false, session_id, stage_id, stream_id, title, rating,
+			creds);
 
 create_broadcast_error:
 	bfree(session_id);
