@@ -117,7 +117,7 @@ static void signed_out_state(obs_properties_t * props)
 	set_visible(props, BROADCAST_RATING_KEY, false);
 }
 
-static void signed_in_state(obs_data_t * settings, obs_properties_t * props)
+static void signed_in_state(obs_properties_t * props)
 {
 	set_enabled(props, USERNAME_KEY, false);
 	set_visible(props, PASSWORD_KEY, false);
@@ -133,6 +133,7 @@ static bool signin_clicked(obs_properties_t * props, obs_property_t * prop,
 	obs_data_t * settings, void * data)
 {
 	trace();
+	UNUSED_PARAMETER(prop);
 	UNUSED_PARAMETER(data);
 
 	char const * username = obs_data_get_string(settings, USERNAME_KEY);
@@ -198,7 +199,7 @@ static bool signin_clicked(obs_properties_t * props, obs_property_t * prop,
 	obs_data_erase(settings, PASSWORD_KEY);
 	obs_data_erase(settings, OTP_KEY);
 
-	signed_in_state(settings, props);
+	signed_in_state(props);
 
 	log_info("Successfully signed in");
 
@@ -213,6 +214,10 @@ props_unchanged:
 static bool signout_clicked(obs_properties_t * props, obs_property_t * prop,
 	obs_data_t * settings, void * data)
 {
+	trace();
+	UNUSED_PARAMETER(prop);
+	UNUSED_PARAMETER(data);
+
 	obs_data_erase(settings, REFRESH_TOKEN_KEY);
 	obs_data_erase(settings, USERNAME_KEY);
 	signed_out_state(props);
@@ -223,12 +228,13 @@ static bool refresh_token_changed(obs_properties_t * props,
 	obs_property_t * prop, obs_data_t * settings)
 {
 	trace();
+	UNUSED_PARAMETER(prop);
 
 	char const * val = obs_data_get_string(settings, REFRESH_TOKEN_KEY);
 	if (strcmp(val, "") == 0)
 		signed_out_state(props);
 	else
-		signed_in_state(settings, props);
+		signed_in_state(props);
 
 	return true;
 }
