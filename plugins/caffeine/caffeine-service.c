@@ -43,16 +43,13 @@ static void caffeine_service_free_contents(struct caffeine_service * context)
 	if (!context)
 		return;
 
-	bfree(context->refresh_token);
-	caffeine_free_credentials(context->creds);
-	caffeine_free_user_info(context->user_info);
+	caffeine_free_credentials(&context->creds);
+	caffeine_free_user_info(&context->user_info);
 
+	bfree(context->refresh_token);
 	bfree(context->broadcast_title);
 
 	context->refresh_token = NULL;
-	context->creds = NULL;
-	context->user_info = NULL;
-
 	context->broadcast_title = NULL;
 	context->broadcast_rating = CAFF_RATING_NONE;
 }
@@ -207,7 +204,7 @@ props_changed:
 	result = true;
 
 props_unchanged:
-	caffeine_free_auth_response(response);
+	caffeine_free_auth_response(&response);
 	return result;
 }
 
@@ -340,7 +337,7 @@ static bool caffeine_service_initialize(void * data, obs_output_t * output)
 	}
 	if (!user_info->can_broadcast) {
 		log_error("This user is not able to broadcast");
-		caffeine_free_user_info(user_info);
+		caffeine_free_user_info(&user_info);
 		goto cleanup_auth;
 	}
 
@@ -352,7 +349,7 @@ static bool caffeine_service_initialize(void * data, obs_output_t * output)
 	return true;
 
 cleanup_auth:
-	caffeine_free_credentials(credentials);
+	caffeine_free_credentials(&credentials);
 	return false;
 }
 

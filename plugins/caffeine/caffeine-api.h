@@ -37,23 +37,23 @@ struct caffeine_auth_response * caffeine_signin(
 struct caffeine_credentials * caffeine_refresh_auth(
 	char const * refresh_token);
 
-void caffeine_free_credentials(struct caffeine_credentials * creds);
+void caffeine_free_credentials(struct caffeine_credentials ** creds);
 
 char const * caffeine_refresh_token(struct caffeine_credentials * creds);
 
-void caffeine_free_auth_response(struct caffeine_auth_response * auth_response);
+void caffeine_free_auth_response(struct caffeine_auth_response ** auth_response);
 
 struct caffeine_user_info * caffeine_getuser(
 	struct caffeine_credentials * creds);
 
-void caffeine_free_user_info(struct caffeine_user_info * user_info);
+void caffeine_free_user_info(struct caffeine_user_info ** user_info);
 
 struct caffeine_stream_info * caffeine_start_stream(
 	char const * stage_id,
 	char const * sdp_offer,
 	struct caffeine_credentials * creds);
 
-void caffeine_free_stream_info(struct caffeine_stream_info * stream_info);
+void caffeine_free_stream_info(struct caffeine_stream_info ** stream_info);
 
 bool caffeine_trickle_candidates(
 	caff_ice_candidates candidates,
