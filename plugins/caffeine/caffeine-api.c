@@ -1193,7 +1193,7 @@ void end_broadcast(
 	if (!curl)
 	{
 		log_error("Failed to initialize cURL");
-		return false;
+		return;
 	}
 
 	struct curl_httppost * post = NULL;
@@ -1259,7 +1259,6 @@ void end_broadcast(
 		log_error("Failed to end broadcast");
 	}
 
-http_status_error:
 json_parsed_error:
 	json_decref(response_json);
 json_failed_error:
