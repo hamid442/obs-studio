@@ -392,8 +392,10 @@ static void * heartbeat(void * data)
 				&context->screenshot_mutex);
 	pthread_mutex_unlock(&context->screenshot_mutex);
 
-	if (!create_broadcast(title, rating, context->screenshot.data,
-				context->screenshot.size, creds)) {
+	char * broadcast_id =
+		create_broadcast(title, rating, context->screenshot.data,
+			context->screenshot.size, creds);
+	if (broadcast_id == NULL) {
 		caffeine_stream_failed(data, CAFF_ERROR_BROADCAST_FAILED);
 		goto create_broadcast_error;
 	}
@@ -431,12 +433,15 @@ static void * heartbeat(void * data)
 			log_error("Heartbeat failed %d times; ending stream.",
 				failures);
 			caffeine_stream_failed(data, CAFF_ERROR_DISCONNECTED);
+			break;
 		}
 	}
 
 	set_stage_live(false, session_id, stage_id, stream_id, title, rating,
 			creds);
+	end_broadcast(broadcast_id, title, rating, creds);
 
+	bfree(broadcast_id);
 create_broadcast_error:
 	bfree(session_id);
 get_session_error:

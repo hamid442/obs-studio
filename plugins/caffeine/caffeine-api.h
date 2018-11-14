@@ -61,7 +61,7 @@ bool caffeine_trickle_candidates(
 	struct caffeine_credentials * creds,
 	struct caffeine_stream_info const * stream_info);
 
-bool create_broadcast(
+char * create_broadcast(
 	char const * title,
 	enum caffeine_rating rating,
 	uint8_t const * screenshot_data,
@@ -69,7 +69,7 @@ bool create_broadcast(
 	struct caffeine_credentials * creds);
 
 char * set_stage_live(
-	bool isLive,
+	bool is_live,
 	char const * session_id,
 	char const * stage_id,
 	char const * stream_id,
@@ -80,4 +80,10 @@ char * set_stage_live(
 bool send_heartbeat(
 	char const * stage_id,
 	char const * signed_payload,
+	struct caffeine_credentials * creds);
+
+void end_broadcast(
+	char const * broadcast_id,
+	char const * title,
+	enum caffeine_rating rating,
 	struct caffeine_credentials * creds);
