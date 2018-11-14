@@ -6,6 +6,7 @@
 #include <jansson.h>
 #include <util/dstr.h>
 #include <util/threading.h>
+#include <util/platform.h>
 
 #define CAFFEINE_LOG_TITLE "caffeine api"
 #include "caffeine-log.h"
@@ -25,6 +26,25 @@
 #define HEARTBEAT_URL_F    API_ENDPOINT  "v2/broadcasts/streams/%s/heartbeat"
 
 #define STAGE_STATE_URL_F  REALTIME_ENDPOINT "v2/stages/%s/details"
+
+#define CONTENT_TYPE_JSON  "Content-Type: application/json"
+#define CONTENT_TYPE_FORM  "Content-Type: multipart/form-data"
+
+/*
+ * Request type: GET, PUT, POST, PATCH
+ *
+ * Request body format: Form data, JSON
+ *
+ * Request data itself
+ *
+ * URL, URL_F
+ *
+ * Basic, Authenticated
+ *
+ * Result type: new object/NULL, success/failure
+ *
+ * Error type: (various json formats, occasionally HTML e.g. for 502)
+ */
 
 struct caffeine_credentials {
 	char * access_token;
@@ -47,20 +67,22 @@ static size_t caffeine_curl_write_callback(char * ptr, size_t size,
 	return nmemb;
 }
 
-static struct curl_slist * caffeine_basic_headers() {
+static struct curl_slist * caffeine_basic_headers(char const * content_type) {
 	struct curl_slist * headers = NULL;
+	headers = curl_slist_append(headers, content_type);
 	headers = curl_slist_append(headers, "X-Client-Type: obs");
 	headers = curl_slist_append(headers, "X-Client-Version: " OBS_VERSION);
 	return headers;
 }
 
 static struct curl_slist * caffeine_authenticated_headers(
+	char const * content_type,
 	struct caffeine_credentials * creds)
 {
 	pthread_mutex_lock(&creds->mutex);
 	struct dstr header;
 	dstr_init(&header);
-	struct curl_slist * headers = caffeine_basic_headers();
+	struct curl_slist * headers = caffeine_basic_headers(content_type);
 
 	dstr_printf(&header, "Authorization: Bearer %s", creds->access_token);
 	headers = curl_slist_append(headers, header.array);
@@ -96,10 +118,24 @@ char const * caffeine_refresh_token(struct caffeine_credentials * creds)
 	return creds->refresh_token;
 }
 
-/* TODO: refactor this - lots of dupe code between request types
- * TODO: handle retries, auth token refresh, etc
+#define RETRY_MAX 3
+
+/* TODO: this is not very robust or intelligent. Some kinds of failure will
+ * never be recoverable and should not be retried
  */
-struct caffeine_auth_response * caffeine_signin(
+#define retry_request(result_t, request) \
+	for (int try_num = 0; try_num < RETRY_MAX; ++try_num) { \
+		result_t result = request; \
+		if (result) \
+			return result; \
+		os_sleep_ms(1000 + 1000 * try_num); \
+	} \
+	return (result_t)0
+
+/* TODO: refactor this - lots of dupe code between request types
+ * TODO: reuse curl handle across requests
+ */
+static struct caffeine_auth_response * do_caffeine_signin(
 	char const * username,
 	char const * password,
 	char const * otp)
@@ -140,8 +176,7 @@ struct caffeine_auth_response * caffeine_signin(
 	curl_easy_setopt(curl, CURLOPT_URL, SIGNIN_URL);
 	curl_easy_setopt(curl, CURLOPT_POSTFIELDS, request_body);
 
-	struct curl_slist *headers = caffeine_basic_headers();
-	headers = curl_slist_append(headers, "Content-Type: application/json");
+	struct curl_slist *headers = caffeine_basic_headers(CONTENT_TYPE_JSON);
 	curl_easy_setopt(curl, CURLOPT_HTTPHEADER, headers);
 
 	struct dstr response_str;
@@ -203,7 +238,8 @@ struct caffeine_auth_response * caffeine_signin(
 
 	if (access_token) {
 		log_debug("Sign-in complete");
-		creds = make_credentials(access_token, caid, refresh_token, credential);
+		creds = make_credentials(access_token, caid, refresh_token,
+					credential);
 	}
 	else if (mfa_otp_method) {
 		log_debug("MFA required");
@@ -233,7 +269,15 @@ request_json_error:
 	return response;
 }
 
-struct caffeine_credentials * caffeine_refresh_auth(
+struct caffeine_auth_response * caffeine_signin(
+	char const * username,
+	char const * password,
+	char const * otp)
+{
+	retry_request(void*, do_caffeine_signin(username, password, otp));
+}
+
+static struct caffeine_credentials * do_caffeine_refresh_auth(
 	char const * refresh_token)
 {
 	trace();
@@ -267,8 +311,7 @@ struct caffeine_credentials * caffeine_refresh_auth(
 	curl_easy_setopt(curl, CURLOPT_URL, REFRESH_TOKEN_URL);
 	curl_easy_setopt(curl, CURLOPT_POSTFIELDS, request_body);
 
-	struct curl_slist *headers = caffeine_basic_headers();
-	headers = curl_slist_append(headers, "Content-Type: application/json");
+	struct curl_slist *headers = caffeine_basic_headers(CONTENT_TYPE_JSON);
 	curl_easy_setopt(curl, CURLOPT_HTTPHEADER, headers);
 
 	struct dstr response_str;
@@ -283,7 +326,8 @@ struct caffeine_credentials * caffeine_refresh_auth(
 
 	CURLcode res = curl_easy_perform(curl);
 	if (res != CURLE_OK) {
-		log_error("HTTP failure refreshing tokens: [%d] %s", res, curl_error);
+		log_error("HTTP failure refreshing tokens: [%d] %s", res,
+			curl_error);
 		goto request_error;
 	}
 
@@ -345,6 +389,12 @@ request_json_error:
 	return result;
 }
 
+struct caffeine_credentials * caffeine_refresh_auth(
+	char const * refresh_token)
+{
+	retry_request(void*, do_caffeine_refresh_auth(refresh_token));
+}
+
 void caffeine_free_credentials(struct caffeine_credentials ** credentials)
 {
 	trace();
@@ -378,7 +428,7 @@ void caffeine_free_auth_response(struct caffeine_auth_response ** auth_response)
 	*auth_response = NULL;
 }
 
-struct caffeine_user_info * caffeine_getuser(
+static struct caffeine_user_info * do_caffeine_getuser(
 	struct caffeine_credentials * creds)
 {
 	trace();
@@ -403,8 +453,8 @@ struct caffeine_user_info * caffeine_getuser(
 
 	curl_easy_setopt(curl, CURLOPT_URL, url_str.array);
 
-	struct curl_slist *headers = caffeine_authenticated_headers(creds);
-	headers = curl_slist_append(headers, "Content-Type: application/json");
+	struct curl_slist *headers =
+		caffeine_authenticated_headers(CONTENT_TYPE_JSON, creds);
 	curl_easy_setopt(curl, CURLOPT_HTTPHEADER, headers);
 
 	struct dstr response_str;
@@ -482,6 +532,12 @@ request_error:
 	return user_info;
 }
 
+struct caffeine_user_info * caffeine_getuser(
+	struct caffeine_credentials * creds)
+{
+	retry_request(void*, do_caffeine_getuser(creds));
+}
+
 void caffeine_free_user_info(struct caffeine_user_info ** user_info)
 {
 	trace();
@@ -494,7 +550,7 @@ void caffeine_free_user_info(struct caffeine_user_info ** user_info)
 	*user_info = NULL;
 }
 
-struct caffeine_stream_info * caffeine_start_stream(
+static struct caffeine_stream_info * do_caffeine_start_stream(
 	char const * stage_id,
 	char const * sdp_offer,
 	struct caffeine_credentials * creds)
@@ -532,8 +588,8 @@ struct caffeine_stream_info * caffeine_start_stream(
 	curl_easy_setopt(curl, CURLOPT_URL, STREAM_URL);
 	curl_easy_setopt(curl, CURLOPT_POSTFIELDS, request_body);
 
-	struct curl_slist *headers = caffeine_authenticated_headers(creds);
-	headers = curl_slist_append(headers, "Content-Type: application/json");
+	struct curl_slist *headers =
+		caffeine_authenticated_headers(CONTENT_TYPE_JSON, creds);
 	curl_easy_setopt(curl, CURLOPT_HTTPHEADER, headers);
 
 	struct dstr response_str;
@@ -609,6 +665,15 @@ request_json_error:
 	return response;
 }
 
+struct caffeine_stream_info * caffeine_start_stream(
+	char const * stage_id,
+	char const * sdp_offer,
+	struct caffeine_credentials * creds)
+{
+	retry_request(void*,
+		do_caffeine_start_stream(stage_id, sdp_offer, creds));
+}
+
 void caffeine_free_stream_info(struct caffeine_stream_info ** stream_info)
 {
 	trace();
@@ -621,7 +686,7 @@ void caffeine_free_stream_info(struct caffeine_stream_info ** stream_info)
 	*stream_info = NULL;
 }
 
-bool caffeine_trickle_candidates(
+static bool do_caffeine_trickle_candidates(
 	caff_ice_candidates candidates,
 	size_t num_candidates,
 	struct caffeine_credentials * creds,
@@ -674,8 +739,8 @@ bool caffeine_trickle_candidates(
 	curl_easy_setopt(curl, CURLOPT_POSTFIELDS, request_body);
 	curl_easy_setopt(curl, CURLOPT_CUSTOMREQUEST, "PUT");
 
-	struct curl_slist *headers = caffeine_authenticated_headers(creds);
-	headers = curl_slist_append(headers, "Content-Type: application/json");
+	struct curl_slist *headers =
+		caffeine_authenticated_headers(CONTENT_TYPE_JSON, creds);
 	curl_easy_setopt(curl, CURLOPT_HTTPHEADER, headers);
 
 	struct dstr response_str;
@@ -748,7 +813,18 @@ request_json_error:
 	return response;
 }
 
-bool refresh_credentials(struct caffeine_credentials * creds)
+bool caffeine_trickle_candidates(
+	caff_ice_candidates candidates,
+	size_t num_candidates,
+	struct caffeine_credentials * creds,
+	struct caffeine_stream_info const * stream_info)
+{
+	retry_request(bool,
+		do_caffeine_trickle_candidates(candidates, num_candidates,
+						creds, stream_info));
+}
+
+static bool do_refresh_credentials(struct caffeine_credentials * creds)
 {
 	trace();
 	char * refresh_token = NULL;
@@ -778,6 +854,11 @@ bool refresh_credentials(struct caffeine_credentials * creds)
 
 	caffeine_free_credentials(&new_creds);
 	return true;
+}
+
+bool refresh_credentials(struct caffeine_credentials * creds)
+{
+	retry_request(bool, do_refresh_credentials(creds));
 }
 
 bool send_heartbeat(
@@ -819,8 +900,8 @@ bool send_heartbeat(
 	curl_easy_setopt(curl, CURLOPT_URL, url_str.array);
 	curl_easy_setopt(curl, CURLOPT_POSTFIELDS, request_body);
 
-	struct curl_slist *headers = caffeine_authenticated_headers(creds);
-	headers = curl_slist_append(headers, "Content-Type: application/json");
+	struct curl_slist *headers =
+		caffeine_authenticated_headers(CONTENT_TYPE_JSON, creds);
 	curl_easy_setopt(curl, CURLOPT_HTTPHEADER, headers);
 
 	struct dstr response_str;
@@ -907,7 +988,7 @@ static struct dstr make_title(char const * title, enum caffeine_rating rating)
 	return final_title;
 }
 
-char * set_stage_live(
+static char * do_set_stage_live(
 	bool is_live,
 	char const * session_id,
 	char const * stage_id,
@@ -984,8 +1065,8 @@ char * set_stage_live(
 	curl_easy_setopt(curl, CURLOPT_POSTFIELDS, request_body);
 	curl_easy_setopt(curl, CURLOPT_CUSTOMREQUEST, request_type);
 
-	struct curl_slist *headers = caffeine_authenticated_headers(creds);
-	headers = curl_slist_append(headers, "Content-Type: application/json");
+	struct curl_slist *headers =
+		caffeine_authenticated_headers(CONTENT_TYPE_JSON, creds);
 	curl_easy_setopt(curl, CURLOPT_HTTPHEADER, headers);
 
 	struct dstr response_str;
@@ -1024,7 +1105,10 @@ char * set_stage_live(
 		goto json_parsed_error;
 	}
 
-	if (!session_id) {
+	if (session_id) {
+		result = session_id;
+	}
+	else {
 		char const * new_session_id;
 		if (json_unpack(response_json, "{s:s}",
 			"session_id", &new_session_id) != 0) {
@@ -1054,6 +1138,20 @@ curl_init_error:
 	return result;
 }
 
+char * set_stage_live(
+	bool is_live,
+	char const * session_id,
+	char const * stage_id,
+	char const * stream_id,
+	char const * title,
+	enum caffeine_rating rating,
+	struct caffeine_credentials * creds)
+{
+	retry_request(char*,
+		do_set_stage_live(is_live, session_id, stage_id, stream_id,
+				title, rating, creds));
+}
+
 void add_text_part(
 	struct curl_httppost ** post,
 	struct curl_httppost ** last,
@@ -1066,7 +1164,7 @@ void add_text_part(
 		CURLFORM_END);
 }
 
-char * create_broadcast(
+static char * do_create_broadcast(
 	char const * title,
 	enum caffeine_rating rating,
 	uint8_t const * screenshot_data,
@@ -1105,8 +1203,8 @@ char * create_broadcast(
 
 	curl_easy_setopt(curl, CURLOPT_URL, BROADCAST_URL);
 
-	struct curl_slist *headers = caffeine_authenticated_headers(creds);
-	headers = curl_slist_append(headers, "Content-Type: multipart/form-data");
+	struct curl_slist *headers =
+		caffeine_authenticated_headers(CONTENT_TYPE_FORM, creds);
 	curl_easy_setopt(curl, CURLOPT_HTTPHEADER, headers);
 
 	struct dstr response_str;
@@ -1177,7 +1275,19 @@ request_error:
 	return result;
 }
 
-void end_broadcast(
+char * create_broadcast(
+	char const * title,
+	enum caffeine_rating rating,
+	uint8_t const * screenshot_data,
+	size_t screenshot_size,
+	struct caffeine_credentials * creds)
+{
+	retry_request(char*,
+		do_create_broadcast(title, rating, screenshot_data,
+				screenshot_size, creds));
+}
+
+static bool do_end_broadcast(
 	char const * broadcast_id,
 	char const * title,
 	enum caffeine_rating rating,
@@ -1189,7 +1299,7 @@ void end_broadcast(
 	if (!curl)
 	{
 		log_error("Failed to initialize cURL");
-		return;
+		return false;
 	}
 
 	struct curl_httppost * post = NULL;
@@ -1210,8 +1320,8 @@ void end_broadcast(
 	dstr_printf(&url, BROADCAST_URL_F, broadcast_id);
 	curl_easy_setopt(curl, CURLOPT_URL, url.array);
 
-	struct curl_slist *headers = caffeine_authenticated_headers(creds);
-	headers = curl_slist_append(headers, "Content-Type: multipart/form-data");
+	struct curl_slist *headers =
+		caffeine_authenticated_headers(CONTENT_TYPE_FORM, creds);
 	curl_easy_setopt(curl, CURLOPT_HTTPHEADER, headers);
 
 	struct dstr response_str;
@@ -1223,6 +1333,8 @@ void end_broadcast(
 
 	char curl_error[CURL_ERROR_SIZE];
 	curl_easy_setopt(curl, CURLOPT_ERRORBUFFER, curl_error);
+
+	bool result = false;
 
 	CURLcode res = curl_easy_perform(curl);
 	if (res != CURLE_OK) {
@@ -1251,7 +1363,10 @@ void end_broadcast(
 		goto json_parsed_error;
 	}
 
-	if (response_code / 100 != 2) {
+	if (response_code / 100 == 2) {
+		result = true;
+	}
+	else {
 		log_error("Failed to end broadcast");
 	}
 
@@ -1264,4 +1379,15 @@ request_error:
 	dstr_free(&url);
 	curl_formfree(post);
 	curl_easy_cleanup(curl);
+
+	return result;
+}
+
+bool end_broadcast(
+	char const * broadcast_id,
+	char const * title,
+	enum caffeine_rating rating,
+	struct caffeine_credentials * creds)
+{
+	retry_request(bool, do_end_broadcast(broadcast_id, title, rating, creds));
 }
