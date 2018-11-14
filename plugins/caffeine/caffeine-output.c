@@ -657,17 +657,14 @@ static void caffeine_stop_stream(struct caffeine_output * context)
 	pthread_mutex_lock(&context->screenshot_mutex);
 
 	if (context->stream)
-		caff_end_stream(context->stream);
+		caff_end_stream(&context->stream);
 
-	if (context->stream_info)
-		caffeine_free_stream_info(context->stream_info);
+	caffeine_free_stream_info(&context->stream_info);
 
 	if (context->screenshot.data != NULL) {
 		av_free_packet(&context->screenshot);
 	}
 
-	context->stream_info = NULL;
-	context->stream = NULL;
 	context->screenshot_needed = false;
 
 	pthread_mutex_unlock(&context->screenshot_mutex);
@@ -696,7 +693,7 @@ static void caffeine_destroy(void *data)
 {
 	trace();
 	struct caffeine_output *context = data;
-	caff_deinitialize(context->interface);
+	caff_deinitialize(&context->interface);
 	pthread_mutex_destroy(&context->stream_mutex);
 	pthread_mutex_destroy(&context->screenshot_mutex);
 	pthread_cond_destroy(&context->screenshot_cond);

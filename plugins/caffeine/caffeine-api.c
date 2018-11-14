@@ -345,37 +345,37 @@ request_json_error:
 	return result;
 }
 
-void caffeine_free_credentials(struct caffeine_credentials * credentials)
+void caffeine_free_credentials(struct caffeine_credentials ** credentials)
 {
 	trace();
-	if (!credentials)
+	if (!credentials || !*credentials)
 		return;
-	pthread_mutex_lock(&credentials->mutex);
-	bfree(credentials->access_token);
-	bfree(credentials->caid);
-	bfree(credentials->refresh_token);
-	bfree(credentials->credential);
-	credentials->access_token = NULL;
-	credentials->caid = NULL;
-	credentials->refresh_token = NULL;
-	credentials->credential = NULL;
-	pthread_mutex_unlock(&credentials->mutex);
-	pthread_mutex_destroy(&credentials->mutex);
-	bfree(credentials);
+
+	pthread_mutex_lock(&(*credentials)->mutex);
+	bfree((*credentials)->access_token);
+	bfree((*credentials)->caid);
+	bfree((*credentials)->refresh_token);
+	bfree((*credentials)->credential);
+
+	pthread_mutex_unlock(&(*credentials)->mutex);
+	pthread_mutex_destroy(&(*credentials)->mutex);
+	bfree(*credentials);
+	*credentials = NULL;
 }
 
-void caffeine_free_auth_response(struct caffeine_auth_response * auth_response)
+void caffeine_free_auth_response(struct caffeine_auth_response ** auth_response)
 {
 	trace();
-	if (auth_response == NULL)
+	if (!auth_response || !*auth_response)
 		return;
 
-	caffeine_free_credentials(auth_response->credentials);
+	caffeine_free_credentials(&(*auth_response)->credentials);
 
-	bfree(auth_response->next);
-	bfree(auth_response->mfa_otp_method);
+	bfree((*auth_response)->next);
+	bfree((*auth_response)->mfa_otp_method);
 
-	bfree(auth_response);
+	bfree(*auth_response);
+	*auth_response = NULL;
 }
 
 struct caffeine_user_info * caffeine_getuser(
@@ -482,15 +482,16 @@ request_error:
 	return user_info;
 }
 
-void caffeine_free_user_info(struct caffeine_user_info * user_info)
+void caffeine_free_user_info(struct caffeine_user_info ** user_info)
 {
 	trace();
-	if (user_info == NULL)
+	if (!user_info || !*user_info)
 		return;
 
-	bfree(user_info->caid);
-	bfree(user_info->username);
-	bfree(user_info->stage_id);
+	bfree((*user_info)->caid);
+	bfree((*user_info)->username);
+	bfree((*user_info)->stage_id);
+	*user_info = NULL;
 }
 
 struct caffeine_stream_info * caffeine_start_stream(
@@ -608,15 +609,16 @@ request_json_error:
 	return response;
 }
 
-void caffeine_free_stream_info(struct caffeine_stream_info * stream_info)
+void caffeine_free_stream_info(struct caffeine_stream_info ** stream_info)
 {
 	trace();
-	if (!stream_info)
+	if (!stream_info || !*stream_info)
 		return;
 
-	bfree(stream_info->stream_id);
-	bfree(stream_info->sdp_answer);
-	bfree(stream_info->signed_payload);
+	bfree((*stream_info)->stream_id);
+	bfree((*stream_info)->sdp_answer);
+	bfree((*stream_info)->signed_payload);
+	*stream_info = NULL;
 }
 
 bool caffeine_trickle_candidates(
@@ -760,27 +762,21 @@ bool refresh_credentials(struct caffeine_credentials * creds)
 	if (!new_creds)
 		return false;
 
+#define swap(field) do { \
+			void * temp = creds->field; \
+			creds->field = new_creds->field; \
+			new_creds->field = temp; } while (false)
+
 	pthread_mutex_lock(&creds->mutex);
-
-	bfree(creds->access_token);
-	bfree(creds->caid);
-	bfree(creds->refresh_token);
-	bfree(creds->credential);
-
-	creds->access_token = new_creds->access_token;
-	creds->caid = new_creds->caid;
-	creds->refresh_token = new_creds->refresh_token;
-	creds->credential = new_creds->credential;
-
-	new_creds->access_token = NULL;
-	new_creds->caid = NULL;
-	new_creds->refresh_token = NULL;
-	new_creds->credential = NULL;
-
-	caffeine_free_credentials(new_creds);
-
+	swap(access_token);
+	swap(caid);
+	swap(refresh_token);
+	swap(credential);
 	pthread_mutex_unlock(&creds->mutex);
 
+#undef swap
+
+	caffeine_free_credentials(&new_creds);
 	return true;
 }
 
