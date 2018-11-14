@@ -15,13 +15,14 @@
 #define REALTIME_ENDPOINT  "https://realtime.caffeine.tv/"
 
 /* TODO: some of these are deprecated */
-#define SIGNIN_URL         API_ENDPOINT "v1/account/signin"
-#define REFRESH_TOKEN_URL  API_ENDPOINT "v1/account/token"
-#define GETUSER_URL_F      API_ENDPOINT "v1/users/%s"
-#define STREAM_URL         API_ENDPOINT "v2/broadcasts/streams"
-#define TRICKLE_URL_F      API_ENDPOINT "v2/broadcasts/streams/%s"
-#define BROADCAST_URL      API_ENDPOINT "v1/broadcasts"
-#define HEARTBEAT_URL_F    API_ENDPOINT "v2/broadcasts/streams/%s/heartbeat"
+#define SIGNIN_URL         API_ENDPOINT  "v1/account/signin"
+#define REFRESH_TOKEN_URL  API_ENDPOINT  "v1/account/token"
+#define GETUSER_URL_F      API_ENDPOINT  "v1/users/%s"
+#define STREAM_URL         API_ENDPOINT  "v2/broadcasts/streams"
+#define TRICKLE_URL_F      API_ENDPOINT  "v2/broadcasts/streams/%s"
+#define BROADCAST_URL      API_ENDPOINT  "v1/broadcasts"
+#define BROADCAST_URL_F    BROADCAST_URL "/%s"
+#define HEARTBEAT_URL_F    API_ENDPOINT  "v2/broadcasts/streams/%s/heartbeat"
 
 #define STAGE_STATE_URL_F  REALTIME_ENDPOINT "v2/stages/%s/details"
 
@@ -911,7 +912,7 @@ static struct dstr make_title(char const * title, enum caffeine_rating rating)
 }
 
 char * set_stage_live(
-	bool isLive,
+	bool is_live,
 	char const * session_id,
 	char const * stage_id,
 	char const * stream_id,
@@ -933,7 +934,7 @@ char * set_stage_live(
 
 	struct dstr final_title = make_title(title, rating);
 	json_t * payload_json = json_pack("{s:s,s:s,s:s,s:[o],s:s}",
-		"state", isLive ? "ONLINE" : "OFFLINE",
+		"state", is_live ? "ONLINE" : "OFFLINE",
 		"title", final_title.array,
 		"game_id", "79",
 		"streams", stream_json,
@@ -1039,7 +1040,7 @@ char * set_stage_live(
 	}
 
 	if (response_code / 100 == 2)
-		log_debug("Stage set %s", (isLive ? "live" : "offline"));
+		log_debug("Stage set %s", (is_live ? "live" : "offline"));
 	else
 		log_warn("Failed to set stage state");
 
@@ -1069,7 +1070,7 @@ void add_text_part(
 		CURLFORM_END);
 }
 
-bool create_broadcast(
+char * create_broadcast(
 	char const * title,
 	enum caffeine_rating rating,
 	uint8_t const * screenshot_data,
@@ -1092,9 +1093,6 @@ bool create_broadcast(
 	add_text_part(&post, &last, "broadcast[name]", final_title.array);
 	dstr_free(&final_title);
 
-	add_text_part(&post, &last, "broadcast[description]", "");
-	add_text_part(&post, &last, "broadcast[content_rating]", "PG");
-	add_text_part(&post, &last, "broadcast[platform]", "PC");
 	add_text_part(&post, &last, "broadcast[state]", "ONLINE");
 	add_text_part(&post, &last, "broadcast[game_id]", "79");
 	if (screenshot_data) {
@@ -1125,7 +1123,7 @@ bool create_broadcast(
 	char curl_error[CURL_ERROR_SIZE];
 	curl_easy_setopt(curl, CURLOPT_ERRORBUFFER, curl_error);
 
-	bool result = false;
+	char * result = NULL;
 
 	CURLcode res = curl_easy_perform(curl);
 	if (res != CURLE_OK) {
@@ -1154,14 +1152,23 @@ bool create_broadcast(
 		goto json_parsed_error;
 	}
 
-	if (response_code / 100 == 2) {
-		log_debug("Broadcast created");
-		result = true;
-	}
-	else {
+	if (response_code / 100 != 2) {
 		log_error("Failed to create broadcast");
+		goto http_status_error;
 	}
 
+	char const * broadcast_id;
+	int success_result = json_unpack(response_json, "{s:{s:s}}",
+		"broadcast", "id", &broadcast_id);
+
+	if (success_result == 0) {
+		result = bstrdup(broadcast_id);
+	}
+	else {
+		log_error("Failed to extract broadcast id");
+	}
+
+http_status_error:
 json_parsed_error:
 	json_decref(response_json);
 json_failed_error:
@@ -1172,4 +1179,94 @@ request_error:
 	curl_easy_cleanup(curl);
 
 	return result;
+}
+
+void end_broadcast(
+	char const * broadcast_id,
+	char const * title,
+	enum caffeine_rating rating,
+	struct caffeine_credentials * creds)
+{
+	trace();
+	CURL * curl = curl_easy_init();
+
+	if (!curl)
+	{
+		log_error("Failed to initialize cURL");
+		return false;
+	}
+
+	struct curl_httppost * post = NULL;
+	struct curl_httppost * last = NULL;
+
+	struct dstr final_title = make_title(title, rating);
+	add_text_part(&post, &last, "broadcast[name]", final_title.array);
+	dstr_free(&final_title);
+
+	add_text_part(&post, &last, "broadcast[state]", "OFFLINE");
+	add_text_part(&post, &last, "broadcast[game_id]", "79");
+
+	curl_easy_setopt(curl, CURLOPT_HTTPPOST, post);
+	curl_easy_setopt(curl, CURLOPT_CUSTOMREQUEST, "PATCH");
+
+	struct dstr url;
+	dstr_init(&url);
+	dstr_printf(&url, BROADCAST_URL_F, broadcast_id);
+	curl_easy_setopt(curl, CURLOPT_URL, url.array);
+
+	struct curl_slist *headers = caffeine_authenticated_headers(creds);
+	headers = curl_slist_append(headers, "Content-Type: multipart/form-data");
+	curl_easy_setopt(curl, CURLOPT_HTTPHEADER, headers);
+
+	struct dstr response_str;
+	dstr_init(&response_str);
+
+	curl_easy_setopt(curl, CURLOPT_WRITEFUNCTION,
+		caffeine_curl_write_callback);
+	curl_easy_setopt(curl, CURLOPT_WRITEDATA, (void*)&response_str);
+
+	char curl_error[CURL_ERROR_SIZE];
+	curl_easy_setopt(curl, CURLOPT_ERRORBUFFER, curl_error);
+
+	CURLcode res = curl_easy_perform(curl);
+	if (res != CURLE_OK) {
+		log_error("HTTP failure ending broadcast: [%d] %s",
+			res, curl_error);
+		goto request_error;
+	}
+
+	long response_code;
+	curl_easy_getinfo(curl, CURLINFO_RESPONSE_CODE, &response_code);
+
+	log_debug("Http response code [%ld]", response_code);
+
+	json_error_t json_error;
+	json_t * response_json = json_loads(response_str.array, 0, &json_error);
+	if (!response_json) {
+		log_error("Failed to end broadcast: %s",
+			json_error.text);
+		goto json_failed_error;
+	}
+	char const *error_text = NULL;
+	int error_result = json_unpack(response_json, "{s:[s!]}",
+		"_errors", &error_text);
+	if (error_result == 0) {
+		log_error("Error ending broadcast: %s", error_text);
+		goto json_parsed_error;
+	}
+
+	if (response_code / 100 != 2) {
+		log_error("Failed to end broadcast");
+	}
+
+http_status_error:
+json_parsed_error:
+	json_decref(response_json);
+json_failed_error:
+request_error:
+	dstr_free(&response_str);
+	curl_slist_free_all(headers);
+	dstr_free(&url);
+	curl_formfree(post);
+	curl_easy_cleanup(curl);
 }
