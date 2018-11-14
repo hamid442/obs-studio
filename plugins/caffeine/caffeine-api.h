@@ -82,7 +82,7 @@ bool send_heartbeat(
 	char const * signed_payload,
 	struct caffeine_credentials * creds);
 
-void end_broadcast(
+bool end_broadcast(
 	char const * broadcast_id,
 	char const * title,
 	enum caffeine_rating rating,
