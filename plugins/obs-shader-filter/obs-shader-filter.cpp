@@ -1315,20 +1315,33 @@ private:
 
 	void updateAudioSource(std::string name)
 	{
+		obs_source_t *oldSideChain = _mediaSource;
 		if (!name.empty()) {
-			obs_source_t *sideChain = nullptr;
-			sideChain = obs_get_source_by_name(name.c_str());
-			obs_source_t *oldSideChain = _mediaSource;
+			obs_source_t *sideChain = obs_get_source_by_name(name.c_str());
 			lock();
 			if (oldSideChain) {
+				obs_source_remove_active_child(_filter->context, oldSideChain);
 				obs_source_remove_audio_capture_callback(oldSideChain, sidechain_capture, this);
 				obs_source_release(oldSideChain);
 				for (size_t i = 0; i < MAX_AV_PLANES; i++)
 					_audio[i].clear();
 			}
-			if (sideChain)
+			if (sideChain) {
 				obs_source_add_audio_capture_callback(sideChain, sidechain_capture, this);
+				obs_source_add_active_child(_filter->context, sideChain);
+			}
 			_mediaSource = sideChain;
+			unlock();
+		} else {
+			lock();
+			if (oldSideChain) {
+				obs_source_remove_active_child(_filter->context, oldSideChain);
+				obs_source_remove_audio_capture_callback(oldSideChain, sidechain_capture, this);
+				obs_source_release(oldSideChain);
+				for (size_t i = 0; i < MAX_AV_PLANES; i++)
+					_audio[i].clear();
+			}
+			_mediaSource = nullptr;
 			unlock();
 		}
 	}
@@ -1684,8 +1697,12 @@ public:
 		case source:
 			if (!_texrender)
 				_texrender = gs_texrender_create(GS_RGBA, GS_ZS_NONE);
+			if (_mediaSource)
+				obs_source_remove_active_child(_filter->context, _mediaSource);
 			obs_source_release(_mediaSource);
 			_mediaSource = obs_get_source_by_name(obs_data_get_string(settings, _names[0].c_str()));
+			if (_mediaSource)
+				obs_source_add_active_child(_filter->context, _mediaSource);
 			break;
 		case media:
 			if (!_texrender)
