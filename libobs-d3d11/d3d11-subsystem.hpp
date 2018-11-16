@@ -601,6 +601,8 @@ struct gs_pixel_shader : gs_shader {
 };
 
 struct gs_compute_shader : gs_shader {
+	ComPtr<ID3D11ComputeShader> shader;
+
 	gs_compute_shader(gs_device_t *device, const char *file,
 			const char *shaderString);
 };

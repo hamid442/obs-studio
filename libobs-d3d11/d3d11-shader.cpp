@@ -104,6 +104,29 @@ gs_pixel_shader::gs_pixel_shader(gs_device_t *device, const char *file,
 		throw HRError("Failed to create pixel shader", hr);
 }
 
+gs_compute_shader::gs_compute_shader(gs_device_t *device, const char *file,
+		const char *shaderString)
+	: gs_shader(device, gs_type::gs_pixel_shader, GS_SHADER_PIXEL)
+{
+	ShaderProcessor    processor(device);
+	ComPtr<ID3D10Blob> shaderBlob;
+	string             outputString;
+	HRESULT            hr;
+
+	processor.Process(shaderString, file);
+	processor.BuildString(outputString);
+	processor.BuildParams(params);
+	BuildConstantBuffer();
+
+	Compile(outputString.c_str(), file, "cs_4_0", shaderBlob.Assign());
+
+	hr = device->device->CreateComputeShader(data.data(), data.size(),
+			NULL, shader.Assign());
+
+	if (FAILED(hr))
+		throw HRError("Failed to create compute shader", hr);
+}
+
 /*
  * Shader compilers will pack constants in to single registers when possible.
  * For example:
