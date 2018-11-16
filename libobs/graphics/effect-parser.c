@@ -1181,11 +1181,112 @@ static inline void report_invalid_func_keyword(struct effect_parser *ep,
 		                      name, NULL, NULL);
 }
 
+static bool ep_get_thread_grouping(struct effect_parser *ep, int *x, int *y,
+		int *z)
+{
+	struct cf_token peek;
+	int code;
+	if (cf_token_is(&ep->cfp, "[")) {
+		cf_token_clear(&peek);
+
+		if (!cf_peek_valid_token(&ep->cfp, &peek))
+			return true;
+
+		cf_next_token(&ep->cfp);
+		if (cf_token_is(&ep->cfp, "numthreads")) {
+			if (!cf_next_valid_token(&ep->cfp))
+				return true;
+			/*parse array of ints*/
+			if (cf_token_is(&ep->cfp, "(")) {
+				if (!cf_next_valid_token(&ep->cfp))
+					return true;
+				bool is_negative = false;
+				if (cf_token_is(&ep->cfp, "-")) {
+					cf_adderror_expecting(&ep->cfp, "positive integer");
+					return true;
+				}
+
+				code = cf_token_is_type(&ep->cfp, CFTOKEN_NUM, "numeric value", NULL);
+				if (code != PARSE_SUCCESS)
+					return true;
+
+				long l = strtol(ep->cfp.cur_token->str.array, NULL, 10);
+				if (is_negative) l = -l;
+				*x = l;
+
+				cf_next_token_should_be(&ep->cfp, ",", ")", NULL);
+
+				if (cf_token_is(&ep->cfp, ")")) {
+					cf_next_token_should_be(&ep->cfp, "]", NULL, NULL);
+					return true;
+				}
+
+				if (!cf_next_valid_token(&ep->cfp))
+					return true;
+
+				is_negative = false;
+				if (cf_token_is(&ep->cfp, "-")) {
+					cf_adderror_expecting(&ep->cfp, "positive integer");
+					return true;
+				}
+
+				code = cf_token_is_type(&ep->cfp, CFTOKEN_NUM, "numeric value", NULL);
+				if (code != PARSE_SUCCESS)
+					return true;
+
+				l = strtol(ep->cfp.cur_token->str.array, NULL, 10);
+				if (is_negative) l = -l;
+				*y = l;
+
+				cf_next_token_should_be(&ep->cfp, ",", ")", NULL);
+
+				if (cf_token_is(&ep->cfp, ")")) {
+					cf_next_token_should_be(&ep->cfp, "]", NULL, NULL);
+					return true;
+				}
+
+				if (!cf_next_valid_token(&ep->cfp))
+					return true;
+
+				is_negative = false;
+				if (cf_token_is(&ep->cfp, "-")) {
+					cf_adderror_expecting(&ep->cfp, "positive integer");
+					return true;
+				}
+
+				code = cf_token_is_type(&ep->cfp, CFTOKEN_NUM, "numeric value", NULL);
+				if (code != PARSE_SUCCESS)
+					return true;
+
+				l = strtol(ep->cfp.cur_token->str.array, NULL, 10);
+				if (is_negative) l = -l;
+				*z = l;
+
+				cf_next_token_should_be(&ep->cfp, ")", NULL, NULL);
+				cf_next_token_should_be(&ep->cfp, "]", NULL, NULL);
+
+				return true;
+			} else {
+				cf_adderror_expecting(&ep->cfp, "(");
+			}
+		} else {
+			cf_adderror_expecting(&ep->cfp, "numthreads");
+			return true;
+		}
+
+		return true;
+	}
+	return false;
+}
+
 static void ep_parse_other(struct effect_parser *ep)
 {
 	bool is_property = false, is_const = false, is_uniform = false;
 	char *type = NULL, *name = NULL;
-
+	int x_group = 0, y_group = 0, z_group = 0;
+	bool must_be_function = false;
+	/*Thread Groupings if any*/
+	must_be_function = ep_get_thread_grouping(ep, &x_group, &y_group, &z_group);
 	if (!ep_get_var_specifiers(ep, &is_property, &is_const, &is_uniform))
 		goto error;
 
@@ -1196,7 +1297,10 @@ static void ep_parse_other(struct effect_parser *ep)
 	if (!cf_next_valid_token(&ep->cfp))
 		goto error;
 
-	if (cf_token_is(&ep->cfp, "(")) {
+	if (must_be_function && !cf_token_is(&ep->cfp, "(")) {
+		cf_adderror_expecting(&ep->cfp, "(");
+		goto error;
+	} else if (cf_token_is(&ep->cfp, "(")) {
 		report_invalid_func_keyword(ep, "property", is_property);
 		report_invalid_func_keyword(ep, "const",    is_const);
 		report_invalid_func_keyword(ep, "uniform",  is_uniform);
