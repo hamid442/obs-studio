@@ -1,4 +1,5 @@
 #pragma once
+#define _ENABLE_EXTENDED_ALIGNED_STORAGE
 
 #ifdef __cplusplus
 extern "C" {
@@ -112,6 +113,9 @@ class TinyExpr : public std::vector<te_variable> {
 	int         _err = 0;
 	std::string _errString = "";
 
+	std::unordered_map<std::string, te_expr*> _compiledMap;
+	std::unordered_map<std::string, int> _errMap;
+	std::unordered_map<std::string, std::string> _errStrMap;
 public:
 	TinyExpr()
 	{
@@ -122,10 +126,19 @@ public:
 	}
 	void releaseExpression()
 	{
+		for (auto it : _compiledMap) {
+			te_free(it.second);
+			it.second = nullptr;
+		}
+		_compiledMap.clear();
+		_errMap.clear();
+		_errStrMap.clear();
+		/*
 		if (_compiled) {
 			te_free(_compiled);
 			_compiled = nullptr;
 		}
+		*/
 	}
 
 	bool hasVariable(std::string search)
@@ -145,12 +158,29 @@ public:
 			ret = (DataType)te_eval(_compiled);
 		return ret;
 	}
+	template<class DataType> DataType evaluate(std::string expression, DataType default_value = 0)
+	{
+		DataType ret = default_value;
+		if (_compiledMap.count(expression))
+			ret = (DataType)te_eval(_compiledMap.at(expression));
+		return ret;
+	}
 	void compile(std::string expression)
 	{
 		if (expression.empty())
 			return;
-		if (_compiled)
+		if (_compiledMap.count(expression)) {
+			_compiled = _compiledMap.at(expression);
+			_errString = _errStrMap.at(expression);
+			_err = _errMap.at(expression);
+			return;
+		}
+		/*
+		if (_compiled && expression.compare(_expr) == 0)
+			return;
+		else
 			releaseExpression();
+		*/
 		_compiled = te_compile(expression.c_str(), data(), (int)size(), &_err);
 		if (!_compiled) {
 			_errString = "Expression Error At [" + std::to_string(_err) + "] in: " + expression + "\n" +
@@ -160,6 +190,10 @@ public:
 			_errString = "";
 			_expr = expression;
 		}
+		//
+		_errStrMap[expression] = _errString;
+		_errMap[expression] = _err;
+		_compiledMap[expression] = _compiled;
 	}
 	bool success()
 	{

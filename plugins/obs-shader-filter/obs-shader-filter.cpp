@@ -88,6 +88,95 @@ static double dfloor(double d)
 	return floor(d);
 }
 
+static struct transformAlpha {
+	matrix4 position;
+	vec3 pos;
+
+	float rotateX;
+	float rotateY;
+	float rotateZ;
+
+	float translateX;
+	float translateY;
+	float translateZ;
+
+	float decayAlpha;
+	float alpha;
+	float lifeTime;
+	float localLifeTime;
+	/*
+	bool operator < (const transformAlpha &b) const
+	{
+		vec3 av = { 0 };
+		vec3 bv = { 0 };
+		vec3_transform(&av, &av, &position);
+		vec3_transform(&bv, &bv, &b.position);
+
+		return (pow(av.x, 2) + pow(av.y, 2) + pow(av.z, 2)) > (pow(bv.x, 2) + pow(bv.y, 2) + pow(bv.z, 2));
+	}
+	*/
+};
+
+void radix_sort()
+{
+	
+}
+
+
+/*
+template <typename FwIter, typename Func>
+void binary_insertion_sort(FwIter first, FwIter last, Func f)
+{
+	if (first != last) {
+		typename std::iterator_traits<FwIter>::difference_type d =
+			std::distance(first, last);
+		if (d < 2)
+			return;
+		for (size_t k = 2; k < d; k++) {
+			FwIter endIter = (first + (k - 1));
+			typename std::iterator_traits<FwIter>::value_type temp = *endIter;
+			FwIter it = std::lower_bound(first, endIter, temp, f);
+			size_t i = k - 1;
+			typename std::iterator_traits<FwIter>::difference_type d2 =
+				std::distance(first, it);
+			size_t j = d2;
+			for (; i > j; i--) {
+				*(first + i) = *(first + i - 1);
+			}
+			*it = temp;
+		}
+	}
+}
+
+template <typename FwIter, typename Func>
+void tim_sort(FwIter first, FwIter last, Func f)
+{
+	if (first != last) {
+		size_t r = 32;
+		size_t ri = r - 1;
+		typename std::iterator_traits<FwIter>::difference_type d =
+			std::distance(first, last);
+		size_t n = d;
+		size_t ni = d - 1;
+		//binary_insertion_sort(first, last, f);
+		for (size_t i = 0; i < n; i+=r) {
+			//size_t e = min((i+ri), (ni));
+			size_t e = min((i + r), (n));
+			binary_insertion_sort(first + i, first + e, f);
+		}
+
+		for (size_t size = r; size < n; size *= 2) {
+			size_t size2 = 2 * size;
+			for (size_t left = 0; left < n; left += size2) {
+				size_t mid = left + size - 1;
+				size_t right = min((left + size2 - 1), (n));
+				std::inplace_merge(first + left, first + mid, first + right, f);
+			}
+		}
+	}
+}
+*/
+
 static double fac(double a)
 {/* simplest version of fac */
 	if (a < 0.0)
@@ -1178,7 +1267,7 @@ static bool fillPropertiesSourceList(void *param, obs_source_t *source)
 	uint32_t        flags = obs_source_get_output_flags(source);
 	const char *    sourceName = obs_source_get_name(source);
 
-	if ((flags & OBS_SOURCE_VIDEO) != 0 && obs_source_active(source))
+	if ((flags & OBS_SOURCE_VIDEO) != 0)// && obs_source_active(source))
 		obs_property_list_add_string(p, sourceName, sourceName);
 
 	return true;
@@ -1196,7 +1285,7 @@ static bool fillPropertiesAudioSourceList(void *param, obs_source_t *source)
 	uint32_t        flags = obs_source_get_output_flags(source);
 	const char *    sourceName = obs_source_get_name(source);
 
-	if ((flags & OBS_SOURCE_AUDIO) != 0 && obs_source_active(source))
+	if ((flags & OBS_SOURCE_AUDIO) != 0)// && obs_source_active(source))
 		obs_property_list_add_string(p, sourceName, sourceName);
 
 	return true;
@@ -1207,23 +1296,6 @@ static void fillAudioSourceList(obs_property_t *p)
 	obs_property_list_add_string(p, _OMT("None"), "");
 	obs_enum_sources(&fillPropertiesAudioSourceList, (void *)p);
 }
-
-static struct transformAlpha {
-	matrix4 position;
-
-	float rotateX;
-	float rotateY;
-	float rotateZ;
-
-	float translateX;
-	float translateY;
-	float translateZ;
-
-	float decayAlpha;
-	float alpha;
-	float lifeTime;
-	float localLifeTime;
-};
 
 static std::vector<uint32_t> indexBuffer(uint32_t particles)
 {
@@ -1868,10 +1940,9 @@ public:
 			size_t oldSize = _particles.size();
 			_spawnCount += (_spawnRate / frame_rate);
 
-			//if (_particles.size() <= 1)
-			for (float i = 0; i < _spawnCount; i++)
+			for (float i = 1.0f; i < (float)_spawnCount; i += 1.0f) {
 				generateParticle(elapsedTime, seconds);
-
+			}
 			_spawnCount -= floor(_spawnCount);
 
 			for (size_t i = 0; i < _particles.size(); i++) {
@@ -1892,8 +1963,11 @@ public:
 				*/
 				p->alpha = hlsl_clamp(p->alpha - p->decayAlpha, 0, 255);
 			}
-			if (_particles.size() == 0)
+			if (_particles.size() == 0) {
+				obs_leave_graphics();
 				return;
+			}
+			blog(LOG_DEBUG, "Particles: %ul", _particles.size());
 
 			if (!_vertexBufferData || oldSize != _particles.size()) {
 				if (_vertexBuffer) {
@@ -1921,16 +1995,9 @@ public:
 
 			/*Z Order*/
 			const auto order_heap = [](transformAlpha a, transformAlpha b) {
-				vec3 av = { 0 };
-				vec3 bv = { 0 };
-				vec3_transform(&av, &av, &a.position);
-				vec3_transform(&bv, &bv, &b.position);
-
-				return (pow(av.x, 2) + pow(av.y, 2) + pow(av.z, 2)) > (pow(bv.x, 2) + pow(bv.y, 2) + pow(bv.z, 2));
+				return a.pos.z > b.pos.z;
 			};
-			std::make_heap(_particles.begin(), _particles.end(), order_heap);
-			std::sort_heap(_particles.begin(), _particles.end(), order_heap);
-
+			
 			gs_vb_data *vb;
 			if (!_vertexBufferData || oldSize != _particles.size())
 				vb = _vertexBufferData;
@@ -1938,19 +2005,25 @@ public:
 				vb = (gs_vb_data *)gs_vertexbuffer_get_data(_vertexBuffer);
 
 			/*Transform*/
+			const float rate = 1.0f / frame_rate;
 			for (size_t i = 0; i < _particles.size(); i++) {
 				transformAlpha *p = &_particles[i];
 				//rotate matrix
-				matrix4_rotate_aa4f(&p->position, &p->position, p->rotateX, p->rotateY, p->rotateZ, 1.0 / frame_rate);
-				/*
-				matrix4_rotate_aa4f(&p->position, &p->position, 1, 0, 0, p->rotateX / frame_rate);
-				matrix4_rotate_aa4f(&p->position, &p->position, 0, 1, 0, p->rotateY / frame_rate);
-				matrix4_rotate_aa4f(&p->position, &p->position, 0, 0, 1, p->rotateZ / frame_rate);
-				*/
+				matrix4_rotate_aa4f(&p->position, &p->position, p->rotateX, p->rotateY, p->rotateZ, rate);
 				//translate matrix
-				matrix4_translate3f(&p->position, &p->position, p->translateX / frame_rate,
-					p->translateY / frame_rate, p->translateZ / frame_rate);
-
+				matrix4_translate3f(&p->position, &p->position, p->translateX * rate,
+					p->translateY * rate, p->translateZ * rate);
+				//cache position for z ordering
+				vec3_zero(&p->pos);
+				vec3_transform(&p->pos, &p->pos, &p->position);
+			}
+			/*Sort*/
+			//std::make_heap(_particles.begin(), _particles.end(), order_heap);
+			//std::sort_heap(_particles.begin(), _particles.end(), order_heap);
+			std::stable_sort(_particles.begin(), _particles.end(), order_heap);
+			/*Apply to index buffer*/
+			for (size_t i = 0; i < _particles.size(); i++) {
+				transformAlpha *p = &_particles[i];
 				vec4 *ar = (vec4 *)vb->tvarray->array;
 				size_t index_0 = i * 4;
 				size_t index_1 = index_0 + 1;
@@ -1966,12 +2039,12 @@ public:
 				vec4_set(&ar[index_2], 0, 1, 0, 0);
 				vec4_set(&ar[index_3], 1, 1, 0, 0);
 
-				uint32_t w = 1;
-				uint32_t h = 1;
+				float w = 1.0f;
+				float h = 1.0f;
 
-				vec3_set(&vb->points[index_0], w / -2.0, h / -2.0, 0);
-				vec3_set(&vb->points[index_1], w / 2.0, h / -2.0, 0);
-				vec3_set(&vb->points[index_2], w / -2.0, h / 2.0, 0);
+				vec3_set(&vb->points[index_0], -w / 2.0, -h / 2.0, 0);
+				vec3_set(&vb->points[index_1], w / 2.0, -h / 2.0, 0);
+				vec3_set(&vb->points[index_2], -w / 2.0, h / 2.0, 0);
 				vec3_set(&vb->points[index_3], w / 2.0, h / 2.0, 0);
 
 				vec3_transform(&vb->points[index_0], &vb->points[index_0], &p->position);
@@ -1998,7 +2071,8 @@ public:
 			} else {
 				if (oldSize != _particles.size()) {
 					gs_indexbuffer_destroy(_indexBuffer);
-					_indexBufferData = indexBuffer(_particles.size());
+					if(_particles.size() > oldSize)
+						_indexBufferData = indexBuffer(_particles.size());
 					_indexBuffer = gs_indexbuffer_create(gs_index_type::GS_UNSIGNED_LONG, _indexBufferData.data(), _particles.size() * 6, GS_DYNAMIC | GS_DUP_BUFFER);
 				}
 			}
@@ -2047,8 +2121,7 @@ public:
 
 			obs_enter_graphics();
 			gs_texture_destroy(_tex);
-			_tex = gs_texture_create(
-				(uint32_t)srcWidth, (uint32_t)srcHeight, GS_R8, 1, (const uint8_t **)&_data, 0);
+			_tex = gs_texture_create((uint32_t)srcWidth, (uint32_t)srcHeight, GS_R8, 1, (const uint8_t **)&_data, 0);
 			obs_leave_graphics();
 			t = _tex;
 			break;
@@ -2516,6 +2589,7 @@ void ShaderSource::reload()
 		resizeExpressions[i] = "";
 	paramMap.clear();
 	evaluationList.clear();
+	expression.releaseExpression();
 	expression.clear();
 
 	prepFunctions(&expression, this);
@@ -2523,6 +2597,7 @@ void ShaderSource::reload()
 	const auto order_heap = [](te_variable a, te_variable b) {
 		return strcmp(a.name, b.name) < 0;
 	};
+
 	std::make_heap(expression.begin(), expression.end(), order_heap);
 	std::sort_heap(expression.begin(), expression.end(), order_heap);
 
@@ -2558,6 +2633,8 @@ void ShaderSource::reload()
 	/* Enforce alphabetical order for binary search */
 	std::make_heap(expression.begin(), expression.end(), order_heap);
 	std::sort_heap(expression.begin(), expression.end(), order_heap);
+
+	//std::stable_sort(expression.begin(), expression.end(), order_heap);
 
 	if (paramMap.count("image")) {
 		ShaderParameter *p = paramMap.at("image");
@@ -3330,7 +3407,7 @@ bool obs_module_load(void)
 	}
 
 	obs_enter_graphics();
-	if(!default_effect)
+	if (!default_effect)
 		default_effect = gs_effect_create(effect_string, NULL, &errors);
 	obs_leave_graphics();
 
@@ -3343,7 +3420,7 @@ bool obs_module_load(void)
 void obs_module_unload(void)
 {
 	obs_enter_graphics();
-	if(default_effect)
+	if (default_effect)
 		gs_effect_destroy(default_effect);
 	obs_leave_graphics();
 }
