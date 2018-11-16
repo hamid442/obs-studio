@@ -600,6 +600,11 @@ struct gs_pixel_shader : gs_shader {
 			const char *shaderString);
 };
 
+struct gs_compute_shader : gs_shader {
+	gs_compute_shader(gs_device_t *device, const char *file,
+			const char *shaderString);
+};
+
 struct gs_swap_chain : gs_obj {
 	uint32_t                       numBuffers;
 	HWND                           hwnd;

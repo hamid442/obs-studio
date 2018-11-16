@@ -892,6 +892,28 @@ gs_shader_t *gs_pixelshader_create_from_file(const char *file,
 	return shader;
 }
 
+gs_shader_t *gs_computeshader_create_from_file(const char *file,
+	char **error_string)
+{
+	char *file_string;
+	gs_shader_t *shader = NULL;
+
+	if (!gs_valid_p("gs_computeshader_create_from_file", file))
+		return NULL;
+
+	file_string = os_quick_read_utf8_file(file);
+	if (!file_string) {
+		blog(LOG_ERROR, "Could not load compute shader file '%s'",
+			file);
+		return NULL;
+	}
+
+	shader = gs_computeshader_create(file_string, file, error_string);
+	bfree(file_string);
+
+	return shader;
+}
+
 gs_texture_t *gs_texture_create_from_file(const char *file)
 {
 	enum gs_color_format format;
@@ -1450,6 +1472,18 @@ gs_shader_t *gs_pixelshader_create(const char *shader,
 	graphics_t *graphics = thread_graphics;
 
 	if (!gs_valid_p("gs_pixelshader_create", shader))
+		return NULL;
+
+	return graphics->exports.device_pixelshader_create(graphics->device,
+			shader, file, error_string);
+}
+
+gs_shader_t *gs_computeshader_create(const char *shader,
+		const char *file, char **error_string)
+{
+	graphics_t *graphics = thread_graphics;
+
+	if (!gs_valid_p("gs_computeshader_create", shader))
 		return NULL;
 
 	return graphics->exports.device_pixelshader_create(graphics->device,

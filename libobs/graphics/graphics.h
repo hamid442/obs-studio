@@ -301,6 +301,7 @@ struct gs_shader_param_info {
 enum gs_shader_type {
 	GS_SHADER_VERTEX,
 	GS_SHADER_PIXEL,
+	GS_SHADER_COMPUTE
 };
 
 EXPORT void gs_shader_destroy(gs_shader_t *shader);
@@ -532,6 +533,8 @@ EXPORT gs_shader_t *gs_vertexshader_create_from_file(const char *file,
 		char **error_string);
 EXPORT gs_shader_t *gs_pixelshader_create_from_file(const char *file,
 		char **error_string);
+EXPORT gs_shader_t *gs_computeshader_create_from_file(const char *file,
+		char **error_string);
 
 EXPORT gs_texture_t *gs_texture_create_from_file(const char *file);
 EXPORT uint8_t *gs_create_texture_file_data(const char *file,
@@ -610,6 +613,8 @@ EXPORT gs_samplerstate_t *gs_samplerstate_create(
 EXPORT gs_shader_t *gs_vertexshader_create(const char *shader,
 		const char *file, char **error_string);
 EXPORT gs_shader_t *gs_pixelshader_create(const char *shader,
+		const char *file, char **error_string);
+EXPORT gs_shader_t *gs_computeshader_create(const char *shader,
 		const char *file, char **error_string);
 
 EXPORT gs_vertbuffer_t *gs_vertexbuffer_create(struct gs_vb_data *data,
