@@ -680,13 +680,14 @@ static void caffeine_stop(void *data, uint64_t ts)
 	UNUSED_PARAMETER(ts);
 
 	struct caffeine_output *context = data;
-
-	obs_output_end_data_capture(context->output);
+	obs_output_t *output = context->output;
 
 	set_state(context, STOPPING);
 	pthread_join(context->heartbeat_thread, NULL);
 
 	caffeine_stop_stream(context);
+
+	obs_output_end_data_capture(output);
 }
 
 static void caffeine_destroy(void *data)
