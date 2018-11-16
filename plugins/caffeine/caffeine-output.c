@@ -205,10 +205,9 @@ static bool caffeine_start(void *data)
 		return false;
 	}
 
-	/* TODO: enforce this in UI and/or rescale in RTC layer */
 	if (context->video_info.output_height != enforced_height) {
-		log_error("Video output must be 720 pixels high for Caffeine");
-		return false;
+		log_warn("For best video quality and reduced CPU usage, set "
+			"output resolution to 720p");
 	}
 
 	double ratio = (double)context->video_info.output_width /
