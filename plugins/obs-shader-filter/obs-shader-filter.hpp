@@ -133,12 +133,6 @@ public:
 		_compiledMap.clear();
 		_errMap.clear();
 		_errStrMap.clear();
-		/*
-		if (_compiled) {
-			te_free(_compiled);
-			_compiled = nullptr;
-		}
-		*/
 	}
 
 	bool hasVariable(std::string search)
@@ -175,12 +169,7 @@ public:
 			_err = _errMap.at(expression);
 			return;
 		}
-		/*
-		if (_compiled && expression.compare(_expr) == 0)
-			return;
-		else
-			releaseExpression();
-		*/
+
 		_compiled = te_compile(expression.c_str(), data(), (int)size(), &_err);
 		if (!_compiled) {
 			_errString = "Expression Error At [" + std::to_string(_err) + "] in: " + expression + "\n" +
@@ -190,7 +179,7 @@ public:
 			_errString = "";
 			_expr = expression;
 		}
-		//
+
 		_errStrMap[expression] = _errString;
 		_errMap[expression] = _err;
 		_compiledMap[expression] = _compiled;

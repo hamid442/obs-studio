@@ -13,7 +13,7 @@ sampler_state def_sampler {
 struct VertInOut {
 	float4 pos : POSITION;
 	float2 uv  : TEXCOORD0;
-	float4 color : COLOR;
+	float3 color : NORMAL;
 };
 
 VertInOut VSDefault(VertInOut vert_in)
@@ -27,7 +27,7 @@ VertInOut VSDefault(VertInOut vert_in)
 
 float4 PSDrawBare(VertInOut vert_in) : TARGET
 {
-	return float4(image.Sample(def_sampler, vert_in.uv).rgb, vert_in.color.a);
+	return float4(image.Sample(def_sampler, vert_in.uv).rgb, vert_in.color.b);
 }
 
 float4 PSDrawMatrix(VertInOut vert_in) : TARGET
