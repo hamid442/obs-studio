@@ -1877,7 +1877,7 @@ public:
 			size_t oldSize = _particles.size();
 			_spawnCount += (_spawnRate / frame_rate);
 
-			for (float i = 1.0f; i < (float)_spawnCount; i += 1.0f) {
+			for (float i = 1.0f; i <= (float)_spawnCount; i += 1.0f) {
 				generateParticle(elapsedTime, seconds);
 			}
 			_spawnCount -= floor(_spawnCount);
@@ -1972,9 +1972,10 @@ public:
 			for (size_t i = 0; i < _particles.size(); i++) {
 				transformAlpha *p = &_particles[i];
 				float alpha = p->alpha / 255.0;
+				size_t row = i * 4;
 				for (size_t j = 0; j < 4; j++) {
-					vec3_set(&vb->normals[i*4 + j], alpha, alpha, alpha);
-					vec3_transform(&vb->points[i*4 + j], (vec3*)&verts[j], &p->position);
+					vec3_set(&vb->normals[row + j], alpha, alpha, alpha);
+					vec3_transform(&vb->points[row + j], (vec3*)&verts[j], &p->position);
 				}
 			}
 
