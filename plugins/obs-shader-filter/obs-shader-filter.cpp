@@ -1934,7 +1934,7 @@ public:
 			}
 #endif
 			/*Z Order*/
-			const auto order_heap = [](transformAlpha a, transformAlpha b) {
+			const auto zOrder = [](transformAlpha a, transformAlpha b) {
 				return a.pos.z > b.pos.z;
 			};
 #ifdef USE_BUFFER_DRAW	
@@ -1958,9 +1958,9 @@ public:
 				vec3_transform(&p->pos, &zeroed, &p->position);
 			}
 			/*Sort*/
-			//std::make_heap(_particles.begin(), _particles.end(), order_heap);
-			//std::sort_heap(_particles.begin(), _particles.end(), order_heap);
-			std::stable_sort(_particles.begin(), _particles.end(), order_heap);
+			//std::make_heap(_particles.begin(), _particles.end(), zOrder);
+			//std::sort_heap(_particles.begin(), _particles.end(), zOrder);
+			std::stable_sort(_particles.begin(), _particles.end(), zOrder);
 			/*Apply to index buffer*/
 #ifdef USE_BUFFER_DRAW
 			float w = 1.0f;
