@@ -1871,12 +1871,12 @@ public:
 #endif
 		if (_isParticle) {
 			const float rate = 1.0f / frame_rate;
-
-			/*Spawn new particles, clear old*/
-
+			/*Spawn new particles*/
 			size_t oldSize = _particles.size();
 			_spawnCount += (_spawnRate / frame_rate);
+			size_t spawn = (size_t)floor(_spawnCount);
 
+			_particles.reserve(_particles.size() + spawn);
 			for (float i = 1.0f; i <= (float)_spawnCount; i += 1.0f) {
 				generateParticle(elapsedTime, seconds);
 			}
@@ -1885,20 +1885,20 @@ public:
 			for (size_t i = 0; i < _particles.size(); i++) {
 				transformAlpha *p = &_particles[i];
 				p->lifeTime += seconds;
-				if (p->localLifeTime < p->lifeTime) {
-					_particles.erase(_particles.begin() + i--);
-					continue;
-				}
-
 				p->alpha = hlsl_clamp(p->alpha - (p->decayAlpha * rate), 0, 255);
 			}
+			/*Remove old particles*/
+			_particles.erase(std::remove_if(_particles.begin(), _particles.end(), [](transformAlpha p) {
+				return p.localLifeTime < p.lifeTime;
+			}), _particles.end());
+
 			if (_particles.size() == 0) {
 #ifdef USE_BUFFER_DRAW	
 				obs_leave_graphics();
 #endif
 				return;
 			}
-			blog(LOG_DEBUG, "Particles: %ul", _particles.size());
+			//blog(LOG_DEBUG, "Particles: %zu", _particles.size());
 #ifdef USE_BUFFER_DRAW			
 			if (!_vertexBufferData || oldSize != _particles.size()) {
 				if (_vertexBuffer) {
@@ -1945,6 +1945,8 @@ public:
 				vb = (gs_vb_data *)gs_vertexbuffer_get_data(_vertexBuffer);
 #endif
 			/*Transform*/
+			vec3 zeroed;
+			vec3_zero(&zeroed);
 			for (size_t i = 0; i < _particles.size(); i++) {
 				transformAlpha *p = &_particles[i];
 				//rotate matrix
@@ -1953,8 +1955,7 @@ public:
 				matrix4_translate3f(&p->position, &p->position, p->translateX * rate,
 					p->translateY * rate, p->translateZ * rate);
 				//cache position for z ordering
-				vec3_zero(&p->pos);
-				vec3_transform(&p->pos, &p->pos, &p->position);
+				vec3_transform(&p->pos, &zeroed, &p->position);
 			}
 			/*Sort*/
 			//std::make_heap(_particles.begin(), _particles.end(), order_heap);
@@ -1993,13 +1994,11 @@ public:
 
 			if (!_indexBuffer) {
 				indexBuffer(_indexBufferData, _particles.size());
-				//_indexBufferData = indexBuffer(_particles.size());
 				_indexBuffer = gs_indexbuffer_create(gs_index_type::GS_UNSIGNED_LONG, _indexBufferData.data(), _particles.size() * 6, GS_DYNAMIC | GS_DUP_BUFFER);
 			} else {
-				if (oldSize != _particles.size()) {
+				if (_particles.size() > oldSize) {
 					gs_indexbuffer_destroy(_indexBuffer);
-					if(_particles.size() > oldSize)
-						indexBuffer(_indexBufferData, _particles.size());
+					indexBuffer(_indexBufferData, _particles.size());
 					_indexBuffer = gs_indexbuffer_create(gs_index_type::GS_UNSIGNED_LONG, _indexBufferData.data(), _particles.size() * 6, GS_DYNAMIC | GS_DUP_BUFFER);
 				}
 			}
