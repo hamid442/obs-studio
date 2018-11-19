@@ -104,78 +104,7 @@ static struct transformAlpha {
 	float alpha;
 	float lifeTime;
 	float localLifeTime;
-	/*
-	bool operator < (const transformAlpha &b) const
-	{
-		vec3 av = { 0 };
-		vec3 bv = { 0 };
-		vec3_transform(&av, &av, &position);
-		vec3_transform(&bv, &bv, &b.position);
-
-		return (pow(av.x, 2) + pow(av.y, 2) + pow(av.z, 2)) > (pow(bv.x, 2) + pow(bv.y, 2) + pow(bv.z, 2));
-	}
-	*/
 };
-
-void radix_sort()
-{
-	
-}
-
-
-/*
-template <typename FwIter, typename Func>
-void binary_insertion_sort(FwIter first, FwIter last, Func f)
-{
-	if (first != last) {
-		typename std::iterator_traits<FwIter>::difference_type d =
-			std::distance(first, last);
-		if (d < 2)
-			return;
-		for (size_t k = 2; k < d; k++) {
-			FwIter endIter = (first + (k - 1));
-			typename std::iterator_traits<FwIter>::value_type temp = *endIter;
-			FwIter it = std::lower_bound(first, endIter, temp, f);
-			size_t i = k - 1;
-			typename std::iterator_traits<FwIter>::difference_type d2 =
-				std::distance(first, it);
-			size_t j = d2;
-			for (; i > j; i--) {
-				*(first + i) = *(first + i - 1);
-			}
-			*it = temp;
-		}
-	}
-}
-
-template <typename FwIter, typename Func>
-void tim_sort(FwIter first, FwIter last, Func f)
-{
-	if (first != last) {
-		size_t r = 32;
-		size_t ri = r - 1;
-		typename std::iterator_traits<FwIter>::difference_type d =
-			std::distance(first, last);
-		size_t n = d;
-		size_t ni = d - 1;
-		//binary_insertion_sort(first, last, f);
-		for (size_t i = 0; i < n; i+=r) {
-			//size_t e = min((i+ri), (ni));
-			size_t e = min((i + r), (n));
-			binary_insertion_sort(first + i, first + e, f);
-		}
-
-		for (size_t size = r; size < n; size *= 2) {
-			size_t size2 = 2 * size;
-			for (size_t left = 0; left < n; left += size2) {
-				size_t mid = left + size - 1;
-				size_t right = min((left + size2 - 1), (n));
-				std::inplace_merge(first + left, first + mid, first + right, f);
-			}
-		}
-	}
-}
-*/
 
 static double fac(double a)
 {/* simplest version of fac */
@@ -1297,19 +1226,22 @@ static void fillAudioSourceList(obs_property_t *p)
 	obs_enum_sources(&fillPropertiesAudioSourceList, (void *)p);
 }
 
-static std::vector<uint32_t> indexBuffer(uint32_t particles)
+static void indexBuffer(std::vector<uint32_t>& vec, uint32_t particles)
 {
+	/*
 	std::vector<uint32_t> ret;
-	ret.reserve(particles * 6);
-	for (uint32_t i = 0; i < particles; i++) {
-		ret.push_back(0 + i * 4);
-		ret.push_back(1 + i * 4);
-		ret.push_back(2 + i * 4);
-		ret.push_back(1 + i * 4);
-		ret.push_back(2 + i * 4);
-		ret.push_back(3 + i * 4);
+	*/
+	size_t vertexCount = particles * 6;
+	size_t i = vec.size() / 6;
+	vec.reserve(vertexCount);
+	for (; vec.size() < vertexCount; i++) {
+		vec.push_back(0 + i * 4);
+		vec.push_back(1 + i * 4);
+		vec.push_back(2 + i * 4);
+		vec.push_back(1 + i * 4);
+		vec.push_back(2 + i * 4);
+		vec.push_back(3 + i * 4);
 	}
-	return ret;
 }
 
 class TextureData : public ShaderData {
@@ -1830,6 +1762,7 @@ public:
 	void inline generateParticle(float &elapsedTime, float &seconds)
 	{
 		transformAlpha p = { 0 };
+		p.alpha = 255.0;
 		matrix4_identity(&p.position);
 		double x = 0;
 		double y = 0;
@@ -1893,7 +1826,7 @@ public:
 		p.lifeTime = -seconds;
 		if (!_alphaExpr.empty()) {
 			_filter->compileExpression(_alphaExpr);
-			p.alpha = _filter->evaluateExpression<double>(0);
+			p.alpha = _filter->evaluateExpression<double>(255.0);
 		}
 		if (!_alphaDecayExpr.empty()) {
 			_filter->compileExpression(_alphaDecayExpr);
@@ -1932,8 +1865,12 @@ public:
 		default:
 			break;
 		}
-
+#define USE_BUFFER_DRAW
+#ifndef USE_BUFFER_DRAW	
+		obs_leave_graphics();
+#endif
 		if (_isParticle) {
+			const float rate = 1.0f / frame_rate;
 
 			/*Spawn new particles, clear old*/
 
@@ -1952,23 +1889,17 @@ public:
 					_particles.erase(_particles.begin() + i--);
 					continue;
 				}
-				/*
-				vec3 av = { 0 };
-				vec3_transform(&av, &av, &p->position);
-				double d = pow(av.x, 2) + pow(av.y, 2);
-				if (d > 2.25) {
-					_particles.erase(_particles.begin() + i--);
-					continue;
-				}
-				*/
-				p->alpha = hlsl_clamp(p->alpha - p->decayAlpha, 0, 255);
+
+				p->alpha = hlsl_clamp(p->alpha - (p->decayAlpha * rate), 0, 255);
 			}
 			if (_particles.size() == 0) {
+#ifdef USE_BUFFER_DRAW	
 				obs_leave_graphics();
+#endif
 				return;
 			}
 			blog(LOG_DEBUG, "Particles: %ul", _particles.size());
-
+#ifdef USE_BUFFER_DRAW			
 			if (!_vertexBufferData || oldSize != _particles.size()) {
 				if (_vertexBuffer) {
 					gs_vertexbuffer_destroy(_vertexBuffer);
@@ -1981,31 +1912,39 @@ public:
 				}
 				_vertexBufferData->num = vCap;
 
-				_vertexBufferData->points = (vec3*)brealloc(_vertexBufferData->points, sizeof(vec3) * _vertexBufferData->num);
-				_vertexBufferData->normals = (vec3*)brealloc(_vertexBufferData->normals, sizeof(vec3) * _vertexBufferData->num);
-				_vertexBufferData->tangents = (vec3*)brealloc(_vertexBufferData->tangents, sizeof(vec3) * _vertexBufferData->num);
-				_vertexBufferData->colors = (uint32_t*)brealloc(_vertexBufferData->colors, sizeof(uint32_t) * _vertexBufferData->num);
+				if (oldSize < _particles.size()) {
+					_vertexBufferData->points = (vec3*)brealloc(_vertexBufferData->points, sizeof(vec3) * _vertexBufferData->num);
+					_vertexBufferData->normals = (vec3*)brealloc(_vertexBufferData->normals, sizeof(vec3) * _vertexBufferData->num);
+					_vertexBufferData->tangents = (vec3*)brealloc(_vertexBufferData->tangents, sizeof(vec3) * _vertexBufferData->num);
+					_vertexBufferData->colors = (uint32_t*)brealloc(_vertexBufferData->colors, sizeof(uint32_t) * _vertexBufferData->num);
 
-				if (!_vertexBufferData->tvarray)
-					_vertexBufferData->tvarray = (gs_tvertarray*)bzalloc(sizeof(gs_tvertarray));
-				_vertexBufferData->tvarray->array = (vec4*)brealloc(_vertexBufferData->tvarray->array, sizeof(vec4) * _vertexBufferData->num);
+					if (!_vertexBufferData->tvarray)
+						_vertexBufferData->tvarray = (gs_tvertarray*)bzalloc(sizeof(gs_tvertarray));
+					_vertexBufferData->tvarray->array = (vec4*)brealloc(_vertexBufferData->tvarray->array, sizeof(vec4) * _vertexBufferData->num);
+					vec4 *ar = (vec4*)_vertexBufferData->tvarray->array;
+					for (size_t i = 0; i < _vertexBufferData->num;) {
+						vec4_set(&ar[i++], 0, 0, 0, 0);
+						vec4_set(&ar[i++], 1, 0, 0, 0);
+						vec4_set(&ar[i++], 0, 1, 0, 0);
+						vec4_set(&ar[i++], 1, 1, 0, 0);
+					}
+				}
 				_vertexBufferData->tvarray->width = 4;
 				_vertexBufferData->num_tex = 1;
 			}
-
+#endif
 			/*Z Order*/
 			const auto order_heap = [](transformAlpha a, transformAlpha b) {
 				return a.pos.z > b.pos.z;
 			};
-			
+#ifdef USE_BUFFER_DRAW	
 			gs_vb_data *vb;
 			if (!_vertexBufferData || oldSize != _particles.size())
 				vb = _vertexBufferData;
 			else
 				vb = (gs_vb_data *)gs_vertexbuffer_get_data(_vertexBuffer);
-
+#endif
 			/*Transform*/
-			const float rate = 1.0f / frame_rate;
 			for (size_t i = 0; i < _particles.size(); i++) {
 				transformAlpha *p = &_particles[i];
 				//rotate matrix
@@ -2022,35 +1961,21 @@ public:
 			//std::sort_heap(_particles.begin(), _particles.end(), order_heap);
 			std::stable_sort(_particles.begin(), _particles.end(), order_heap);
 			/*Apply to index buffer*/
+#ifdef USE_BUFFER_DRAW
+			float w = 1.0f;
+			float h = 1.0f;
+			vec4 verts[4] = { 0,0,0,0 };
+			vec4_set(&verts[0], -w / 2.0, -h / 2.0, 0, 0);
+			vec4_set(&verts[1], w / 2.0, -h / 2.0, 0, 0);
+			vec4_set(&verts[2], -w / 2.0, h / 2.0, 0, 0);
+			vec4_set(&verts[3], w / 2.0, h / 2.0, 0, 0);
 			for (size_t i = 0; i < _particles.size(); i++) {
 				transformAlpha *p = &_particles[i];
-				vec4 *ar = (vec4 *)vb->tvarray->array;
-				size_t index_0 = i * 4;
-				size_t index_1 = index_0 + 1;
-				size_t index_2 = index_0 + 2;
-				size_t index_3 = index_0 + 3;
-				vb->colors[index_0] = 0xFFFFFF00 | ((uint8_t)(p->alpha));
-				vb->colors[index_1] = 0xFFFFFF00 | ((uint8_t)(p->alpha));
-				vb->colors[index_2] = 0xFFFFFF00 | ((uint8_t)(p->alpha));
-				vb->colors[index_3] = 0xFFFFFF00 | ((uint8_t)(p->alpha));
-
-				vec4_set(&ar[index_0], 0, 0, 0, 0);
-				vec4_set(&ar[index_1], 1, 0, 0, 0);
-				vec4_set(&ar[index_2], 0, 1, 0, 0);
-				vec4_set(&ar[index_3], 1, 1, 0, 0);
-
-				float w = 1.0f;
-				float h = 1.0f;
-
-				vec3_set(&vb->points[index_0], -w / 2.0, -h / 2.0, 0);
-				vec3_set(&vb->points[index_1], w / 2.0, -h / 2.0, 0);
-				vec3_set(&vb->points[index_2], -w / 2.0, h / 2.0, 0);
-				vec3_set(&vb->points[index_3], w / 2.0, h / 2.0, 0);
-
-				vec3_transform(&vb->points[index_0], &vb->points[index_0], &p->position);
-				vec3_transform(&vb->points[index_1], &vb->points[index_1], &p->position);
-				vec3_transform(&vb->points[index_2], &vb->points[index_2], &p->position);
-				vec3_transform(&vb->points[index_3], &vb->points[index_3], &p->position);
+				float alpha = p->alpha / 255.0;
+				for (size_t j = 0; j < 4; j++) {
+					vec3_set(&vb->normals[i*4 + j], alpha, alpha, alpha);
+					vec3_transform(&vb->points[i*4 + j], (vec3*)&verts[j], &p->position);
+				}
 			}
 
 			if (!_vertexBuffer) {
@@ -2066,18 +1991,22 @@ public:
 			}
 
 			if (!_indexBuffer) {
-				_indexBufferData = indexBuffer(_particles.size());
+				indexBuffer(_indexBufferData, _particles.size());
+				//_indexBufferData = indexBuffer(_particles.size());
 				_indexBuffer = gs_indexbuffer_create(gs_index_type::GS_UNSIGNED_LONG, _indexBufferData.data(), _particles.size() * 6, GS_DYNAMIC | GS_DUP_BUFFER);
 			} else {
 				if (oldSize != _particles.size()) {
 					gs_indexbuffer_destroy(_indexBuffer);
 					if(_particles.size() > oldSize)
-						_indexBufferData = indexBuffer(_particles.size());
+						indexBuffer(_indexBufferData, _particles.size());
 					_indexBuffer = gs_indexbuffer_create(gs_index_type::GS_UNSIGNED_LONG, _indexBufferData.data(), _particles.size() * 6, GS_DYNAMIC | GS_DUP_BUFFER);
 				}
 			}
+#endif
 		}
+#ifdef USE_BUFFER_DRAW
 		obs_leave_graphics();
+#endif
 	}
 
 	void videoRender(ShaderSource *filter)
@@ -2149,11 +2078,11 @@ public:
 				vec4_zero(&clearColor);
 
 				gs_clear(GS_CLEAR_COLOR | GS_CLEAR_DEPTH, &clearColor, farZ, 0);
-
+				gs_texture_t *tex;
+#ifdef USE_BUFFER_DRAW
 				if (_particles.size() > 0) {
 					if (t && _vertexBuffer && _indexBuffer) {
 						uint32_t vertexes = 6 * _particles.size();
-						/* Scale texture to original size */
 
 						gs_vertexbuffer_flush(_vertexBuffer);
 						gs_load_vertexbuffer(_vertexBuffer);
@@ -2173,10 +2102,26 @@ public:
 						blog(LOG_WARNING, "No Particle!");
 					}
 				}
-
+#else
+				const char *techName = "Draw";
+				gs_technique_t *tech = gs_effect_get_technique(default_effect, techName);
+				tex = gs_texrender_get_texture(_particlerender);
+				size_t passes = gs_technique_begin(tech);
+				for (i = 0; i < _particles.size(); i++) {
+					gs_effect_set_texture(gs_effect_get_param_by_name(default_effect, "image"), t);
+					gs_effect_set_float(gs_effect_get_param_by_name(default_effect, "alpha"), _particles[i].alpha);
+					gs_effect_set_matrix4(gs_effect_get_param_by_name(default_effect, "transformParticle"), &_particles[i].position);
+					for (j = 0; j < passes; j++) {
+						gs_technique_begin_pass(tech, j);
+						gs_draw(GS_TRIS, 0, 0);
+						gs_technique_end_pass(tech);
+					}
+				}
+				gs_technique_end(tech);
+#endif
 				gs_texrender_end(_particlerender);
 
-				gs_texture_t *tex = gs_texrender_get_texture(_particlerender);
+				tex = gs_texrender_get_texture(_particlerender);
 				if (tex)
 					_param->setValue<gs_texture_t *>(&tex, sizeof(gs_texture_t *));
 				else
@@ -3392,7 +3337,8 @@ bool obs_module_load(void)
 	obs_get_audio_info(&aoi);
 	sample_rate = (double)aoi.samples_per_sec;
 	output_channels = (double)get_audio_channels(aoi.speakers);
-
+//#undef USE_BUFFER_DRAW
+//#ifndef USE_BUFFER_DRAW
 	char * errors = NULL;
 	char *cpath = obs_module_file("default.effect");
 	std::string path = cpath;
@@ -3409,18 +3355,32 @@ bool obs_module_load(void)
 	obs_enter_graphics();
 	if (!default_effect)
 		default_effect = gs_effect_create(effect_string, NULL, &errors);
+	if (errors)
+		blog(LOG_DEBUG, "obs-shader-filter: %s", errors);
 	obs_leave_graphics();
 
 	bfree(effect_string);
 	bfree(cpath);
-
+/*
+#else
+	if (!default_effect)
+		default_effect = obs_get_base_effect(OBS_EFFECT_DEFAULT);
+#endif
+*/
 	return true;
 }
 
 void obs_module_unload(void)
 {
 	obs_enter_graphics();
+//#ifndef USE_BUFFER_DRAW
 	if (default_effect)
 		gs_effect_destroy(default_effect);
+/*
+#else
+	if (default_effect)
+		default_effect = nullptr;
+#endif // !USE_BUFFER_DRAW
+*/
 	obs_leave_graphics();
 }
