@@ -1228,9 +1228,6 @@ static void fillAudioSourceList(obs_property_t *p)
 
 static void indexBuffer(std::vector<uint32_t>& vec, uint32_t particles)
 {
-	/*
-	std::vector<uint32_t> ret;
-	*/
 	size_t vertexCount = particles * 6;
 	size_t i = vec.size() / 6;
 	vec.reserve(vertexCount);
@@ -2104,13 +2101,14 @@ public:
 				}
 #else
 				const char *techName = "Draw";
-				gs_technique_t *tech = gs_effect_get_technique(default_effect, techName);
+				static gs_effect_t *effect = obs_get_base_effect(OBS_EFFECT_DEFAULT);
+				gs_technique_t *tech = gs_effect_get_technique(effect, techName);
 				tex = gs_texrender_get_texture(_particlerender);
 				size_t passes = gs_technique_begin(tech);
 				for (i = 0; i < _particles.size(); i++) {
-					gs_effect_set_texture(gs_effect_get_param_by_name(default_effect, "image"), t);
-					gs_effect_set_float(gs_effect_get_param_by_name(default_effect, "alpha"), _particles[i].alpha);
-					gs_effect_set_matrix4(gs_effect_get_param_by_name(default_effect, "transformParticle"), &_particles[i].position);
+					gs_effect_set_texture(gs_effect_get_param_by_name(effect, "image"), t);
+					gs_effect_set_float(gs_effect_get_param_by_name(effect, "alpha"), _particles[i].alpha);
+					gs_effect_set_matrix4(gs_effect_get_param_by_name(effect, "transformParticle"), &_particles[i].position);
 					for (j = 0; j < passes; j++) {
 						gs_technique_begin_pass(tech, j);
 						gs_draw(GS_TRIS, 0, 0);
@@ -3337,8 +3335,7 @@ bool obs_module_load(void)
 	obs_get_audio_info(&aoi);
 	sample_rate = (double)aoi.samples_per_sec;
 	output_channels = (double)get_audio_channels(aoi.speakers);
-//#undef USE_BUFFER_DRAW
-//#ifndef USE_BUFFER_DRAW
+
 	char * errors = NULL;
 	char *cpath = obs_module_file("default.effect");
 	std::string path = cpath;
@@ -3361,26 +3358,16 @@ bool obs_module_load(void)
 
 	bfree(effect_string);
 	bfree(cpath);
-/*
-#else
-	if (!default_effect)
-		default_effect = obs_get_base_effect(OBS_EFFECT_DEFAULT);
-#endif
-*/
+
 	return true;
 }
 
 void obs_module_unload(void)
 {
 	obs_enter_graphics();
-//#ifndef USE_BUFFER_DRAW
+
 	if (default_effect)
 		gs_effect_destroy(default_effect);
-/*
-#else
-	if (default_effect)
-		default_effect = nullptr;
-#endif // !USE_BUFFER_DRAW
-*/
+
 	obs_leave_graphics();
 }
