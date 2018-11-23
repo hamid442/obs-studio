@@ -131,21 +131,23 @@ static const te_variable *find_lookup(const state *s, const char *name, int len)
 	int steps;
 	te_variable *var;
 	if (!s->ordered_lookup) return 0;
+	te_variable *out = NULL;
 
 	while (imax >= imin) {
 		const int i = (imin + ((imax - imin) / 2));
 		var = &s->ordered_lookup[i];
 		int c = strncmp(name, var->name, len);
-		if (c == 0 && var->name[len] == '\0')
-			return var;
-		else if (c > 0) {
+		if (c == 0 && var->name[len] == '\0') {
+			out = var;
+			imax = i - 1;
+		} else if (c > 0) {
 			imin = i + 1;
 		} else {
 			imax = i - 1;
 		}
 	}
 
-	return 0;
+	return out;
 }
 
 

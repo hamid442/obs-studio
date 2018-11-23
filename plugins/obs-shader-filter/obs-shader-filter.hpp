@@ -32,6 +32,8 @@ extern "C" {
 #include "tinyexpr.h"
 #include "mtrandom.h"
 
+#undef _ENABLE_EXTENDED_ALIGNED_STORAGE
+
 #define _OMT obs_module_text
 
 struct in_shader_data {
