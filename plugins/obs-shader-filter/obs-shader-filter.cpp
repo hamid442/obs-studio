@@ -88,22 +88,26 @@ static double dfloor(double d)
 	return floor(d);
 }
 
+static struct particlePoints {
+	union {
+		struct {
+			vec3 tl, tr, bl, br;
+		};
+		vec3 ptr[4];
+	};
+};
+
 static struct transformAlpha {
 	matrix4 position;
+	matrix4 transform;
 	vec3 pos;
-
-	float rotateX;
-	float rotateY;
-	float rotateZ;
-
-	float translateX;
-	float translateY;
-	float translateZ;
 
 	float decayAlpha;
 	float alpha;
 	float lifeTime;
 	float localLifeTime;
+
+	particlePoints v;
 };
 
 static double fac(double a)
@@ -150,13 +154,12 @@ const static double int_max = INT_MAX;
 static double       sample_rate;
 static double       frame_rate;
 static double       output_channels;
-static std::string  dir[4] = { "left", "right", "top", "bottom" };
+static std::string dir[4] = { "left", "right", "top", "bottom" };
 static gs_effect_t *default_effect = nullptr;
 
 /* Additional likely to be used functions for mathmatical expressions */
 static void prepFunctions(std::vector<te_variable> *vars, ShaderSource *filter)
 {
-	UNUSED_PARAMETER(filter);
 	std::vector<te_variable> funcs = {
 	{"clamp", hlsl_clamp, TE_FUNCTION3 | TE_FLAG_PURE},
 	{"channels", &output_channels}, {"degrees", hlsl_degrees, TE_FUNCTION1 | TE_FLAG_PURE},
@@ -1393,6 +1396,9 @@ protected:
 	double _particleLifeTime = 10;
 	double _spawnRate = 1;
 	double _spawnCount = 0;
+	size_t _maxParticleCount = 0;
+	bool _despawnOld = true;
+	bool _despawnOutOfView = true;
 
 	std::string _emitterXExpr = "";
 	std::string _emitterYExpr = "";
@@ -1627,6 +1633,8 @@ public:
 			l = _param->getAnnotationValue("particle_sec");
 			if (l)
 				_localLifeTimeExpr = *l;
+			_despawnOutOfView = _param->getAnnotationValue<bool>("remove_not_visible", false);
+			_despawnOld = _param->getAnnotationValue<bool>("remove_old", true);
 		}
 	}
 
@@ -1755,12 +1763,21 @@ public:
 			break;
 		}
 	}
-
+	template <class T>
+	void calculateExpression(T& val, std::string& expr, T fallback = 0)
+	{
+		if (!expr.empty()) {
+			_filter->compileExpression(expr);
+			val = _filter->evaluateExpression<T>(fallback);
+		}
+	}
 	void inline generateParticle(float &elapsedTime, float &seconds)
 	{
 		transformAlpha p = { 0 };
 		p.alpha = 255.0;
 		matrix4_identity(&p.position);
+		matrix4_identity(&p.transform);
+		float rate = 1.0f / frame_rate;
 		double x = 0;
 		double y = 0;
 		double z = 0;
@@ -1789,32 +1806,36 @@ public:
 			_filter->compileExpression(_emitterZRotateExpr);
 			z = _filter->evaluateExpression<double>(0);
 		}
-		matrix4_rotate_aa4f(&p.position, &p.position, x, y, z, 1.0 / frame_rate);
+		matrix4_rotate_aa4f(&p.position, &p.position, x, y, z, rate);
 
 		if (!_rotateXExpr.empty()) {
 			_filter->compileExpression(_rotateXExpr);
-			p.rotateX = _filter->evaluateExpression<double>(0);
+			x = _filter->evaluateExpression<double>(0);
 		}
 		if (!_rotateYExpr.empty()) {
 			_filter->compileExpression(_rotateYExpr);
-			p.rotateY = _filter->evaluateExpression<double>(0);
+			y = _filter->evaluateExpression<double>(0);
 		}
 		if (!_rotateZExpr.empty()) {
 			_filter->compileExpression(_rotateZExpr);
-			p.rotateZ = _filter->evaluateExpression<double>(0);
+			z = _filter->evaluateExpression<double>(0);
 		}
+		matrix4_translate3f(&p.transform, &p.transform, x*rate, y*rate, z*rate);
+
 		if (!_translateXExpr.empty()) {
 			_filter->compileExpression(_translateXExpr);
-			p.translateX = _filter->evaluateExpression<double>(0);
+			x = _filter->evaluateExpression<double>(0);
 		}
 		if (!_translateYExpr.empty()) {
 			_filter->compileExpression(_translateYExpr);
-			p.translateY = _filter->evaluateExpression<double>(0);
+			y = _filter->evaluateExpression<double>(0);
 		}
 		if (!_translateZExpr.empty()) {
 			_filter->compileExpression(_translateZExpr);
-			p.translateZ = _filter->evaluateExpression<double>(0);
+			z = _filter->evaluateExpression<double>(0);
 		}
+		matrix4_rotate_aa4f(&p.transform, &p.transform, x, y, z, rate);
+
 		if (!_localLifeTimeExpr.empty()) {
 			_filter->compileExpression(_localLifeTimeExpr);
 			p.localLifeTime = _filter->evaluateExpression<double>(0);
@@ -1879,15 +1900,23 @@ public:
 			}
 			_spawnCount -= floor(_spawnCount);
 
+			/*
 			for (size_t i = 0; i < _particles.size(); i++) {
 				transformAlpha *p = &_particles[i];
 				p->lifeTime += seconds;
 				p->alpha = hlsl_clamp(p->alpha - (p->decayAlpha * rate), 0, 255);
 			}
-			/*Remove old particles*/
-			_particles.erase(std::remove_if(_particles.begin(), _particles.end(), [](transformAlpha p) {
-				return p.localLifeTime < p.lifeTime;
-			}), _particles.end());
+			*/
+			std::for_each(_particles.begin(), _particles.end(), [&seconds, &rate](transformAlpha &p) {
+				p.lifeTime += seconds;
+				p.alpha = hlsl_clamp(p.alpha - (p.decayAlpha * rate), 0, 255);
+			});
+			if (_despawnOld) {
+				/*Remove old particles*/
+				_particles.erase(std::remove_if(_particles.begin(), _particles.end(), [](transformAlpha p) {
+					return p.localLifeTime < p.lifeTime;
+				}), _particles.end());
+			}
 
 			if (_particles.size() == 0) {
 #ifdef USE_BUFFER_DRAW	
@@ -1895,8 +1924,70 @@ public:
 #endif
 				return;
 			}
-			//blog(LOG_DEBUG, "Particles: %zu", _particles.size());
-#ifdef USE_BUFFER_DRAW			
+
+			/*Z Order*/
+			const auto zOrder = [](transformAlpha a, transformAlpha b) {
+				return a.pos.z > b.pos.z;
+			};
+
+			/*Transform*/
+			vec3 zeroed;
+			vec3_zero(&zeroed);
+			std::for_each(_particles.begin(), _particles.end(), [&zeroed](transformAlpha &p) {
+				matrix4_mul(&p.position, &p.position, &p.transform);
+				//cache position for z ordering
+				vec3_transform(&p.pos, &zeroed, &p.position);
+			});
+
+			float w = 1.0f;
+			float h = 1.0f;
+			vec4 verts[4] = { 0,0,0,0 };
+			vec4_set(&verts[0], -w / 2.0, -h / 2.0, 0, 0);
+			vec4_set(&verts[1], w / 2.0, -h / 2.0, 0, 0);
+			vec4_set(&verts[2], -w / 2.0, h / 2.0, 0, 0);
+			vec4_set(&verts[3], w / 2.0, h / 2.0, 0, 0);
+			/*
+			std::for_each(_particles.begin(), _particles.end(), [&verts](transformAlpha &p) {
+				for (int j = 0; j < 4; j++) {
+					vec3_transform(&p.v.ptr[j], (vec3*)&verts[j], &p.position);
+				}
+			});
+			*/
+			std::vector<transformAlpha>::iterator it = std::partition(_particles.begin(),
+				_particles.end(), [&verts](transformAlpha &p) {
+				bool in_view = false;
+				for (int j = 0; j < 4; j++) {
+					vec3_transform(&p.v.ptr[j], (vec3*)&verts[j], &p.position);
+					in_view = in_view || (p.alpha > 0) && (fabsf(p.v.ptr[j].x) <= 1.0 &&
+						fabsf(p.v.ptr[j].y) <= 1.0);
+						/*
+						(p.v.ptr[j].x >= 0 && p.v.ptr[j].x <= 1.0 &&
+						p.v.ptr[j].y >= 0 && p.v.ptr[j]. y <= 1.0);
+						*/
+				}
+
+				return in_view;
+			});
+
+//			blog(LOG_DEBUG, "particles: %zu, %zu", _particles.size(), std::distance(_particles.begin(), it));
+//			blog(LOG_INFO, "index: %zu", real_it);
+			if (_despawnOutOfView) {
+				//size_t t = std::distance(_particles.begin(), it);
+				//_particles.erase(it, _particles.end());
+				_particles.erase(it, _particles.end());
+				std::stable_sort(_particles.begin(), _particles.end(), zOrder);
+			} else {
+				std::stable_sort(_particles.begin(), it, zOrder);
+			}
+
+			if (_particles.size() == 0) {
+#ifdef USE_BUFFER_DRAW	
+				obs_leave_graphics();
+#endif
+				return;
+			}
+#ifdef USE_BUFFER_DRAW
+			gs_vb_data *vb;
 			if (!_vertexBufferData || oldSize != _particles.size()) {
 				if (_vertexBuffer) {
 					gs_vertexbuffer_destroy(_vertexBuffer);
@@ -1909,7 +2000,7 @@ public:
 				}
 				_vertexBufferData->num = vCap;
 
-				if (oldSize < _particles.size()) {
+				if (oldSize < _particles.size() || _vertexBufferData->num_tex == 0) {
 					_vertexBufferData->points = (vec3*)brealloc(_vertexBufferData->points, sizeof(vec3) * _vertexBufferData->num);
 					_vertexBufferData->normals = (vec3*)brealloc(_vertexBufferData->normals, sizeof(vec3) * _vertexBufferData->num);
 					_vertexBufferData->tangents = (vec3*)brealloc(_vertexBufferData->tangents, sizeof(vec3) * _vertexBufferData->num);
@@ -1925,55 +2016,22 @@ public:
 						vec4_set(&ar[i++], 0, 1, 0, 0);
 						vec4_set(&ar[i++], 1, 1, 0, 0);
 					}
+					_vertexBufferData->tvarray->width = 4;
+					_vertexBufferData->num_tex = 1;
 				}
-				_vertexBufferData->tvarray->width = 4;
-				_vertexBufferData->num_tex = 1;
-			}
-#endif
-			/*Z Order*/
-			const auto zOrder = [](transformAlpha a, transformAlpha b) {
-				return a.pos.z > b.pos.z;
-			};
-#ifdef USE_BUFFER_DRAW	
-			gs_vb_data *vb;
-			if (!_vertexBufferData || oldSize != _particles.size())
+
 				vb = _vertexBufferData;
-			else
+			} else {
 				vb = (gs_vb_data *)gs_vertexbuffer_get_data(_vertexBuffer);
-#endif
-			/*Transform*/
-			vec3 zeroed;
-			vec3_zero(&zeroed);
-			for (size_t i = 0; i < _particles.size(); i++) {
-				transformAlpha *p = &_particles[i];
-				//rotate matrix
-				matrix4_rotate_aa4f(&p->position, &p->position, p->rotateX, p->rotateY, p->rotateZ, rate);
-				//translate matrix
-				matrix4_translate3f(&p->position, &p->position, p->translateX * rate,
-					p->translateY * rate, p->translateZ * rate);
-				//cache position for z ordering
-				vec3_transform(&p->pos, &zeroed, &p->position);
 			}
-			/*Sort*/
-			//std::make_heap(_particles.begin(), _particles.end(), zOrder);
-			//std::sort_heap(_particles.begin(), _particles.end(), zOrder);
-			std::stable_sort(_particles.begin(), _particles.end(), zOrder);
-			/*Apply to index buffer*/
-#ifdef USE_BUFFER_DRAW
-			float w = 1.0f;
-			float h = 1.0f;
-			vec4 verts[4] = { 0,0,0,0 };
-			vec4_set(&verts[0], -w / 2.0, -h / 2.0, 0, 0);
-			vec4_set(&verts[1], w / 2.0, -h / 2.0, 0, 0);
-			vec4_set(&verts[2], -w / 2.0, h / 2.0, 0, 0);
-			vec4_set(&verts[3], w / 2.0, h / 2.0, 0, 0);
+			
 			for (size_t i = 0; i < _particles.size(); i++) {
 				transformAlpha *p = &_particles[i];
 				float alpha = p->alpha / 255.0;
 				size_t row = i * 4;
 				for (size_t j = 0; j < 4; j++) {
 					vec3_set(&vb->normals[row + j], alpha, alpha, alpha);
-					vec3_transform(&vb->points[row + j], (vec3*)&verts[j], &p->position);
+					vec3_copy(&vb->points[row + j], &p->v.ptr[j]);
 				}
 			}
 
@@ -2401,11 +2459,10 @@ void ShaderSource::appendVariable(te_variable var)
 		blog(LOG_DEBUG, "appending %s", var.name);
 		expression.push_back(var);
 		/* Enforce alphabetical order for binary search */
-		const auto order_heap = [](te_variable a, te_variable b) {
+		const auto orderVars = [](te_variable a, te_variable b) {
 			return strcmp(a.name, b.name) < 0;
 		};
-		std::make_heap(expression.begin(), expression.end(), order_heap);
-		std::sort_heap(expression.begin(), expression.end(), order_heap);
+		std::stable_sort(expression.begin(), expression.end(), orderVars);
 	} else {
 		blog(LOG_WARNING, "%s already appended", var.name);
 	}
@@ -2420,11 +2477,10 @@ void ShaderSource::appendVariable(std::string &name, double *binding)
 		blog(LOG_DEBUG, "appending %s", var.name);
 		expression.push_back(var);
 		/* Enforce alphabetical order for binary search */
-		const auto order_heap = [](te_variable a, te_variable b) {
+		const auto orderVars = [](te_variable a, te_variable b) {
 			return strcmp(a.name, b.name) < 0;
 		};
-		std::make_heap(expression.begin(), expression.end(), order_heap);
-		std::sort_heap(expression.begin(), expression.end(), order_heap);
+		std::stable_sort(expression.begin(), expression.end(), orderVars);
 	} else {
 		blog(LOG_WARNING, "%s already appended", var.name);
 	}
@@ -2537,12 +2593,11 @@ void ShaderSource::reload()
 
 	prepFunctions(&expression, this);
 	/* Enforce alphabetical order for binary search */
-	const auto order_heap = [](te_variable a, te_variable b) {
+	const auto orderVars = [](te_variable a, te_variable b) {
 		return strcmp(a.name, b.name) < 0;
 	};
 
-	std::make_heap(expression.begin(), expression.end(), order_heap);
-	std::sort_heap(expression.begin(), expression.end(), order_heap);
+	std::stable_sort(expression.begin(), expression.end(), orderVars);
 
 	obs_enter_graphics();
 	gs_effect_destroy(effect);
@@ -2574,10 +2629,7 @@ void ShaderSource::reload()
 	}
 
 	/* Enforce alphabetical order for binary search */
-	std::make_heap(expression.begin(), expression.end(), order_heap);
-	std::sort_heap(expression.begin(), expression.end(), order_heap);
-
-	//std::stable_sort(expression.begin(), expression.end(), order_heap);
+	std::stable_sort(expression.begin(), expression.end(), orderVars);
 
 	if (paramMap.count("image")) {
 		ShaderParameter *p = paramMap.at("image");
@@ -3161,6 +3213,7 @@ static void getMouseCursor(void *data)
 
 	filter->_screenMousePosX = ci.ptScreenPos.x;
 	filter->_screenMousePosY = ci.ptScreenPos.y;
+//	blog(LOG_DEBUG, "mouse[%f,%f]", filter->_screenMousePosX, filter->_screenMousePosY);
 	filter->_screenMouseVisible = false;
 #elif __linux__ || __FreeBSD__
 	XFixesCursorImage *xc = XFixesGetCursorImage(filter->dpy);
