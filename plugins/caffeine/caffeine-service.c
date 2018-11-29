@@ -167,43 +167,38 @@ static bool signin_clicked(obs_properties_t * props, obs_property_t * prop,
 		if (strcmp(response->next, "mfa_otp_required") == 0) {
 			if (otp_visible) {
 				log_error("Incorrect MFA code entered");
-				goto props_unchanged;
 			}
-			
-			obs_property_set_visible(otp_prop, true);
-			goto props_changed;
+			else {
+				result = true;
+				obs_property_set_visible(otp_prop, true);
+			}
 		}
 		if (strcmp(response->next, "legal_acceptance_required")
 			== 0) {
 			log_error("Can't broadcast until terms of "
 				"service are accepted");
-			goto props_unchanged;
 		}
 		if (strcmp(response->next, "email_verification") == 0) {
 			log_error("Can't broadcast until email is "
 				"verified");
-			goto props_unchanged;
 		}
 	}
-	if (!response->credentials) {
+	else if (!response->credentials) {
 		log_error("Empty auth response received");
-		goto props_unchanged;
+	}
+	else {
+		result = true;
+		obs_data_set_string(settings, REFRESH_TOKEN_KEY,
+			caffeine_refresh_token(response->credentials));
+
+		obs_data_erase(settings, PASSWORD_KEY);
+		obs_data_erase(settings, OTP_KEY);
+
+		signed_in_state(props);
+
+		log_info("Successfully signed in");
 	}
 
-	obs_data_set_string(settings, REFRESH_TOKEN_KEY,
-		caffeine_refresh_token(response->credentials));
-
-	obs_data_erase(settings, PASSWORD_KEY);
-	obs_data_erase(settings, OTP_KEY);
-
-	signed_in_state(props);
-
-	log_info("Successfully signed in");
-
-props_changed:
-	result = true;
-
-props_unchanged:
 	caffeine_free_auth_response(&response);
 	return result;
 }
