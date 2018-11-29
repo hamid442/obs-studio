@@ -492,7 +492,7 @@ protected:
 	size_t                                    _annotationCount;
 
 public:
-	std::unordered_map<std::string, EParam *> *getAnnootations()
+	std::unordered_map<std::string, EParam *> *getAnnotations()
 	{
 		return &_annotationsMap;
 	}
@@ -756,7 +756,7 @@ class NumericalData : public ShaderData {
 private:
 	void fillIntList(EParam *e, obs_property_t *p)
 	{
-		std::unordered_map<std::string, EParam *> *notations = e->getAnnootations();
+		std::unordered_map<std::string, EParam *> *notations = e->getAnnotations();
 		for (std::unordered_map<std::string, EParam *>::iterator it = notations->begin();
 			it != notations->end(); it++) {
 			EParam *    eparam = (*it).second;
@@ -779,7 +779,7 @@ private:
 
 	void fillFloatList(EParam *e, obs_property_t *p)
 	{
-		std::unordered_map<std::string, EParam *> *notations = e->getAnnootations();
+		std::unordered_map<std::string, EParam *> *notations = e->getAnnotations();
 		for (std::unordered_map<std::string, EParam *>::iterator it = notations->begin();
 			it != notations->end(); it++) {
 			EParam *    eparam = (*it).second;
