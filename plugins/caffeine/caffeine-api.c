@@ -234,6 +234,13 @@ static struct caffeine_auth_response * do_caffeine_signin(
 		goto json_parsed_error;
 	}
 
+	error_result = json_unpack(response_json, "{s:{s:[s!]}}",
+		"errors", "otp", &error_text);
+	if (error_result == 0) {
+		log_error("One time password error: %s", error_text);
+		next = "mfa_otp_required";
+	}
+
 	struct caffeine_credentials * creds = NULL;
 
 	if (access_token) {
