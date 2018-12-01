@@ -1328,6 +1328,13 @@ void OBSPropertiesView::AddFrameRate(obs_property_t *prop, bool &warning,
 	});
 }
 
+void OBSPropertiesView::AddMessage(obs_property_t *prop, QFormLayout * layout)
+{
+	const char *desc = obs_property_description(prop);
+	QLabel *label = new QLabel(QT_UTF8(desc));
+	layout->addRow(NULL, label);
+}
+
 void OBSPropertiesView::AddProperty(obs_property_t *property,
 		QFormLayout *layout)
 {
@@ -1377,12 +1384,16 @@ void OBSPropertiesView::AddProperty(obs_property_t *property,
 	case OBS_PROPERTY_FRAME_RATE:
 		AddFrameRate(property, warning, layout, label);
 		break;
+	case OBS_PROPERTY_MESSAGE:
+		AddMessage(property, layout);
+		break;
 	}
 
 	if (widget && !obs_property_enabled(property))
 		widget->setEnabled(false);
 
 	if (!label &&
+	    type != OBS_PROPERTY_MESSAGE &&
 	    type != OBS_PROPERTY_BOOL &&
 	    type != OBS_PROPERTY_BUTTON)
 		label = new QLabel(QT_UTF8(obs_property_description(property)));

@@ -102,6 +102,7 @@ private:
 	void AddFont(obs_property_t *prop, QFormLayout *layout, QLabel *&label);
 	void AddFrameRate(obs_property_t *prop, bool &warning,
 			QFormLayout *layout, QLabel *&label);
+	void AddMessage(obs_property_t *prop, QFormLayout *layout);
 
 	void AddProperty(obs_property_t *property, QFormLayout *layout);
 
