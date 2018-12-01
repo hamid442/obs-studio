@@ -17,6 +17,8 @@
 #define BROADCAST_RATING_KEY "rating"
 #define BROADCAST_TITLE_KEY  "broadcast_title"
 
+#define SIGNIN_MESSAGE_KEY   "signin_message"
+
 struct caffeine_service {
 	obs_service_t * service;
 
@@ -126,6 +128,21 @@ static void signed_in_state(obs_properties_t * props)
 	set_visible(props, BROADCAST_TITLE_KEY, true);
 }
 
+static void show_message(obs_properties_t * props, char const * message)
+{
+	log_info("Showing [%s] message: %s", SIGNIN_MESSAGE_KEY, message);
+	obs_property_t * prop = obs_properties_get(props, SIGNIN_MESSAGE_KEY);
+	obs_property_set_description(prop, message);
+	obs_property_set_visible(prop, true);
+}
+
+static void hide_messages(obs_properties_t * props)
+{
+	obs_property_t * prop =
+		obs_properties_get(props, SIGNIN_MESSAGE_KEY);
+	obs_property_set_visible(prop, false);
+}
+
 static bool signin_clicked(obs_properties_t * props, obs_property_t * prop,
 	obs_data_t * settings, void * data)
 {
@@ -136,9 +153,11 @@ static bool signin_clicked(obs_properties_t * props, obs_property_t * prop,
 	char const * username = obs_data_get_string(settings, USERNAME_KEY);
 	char const * password = obs_data_get_string(settings, PASSWORD_KEY);
 
+	hide_messages(props);
+
 	if (strcmp(username, "") == 0 || strcmp(password, "") == 0) {
-		/* TODO: add error messaging */
-		return false;
+		show_message(props, obs_module_text("SigninInfoMissing"));
+		return true;
 	}
 
 	char const * otp = obs_data_get_string(settings, OTP_KEY);
@@ -147,47 +166,38 @@ static bool signin_clicked(obs_properties_t * props, obs_property_t * prop,
 
 	if (otp_visible && strcmp(otp, "") == 0) {
 		/* TODO: add error messaging */
-		return false;
+		show_message(props, obs_module_text("OtpMissing"));
+		return true;
 	}
 
 	/* TODO: figure out a way to make this asynchronous */
-	struct caffeine_auth_response * response = NULL;
-
-	/* TODO: make this asynchronous? */
-	response = caffeine_signin(username, password, otp);
+	struct caffeine_auth_response * response =
+		caffeine_signin(username, password, otp);
 
 	if (!response) {
-		log_error("Failed login");
-		return false;
+		show_message(props, obs_module_text("SigninFailed"));
 	}
-
-	bool result = false;
-
-	if (response->next) {
+	else if (response->next) {
 		if (strcmp(response->next, "mfa_otp_required") == 0) {
 			if (otp_visible) {
-				log_error("Incorrect MFA code entered");
+				show_message(props, obs_module_text("OtpIncorrect"));
 			}
 			else {
-				result = true;
+				show_message(props, obs_module_text("OtpRequired"));
 				obs_property_set_visible(otp_prop, true);
 			}
 		}
-		if (strcmp(response->next, "legal_acceptance_required")
-			== 0) {
-			log_error("Can't broadcast until terms of "
-				"service are accepted");
+		if (strcmp(response->next, "legal_acceptance_required") == 0) {
+			show_message(props, obs_module_text("TosAcceptanceRequired"));
 		}
 		if (strcmp(response->next, "email_verification") == 0) {
-			log_error("Can't broadcast until email is "
-				"verified");
+			show_message(props, obs_module_text("EmailVerificationRequired"));
 		}
 	}
 	else if (!response->credentials) {
-		log_error("Empty auth response received");
+		show_message(props, obs_module_text("NoAuthResponse"));
 	}
 	else {
-		result = true;
 		obs_data_set_string(settings, REFRESH_TOKEN_KEY,
 			caffeine_refresh_token(response->credentials));
 
@@ -200,7 +210,7 @@ static bool signin_clicked(obs_properties_t * props, obs_property_t * prop,
 	}
 
 	caffeine_free_auth_response(&response);
-	return result;
+	return true;
 }
 
 static bool signout_clicked(obs_properties_t * props, obs_property_t * prop,
@@ -250,6 +260,9 @@ static obs_properties_t * caffeine_service_properties(void * data)
 	prop = obs_properties_add_text(props, OTP_KEY,
 		obs_module_text("OneTimePassword"), OBS_TEXT_PASSWORD);
 	obs_property_set_transient(prop, true);
+
+	prop = obs_properties_add_message(props, SIGNIN_MESSAGE_KEY, "");
+	obs_property_set_visible(prop, false);
 
 	prop = obs_properties_add_text(props, REFRESH_TOKEN_KEY,
 		REFRESH_TOKEN_KEY, OBS_TEXT_DEFAULT);
