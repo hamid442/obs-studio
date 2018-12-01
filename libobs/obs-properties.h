@@ -55,6 +55,7 @@ enum obs_property_type {
 	OBS_PROPERTY_FONT,
 	OBS_PROPERTY_EDITABLE_LIST,
 	OBS_PROPERTY_FRAME_RATE,
+	OBS_PROPERTY_MESSAGE,
 };
 
 enum obs_combo_format {
@@ -161,6 +162,9 @@ EXPORT obs_property_t *obs_properties_add_float_slider(obs_properties_t *props,
 EXPORT obs_property_t *obs_properties_add_text(obs_properties_t *props,
 		const char *name, const char *description,
 		enum obs_text_type type);
+
+EXPORT obs_property_t *obs_properties_add_message(obs_properties_t *props,
+		const char *name, const char *message);
 
 /**
  * Adds a 'path' property.  Can be a directory or a file.
