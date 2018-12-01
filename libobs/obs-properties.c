@@ -314,7 +314,8 @@ static inline size_t get_property_size(enum obs_property_type type)
 	case OBS_PROPERTY_FONT:      return 0;
 	case OBS_PROPERTY_EDITABLE_LIST:
 		return sizeof(struct editable_list_data);
-	case OBS_PROPERTY_FRAME_RATE:return sizeof(struct frame_rate_data);
+	case OBS_PROPERTY_FRAME_RATE: return sizeof(struct frame_rate_data);
+	case OBS_PROPERTY_MESSAGE: return 0;
 	}
 
 	return 0;
@@ -444,6 +445,14 @@ obs_property_t *obs_properties_add_text(obs_properties_t *props,
 	struct text_data *data = get_property_data(p);
 	data->type = type;
 	return p;
+}
+
+obs_property_t *obs_properties_add_message(obs_properties_t *props,
+	const char *name, const char *message)
+{
+	if (!props || has_prop(props, name)) return NULL;
+
+	return new_prop(props, name, message, OBS_PROPERTY_MESSAGE);
 }
 
 obs_property_t *obs_properties_add_path(obs_properties_t *props,
