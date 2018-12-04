@@ -270,10 +270,10 @@ static obs_properties_t * caffeine_service_properties(void * data)
 	obs_property_set_visible(prop, false);
 
 	obs_properties_add_button3(props, SIGNIN_KEY,
-		obs_module_text("SignIn"), signin_clicked, NULL);
+		obs_module_text("ButtonSignIn"), signin_clicked, NULL);
 
 	obs_properties_add_button3(props, SIGNOUT_KEY,
-		obs_module_text("SignOut"), signout_clicked, NULL);
+		obs_module_text("ButtonSignOut"), signout_clicked, NULL);
 
 	obs_properties_add_text(props, BROADCAST_TITLE_KEY,
 		obs_module_text("BroadcastTitle"), OBS_TEXT_DEFAULT);
