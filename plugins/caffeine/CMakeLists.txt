@@ -9,6 +9,7 @@ find_package(FFmpeg REQUIRED
 
 if(MSVC)
 	set(caffeine_PLATFORM_DEPS
+		shlwapi.lib
 		w32-pthreads)
 endif()
 
@@ -25,10 +26,12 @@ set(caffeine_SOURCES
 	caffeine-api.c
 	caffeine-api.h
 	caffeine-log.h
+	caffeine-foreground-process.c
+	caffeine-foreground-process.h
 	caffeine-module.c
+	caffeine-output.c
 	caffeine-service.c
-	caffeine-service.h
-	caffeine-output.c)
+	caffeine-service.h)
 
 add_library(caffeine MODULE
 	${caffeine_SOURCES}

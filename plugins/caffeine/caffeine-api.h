@@ -23,6 +23,19 @@ struct caffeine_stream_info {
 	char * signed_payload;
 };
 
+/* TODO: game detection will be handled behind the scenes */
+struct caffeine_game_info {
+	int id;
+	char * name;
+	char ** process_names;
+	size_t num_process_names;
+};
+
+struct caffeine_games {
+	struct caffeine_game_info ** game_infos;
+	size_t num_games;
+};
+
 enum caffeine_rating {
 	CAFF_RATING_NONE,
 	CAFF_RATING_SEVENTEEN_PLUS,
@@ -47,6 +60,11 @@ struct caffeine_user_info * caffeine_getuser(
 	struct caffeine_credentials * creds);
 
 void caffeine_free_user_info(struct caffeine_user_info ** user_info);
+
+struct caffeine_games * caffeine_get_supported_games();
+
+void caffeine_free_game_info(struct caffeine_game_info ** info);
+void caffeine_free_game_list(struct caffeine_games ** games);
 
 struct caffeine_stream_info * caffeine_start_stream(
 	char const * stage_id,
@@ -75,6 +93,7 @@ char * set_stage_live(
 	char const * stream_id,
 	char const * title,
 	enum caffeine_rating rating,
+	int game_id,
 	struct caffeine_credentials * creds);
 
 bool send_heartbeat(
