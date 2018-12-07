@@ -18,6 +18,7 @@
 /* TODO: some of these are deprecated */
 #define SIGNIN_URL         API_ENDPOINT  "v1/account/signin"
 #define REFRESH_TOKEN_URL  API_ENDPOINT  "v1/account/token"
+#define GETGAMES_URL       API_ENDPOINT  "v1/games"
 #define GETUSER_URL_F      API_ENDPOINT  "v1/users/%s"
 #define STREAM_URL         API_ENDPOINT  "v2/broadcasts/streams"
 #define TRICKLE_URL_F      API_ENDPOINT  "v2/broadcasts/streams/%s"
@@ -693,6 +694,149 @@ void caffeine_free_stream_info(struct caffeine_stream_info ** stream_info)
 	*stream_info = NULL;
 }
 
+static struct caffeine_games * do_caffeine_get_supported_games()
+{
+	struct caffeine_games * response = NULL;
+
+	CURL * curl = curl_easy_init();
+
+	if (!curl)
+	{
+		log_error("Failed to initialize cURL");
+		goto curl_init_error;
+	}
+
+	curl_easy_setopt(curl, CURLOPT_URL, GETGAMES_URL);
+
+	struct dstr response_str;
+	dstr_init(&response_str);
+
+	curl_easy_setopt(curl, CURLOPT_WRITEFUNCTION,
+		caffeine_curl_write_callback);
+	curl_easy_setopt(curl, CURLOPT_WRITEDATA, (void*)&response_str);
+
+	char curl_error[CURL_ERROR_SIZE];
+	curl_easy_setopt(curl, CURLOPT_ERRORBUFFER, curl_error);
+
+	CURLcode res = curl_easy_perform(curl);
+	if (res != CURLE_OK) {
+		log_error("HTTP failure fetching supported games: [%d] %s",
+			res, curl_error);
+		goto request_error;
+	}
+
+	json_error_t json_error;
+	json_t * response_json = json_loads(response_str.array, 0, &json_error);
+	if (!response_json) {
+		log_error("Failed to parse game list response: %s",
+			json_error.text);
+		goto json_failed_error;
+	}
+	size_t num_games = json_array_size(response_json); /* returns 0 if not array*/
+	if (num_games == 0)
+	{
+		log_error("Unable to retrieve games list");
+		goto json_parsed_error;
+	}
+
+	response = bzalloc(sizeof(struct caffeine_games));
+	response->num_games = num_games;
+	response->game_infos =
+		bzalloc(num_games * sizeof(struct caffeine_game_info *));
+
+	size_t index;
+	json_t * value;
+	json_array_foreach(response_json, index, value) {
+		int id = 0;
+		char const * name = NULL;
+		json_t * process_names = NULL;
+		int success_result = json_unpack_ex(value, &json_error, 0,
+			"{s:i,s:s,s:o}",
+			"id", &id,
+			"name", &name,
+			"process_names", &process_names);
+		if (success_result != 0) {
+			log_warn("Unable to parse game list entry; ignoring");
+			continue;
+		}
+
+		size_t num_processes = json_array_size(process_names);
+		if (num_processes == 0) {
+			log_warn("No process names found for %s; ignoring",
+				name);
+			continue;
+		}
+
+		struct caffeine_game_info * info =
+			bzalloc(sizeof(struct caffeine_game_info));
+		info->id = id;
+		info->name = bstrdup(name);
+		info->num_process_names = num_processes;
+		info->process_names = bzalloc(num_processes * sizeof(char *));
+
+		size_t process_index;
+		json_t * process_value;
+		json_array_foreach(process_names, process_index, process_value) {
+			char const * process_name = NULL;
+			success_result = json_unpack(process_value, "s",
+				&process_name);
+			if (success_result != 0) {
+				log_warn("Unable to read process name; ignoring");
+				continue;
+			}
+			info->process_names[process_index] =
+				bstrdup(process_name);
+		}
+
+		response->game_infos[index] = info;
+	}
+
+json_parsed_error:
+	json_decref(response_json);
+json_failed_error:
+request_error:
+	dstr_free(&response_str);
+	curl_easy_cleanup(curl);
+curl_init_error:
+
+	return response;
+}
+
+struct caffeine_games * caffeine_get_supported_games()
+{
+	retry_request(struct caffeine_games *,
+		do_caffeine_get_supported_games());
+}
+
+void caffeine_free_game_info(struct caffeine_game_info ** info)
+{
+	if (!info || !*info)
+		return;
+
+	for (size_t i = 0; i < (*info)->num_process_names; ++i) {
+		bfree((*info)->process_names[i]);
+		(*info)->process_names[i] = NULL;
+	}
+	bfree((*info)->name);
+	bfree(*info);
+	*info = NULL;
+}
+
+void caffeine_free_game_list(struct caffeine_games ** games)
+{
+	trace();
+	if (!games || !*games)
+		return;
+
+	for (size_t i = 0; i < (*games)->num_games; ++i) {
+		caffeine_free_game_info(&(*games)->game_infos[i]);
+	}
+
+	bfree((*games)->game_infos);
+	bfree(*games);
+	*games = NULL;
+}
+
 static bool do_caffeine_trickle_candidates(
 	caff_ice_candidates candidates,
 	size_t num_candidates,
@@ -1002,6 +1146,7 @@ static char * do_set_stage_live(
 	char const * stream_id,
 	char const * title,
 	enum caffeine_rating rating,
+	int game_id,
 	struct caffeine_credentials * creds)
 {
 	trace();
@@ -1017,10 +1162,10 @@ static char * do_set_stage_live(
 		return NULL;
 
 	struct dstr final_title = make_title(title, rating);
-	json_t * payload_json = json_pack("{s:s,s:s,s:s,s:[o],s:s}",
+	json_t * payload_json = json_pack("{s:s,s:s,s:i,s:[o],s:s}",
 		"state", is_live ? "ONLINE" : "OFFLINE",
 		"title", final_title.array,
-		"game_id", "79",
+		"game_id", game_id,
 		"streams", stream_json,
 		"host_connection_quality", "GOOD");
 	dstr_free(&final_title);
@@ -1152,11 +1297,12 @@ char * set_stage_live(
 	char const * stream_id,
 	char const * title,
 	enum caffeine_rating rating,
+	int game_id,
 	struct caffeine_credentials * creds)
 {
 	retry_request(char*,
 		do_set_stage_live(is_live, session_id, stage_id, stream_id,
-				title, rating, creds));
+				title, rating, game_id, creds));
 }
 
 void add_text_part(

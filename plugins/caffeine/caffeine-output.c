@@ -14,6 +14,7 @@
 #include <caffeine.h>
 
 #include "caffeine-api.h"
+#include "caffeine-foreground-process.h"
 #include "caffeine-service.h"
 
 #define CAFFEINE_LOG_TITLE "caffeine output"
@@ -352,6 +353,35 @@ static void caffeine_stream_failed(void *data, caff_error error)
 	obs_output_signal_stop(context->output, caffeine_to_obs_error(error));
 }
 
+#define OBS_GAME_ID 79
+
+static int get_game_id(struct caffeine_games * games)
+{
+	int id = OBS_GAME_ID;
+	char * foreground_process = get_foreground_process_name();
+	if (games && foreground_process) {
+		/* TODO: this is inside out; should have process name at toplevel */
+		for (int game_index = 0; game_index < games->num_games; ++game_index) {
+			struct caffeine_game_info * info =
+				games->game_infos[game_index];
+			if (!info)
+				continue;
+			for (int pname_index = 0; pname_index < info->num_process_names; ++pname_index) {
+				char const * pname = info->process_names[pname_index];
+				if (!pname)
+					continue;
+				if (strcmp(foreground_process, pname) == 0) {
+					id = info->id;
+					goto found;
+				}
+			}
+		}
+	}
+found:
+	bfree(foreground_process);
+	return id;
+}
+
 static void * heartbeat(void * data)
 {
 	trace();
@@ -378,8 +408,11 @@ static void * heartbeat(void * data)
 	enum caffeine_rating rating = (enum caffeine_rating)
 		obs_service_query(service, CAFFEINE_QUERY_BROADCAST_RATING);
 
+	struct caffeine_games * games = caffeine_get_supported_games();
+	int game_id = get_game_id(games);
+
 	char * session_id = set_stage_live(false, NULL, stage_id,
-		stream_id, title, rating, creds);
+		stream_id, title, rating, game_id, creds);
 	if (!session_id) {
 		caffeine_stream_failed(data, CAFF_ERROR_UNKNOWN);
 		goto get_session_error;
@@ -418,8 +451,9 @@ static void * heartbeat(void * data)
 
 		interval = 0;
 
+		game_id = get_game_id(games);
 		set_stage_live(true, session_id, stage_id, stream_id, title,
-				rating, creds);
+				rating, game_id, creds);
 
 		if (send_heartbeat(stream_id, signed_payload, creds)) {
 			failures = 0;
@@ -437,13 +471,14 @@ static void * heartbeat(void * data)
 	}
 
 	set_stage_live(false, session_id, stage_id, stream_id, title, rating,
-			creds);
+			game_id, creds);
 	end_broadcast(broadcast_id, title, rating, creds);
 
 	bfree(broadcast_id);
 create_broadcast_error:
 	bfree(session_id);
 get_session_error:
+	caffeine_free_game_list(&games);
 	bfree(title);
 	bfree(stage_id);
 	bfree(signed_payload);
