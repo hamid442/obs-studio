@@ -693,6 +693,7 @@ bool SimpleOutput::StartStreaming(obs_service_t *service)
 				obs_output_get_supported_audio_codecs(
 					streamOutput);
 			if (!codec) {
+				blog(LOG_WARNING, "Failed to load audio codec");
 				return false;
 			}
 
@@ -1472,30 +1473,43 @@ bool AdvancedOutput::StartStreaming(obs_service_t *service)
 				obs_output_get_signal_handler(streamOutput),
 				"stop", OBSStopStreaming, this);
 
-		const char *codec =
-			obs_output_get_supported_audio_codecs(streamOutput);
-		if (!codec) {
-			return false;
-		}
+		bool isEncoded = obs_output_get_flags(streamOutput)
+			& OBS_OUTPUT_ENCODED;
 
-		if (strcmp(codec, "aac") == 0) {
-			streamAudioEnc = aacTrack[trackIndex - 1];
-		} else {
-			const char *id = FindAudioEncoderFromCodec(codec);
-			int audioBitrate = GetAudioBitrate(trackIndex - 1);
-			obs_data_t *settings = obs_data_create();
-			obs_data_set_int(settings, "bitrate", audioBitrate);
+		if (isEncoded)
+		{
+			const char *codec =
+				obs_output_get_supported_audio_codecs(
+					streamOutput);
+			if (!codec) {
+				blog(LOG_WARNING, "Failed to load audio codec");
+				return false;
+			}
 
-			streamAudioEnc = obs_audio_encoder_create(id,
+			if (strcmp(codec, "aac") == 0) {
+				streamAudioEnc = aacTrack[trackIndex - 1];
+			}
+			else {
+				const char *id =
+					FindAudioEncoderFromCodec(codec);
+				int audioBitrate =
+					GetAudioBitrate(trackIndex - 1);
+				obs_data_t *settings = obs_data_create();
+				obs_data_set_int(
+					settings, "bitrate", audioBitrate);
+
+				streamAudioEnc = obs_audio_encoder_create(id,
 					"alt_audio_enc", nullptr,
 					trackIndex - 1, nullptr);
-			if (!streamAudioEnc)
-				return false;
+				if (!streamAudioEnc)
+					return false;
 
-			obs_encoder_update(streamAudioEnc, settings);
-			obs_encoder_set_audio(streamAudioEnc, obs_get_audio());
+				obs_encoder_update(streamAudioEnc, settings);
+				obs_encoder_set_audio(streamAudioEnc,
+						obs_get_audio());
 
-			obs_data_release(settings);
+				obs_data_release(settings);
+			}
 		}
 
 		outputType = type;
