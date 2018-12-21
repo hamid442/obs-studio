@@ -2332,9 +2332,26 @@ void OBSBasic::CreatePropertiesWindow(obs_source_t *source)
 	if (properties)
 		properties->close();
 
-	properties = new OBSBasicProperties(this, source);
-	properties->Init();
-	properties->setAttribute(Qt::WA_DeleteOnClose, true);
+	const char *id = obs_source_get_id(source);
+	QDialog *diag = static_cast<QDialog *>(
+		obs_create_ui(id, "properties", "qt dialog", source, this));
+	QWidget *widget = static_cast<QWidget *>(
+		obs_create_ui(id, "properties", "qt", source, this));
+
+	if (diag) {
+		properties = diag;
+		properties->show();
+		properties->setAttribute(Qt::WA_DeleteOnClose, true);
+	} else if (widget) {
+		properties = widget;
+		properties->show();
+		properties->setAttribute(Qt::WA_DeleteOnClose, true);
+	} else {
+		OBSBasicProperties *props = new OBSBasicProperties(this, source);
+		properties = props;
+		props->Init();
+		properties->setAttribute(Qt::WA_DeleteOnClose, true);
+	}
 }
 
 void OBSBasic::CreateFiltersWindow(obs_source_t *source)
