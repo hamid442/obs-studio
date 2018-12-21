@@ -1258,6 +1258,18 @@ void OBSBasicSettings::ResetDownscales(uint32_t cx, uint32_t cy)
 			QString::number(out_cy);
 	}
 
+	auto getFixedHeight = [](uint32_t cx, uint32_t cy, uint32_t fx) {
+		double aspect = (double(cx) / double(cy));
+		uint32_t fy = fx * aspect;
+		return ResString(fx, fy);
+	};
+
+	auto getFixedWidth = [](uint32_t cx, uint32_t cy, uint32_t fy) {
+		double inv_aspect = (double(cy) / double(cx));
+		uint32_t fx = fy * inv_aspect;
+		return ResString(fx, fy);
+	};
+
 	for (size_t idx = 0; idx < numVals; idx++) {
 		uint32_t downscaleCX = uint32_t(double(cx) / vals[idx]);
 		uint32_t downscaleCY = uint32_t(double(cy) / vals[idx]);
@@ -1285,6 +1297,27 @@ void OBSBasicSettings::ResetDownscales(uint32_t cx, uint32_t cy)
 		if (diff < bestPixelDiff) {
 			bestScale = res;
 			bestPixelDiff = diff;
+		}
+	}
+
+	std::vector<int> fixedHeights = { 480, 720, 1080 };
+	std::vector<int> fixedWidths = { 640, 1280, 1920 };
+
+	for (size_t i = 0; i < fixedHeights.size(); i++) {
+		std::string fixedHRes = getFixedHeight(cx, cy, fixedHeights[i]);
+		if (ui->advOutRescale->findData(fixedHRes.c_str()) < 0) {
+			ui->advOutRescale->addItem(fixedHRes.c_str());
+			ui->advOutRecRescale->addItem(fixedHRes.c_str());
+			ui->advOutFFRescale->addItem(fixedHRes.c_str());
+		}
+	}
+
+	for (size_t i = 0; i < fixedWidths.size(); i++) {
+		std::string fixedWRes = getFixedWidth(cx, cy, fixedWidths[i]);
+		if (ui->advOutRescale->findData(fixedWRes.c_str()) < 0) {
+			ui->advOutRescale->addItem(fixedWRes.c_str());
+			ui->advOutRecRescale->addItem(fixedWRes.c_str());
+			ui->advOutFFRescale->addItem(fixedWRes.c_str());
 		}
 	}
 
