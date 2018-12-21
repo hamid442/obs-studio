@@ -2333,18 +2333,20 @@ void OBSBasic::CreatePropertiesWindow(obs_source_t *source)
 		properties->close();
 
 	const char *id = obs_source_get_id(source);
-	QDialog *diag = static_cast<QDialog *>(
-		obs_create_ui(id, "properties", "qt dialog", source, this));
+
 	QWidget *widget = static_cast<QWidget *>(
 		obs_create_ui(id, "properties", "qt", source, this));
 
-	if (diag) {
-		properties = diag;
-		properties->show();
-		properties->setAttribute(Qt::WA_DeleteOnClose, true);
-	} else if (widget) {
-		properties = widget;
-		properties->show();
+	if (widget) {
+		QDockWidget *dock = new QDockWidget(this);
+		dock->setWindowTitle("Properties");
+		QVBoxLayout *verticalLayout = new QVBoxLayout();
+		dock->setLayout(verticalLayout);
+		//widget->setParent(dock);
+		verticalLayout->addWidget(widget);
+		//widget->setVisible(true);
+		properties = dock;
+		addDockWidget(Qt::RightDockWidgetArea, dock);
 		properties->setAttribute(Qt::WA_DeleteOnClose, true);
 	} else {
 		OBSBasicProperties *props = new OBSBasicProperties(this, source);
