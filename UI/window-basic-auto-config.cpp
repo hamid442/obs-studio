@@ -212,7 +212,9 @@ AutoConfigVideoPage::AutoConfigVideoPage(QWidget *parent)
 		QString str = QString("%1x%2").arg(
 				QString::number(cx),
 				QString::number(cy));
-		ui->canvasRes->addItem(str, encRes);
+		int idx = ui->canvasRes->findData(encRes);
+		if (idx < 0)
+			ui->canvasRes->addItem(str, encRes);
 	};
 
 	addRes(1920, 1080);

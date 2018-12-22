@@ -1269,70 +1269,27 @@ void OBSBasicSettings::ResetDownscales(uint32_t cx, uint32_t cy)
 		uint32_t fx = fy * inv_aspect;
 		return ResString(fx, fy);
 	};
-
-	for (size_t idx = 0; idx < numVals; idx++) {
-		uint32_t downscaleCX = uint32_t(double(cx) / vals[idx]);
-		uint32_t downscaleCY = uint32_t(double(cy) / vals[idx]);
-		uint32_t outDownscaleCX = uint32_t(double(out_cx) / vals[idx]);
-		uint32_t outDownscaleCY = uint32_t(double(out_cy) / vals[idx]);
-
-		downscaleCX &= 0xFFFFFFFC;
-		downscaleCY &= 0xFFFFFFFE;
-		outDownscaleCX &= 0xFFFFFFFE;
-		outDownscaleCY &= 0xFFFFFFFE;
-
-		string res = ResString(downscaleCX, downscaleCY);
-		string outRes = ResString(outDownscaleCX, outDownscaleCY);
-		ui->outputResolution->addItem(res.c_str());
-		ui->advOutRescale->addItem(outRes.c_str());
-		ui->advOutRecRescale->addItem(outRes.c_str());
-		ui->advOutFFRescale->addItem(outRes.c_str());
-
-		/* always try to find the closest output resolution to the
-		 * previously set output resolution */
-		int newPixelCount = int(downscaleCX * downscaleCY);
-		int oldPixelCount = int(out_cx * out_cy);
-		int diff = abs(newPixelCount - oldPixelCount);
-
-		if (diff < bestPixelDiff) {
-			bestScale = res;
-			bestPixelDiff = diff;
-		}
-	}
-
-	std::vector<int> fixedHeights = { 480, 720, 1080 };
-	std::vector<int> fixedWidths = { 640, 1280, 1920 };
-
-	for (size_t i = 0; i < fixedHeights.size(); i++) {
-		std::string fixedHRes = getFixedHeight(cx, cy, fixedHeights[i]);
-		if (ui->advOutRescale->findData(fixedHRes.c_str()) < 0) {
-			ui->advOutRescale->addItem(fixedHRes.c_str());
-			ui->advOutRecRescale->addItem(fixedHRes.c_str());
-			ui->advOutFFRescale->addItem(fixedHRes.c_str());
-		}
-	}
-
-	for (size_t i = 0; i < fixedWidths.size(); i++) {
-		std::string fixedWRes = getFixedWidth(cx, cy, fixedWidths[i]);
-		if (ui->advOutRescale->findData(fixedWRes.c_str()) < 0) {
-			ui->advOutRescale->addItem(fixedWRes.c_str());
-			ui->advOutRecRescale->addItem(fixedWRes.c_str());
-			ui->advOutFFRescale->addItem(fixedWRes.c_str());
-		}
-	}
-
+	/*
 	obs_output_t *output = nullptr;
 	OBSBasic *main = qobject_cast<OBSBasic*>(parent());
 	if (main && main->outputHandler)
-		output = main->outputHandler->streamOutput;
-
+		output = obs_frontend_get_streaming_output();
+	*/
 	struct resolution {
 		uint32_t cx;
 		uint32_t cy;
 	};
+
 	DARRAY(resolution) scaled_resolutions;
+	QString qStreamType = ui->streamType->currentData().toString();
+	obs_service_t *tService = obs_service_create(qStreamType.toStdString().c_str(),
+		"temp_service", nullptr, nullptr);
+	obs_output_t *output = obs_output_create(obs_service_get_output_type(tService),
+		"temp_output", nullptr, nullptr);
+
 	darray *output_resolutions = obs_output_get_scaled_resolutions(output,
 		cx, cy);
+
 	if (output_resolutions) {
 		scaled_resolutions.da = *output_resolutions;
 		for (size_t i = 0; i < scaled_resolutions.num; i++) {
@@ -1342,9 +1299,76 @@ void OBSBasicSettings::ResetDownscales(uint32_t cx, uint32_t cy)
 				ui->advOutRescale->addItem(recommendedRes.c_str());
 				ui->advOutRecRescale->addItem(recommendedRes.c_str());
 				ui->advOutFFRescale->addItem(recommendedRes.c_str());
+
+				int newPixelCount = int(scaled_resolutions.array[i].cx
+					* scaled_resolutions.array[i].cy);
+				int oldPixelCount = int(out_cx * out_cy);
+				int diff = abs(newPixelCount - oldPixelCount);
+
+				if (diff < bestPixelDiff) {
+					bestScale = recommendedRes;
+					bestPixelDiff = diff;
+				}
+			}
+		}
+		bfree(output_resolutions);
+	} else {
+		
+		for (size_t idx = 0; idx < numVals; idx++) {
+			uint32_t downscaleCX = uint32_t(double(cx) / vals[idx]);
+			uint32_t downscaleCY = uint32_t(double(cy) / vals[idx]);
+			uint32_t outDownscaleCX = uint32_t(double(out_cx) / vals[idx]);
+			uint32_t outDownscaleCY = uint32_t(double(out_cy) / vals[idx]);
+
+			downscaleCX &= 0xFFFFFFFC;
+			downscaleCY &= 0xFFFFFFFE;
+			outDownscaleCX &= 0xFFFFFFFE;
+			outDownscaleCY &= 0xFFFFFFFE;
+
+			string res = ResString(downscaleCX, downscaleCY);
+			string outRes = ResString(outDownscaleCX, outDownscaleCY);
+			ui->outputResolution->addItem(res.c_str());
+			ui->advOutRescale->addItem(outRes.c_str());
+			ui->advOutRecRescale->addItem(outRes.c_str());
+			ui->advOutFFRescale->addItem(outRes.c_str());
+
+			/* always try to find the closest output resolution to the
+			 * previously set output resolution */
+			int newPixelCount = int(downscaleCX * downscaleCY);
+			int oldPixelCount = int(out_cx * out_cy);
+			int diff = abs(newPixelCount - oldPixelCount);
+
+			if (diff < bestPixelDiff) {
+				bestScale = res;
+				bestPixelDiff = diff;
+			}
+		}
+
+		std::vector<int> fixedHeights = { 480, 720, 1080 };
+		std::vector<int> fixedWidths = { 640, 1280, 1920 };
+
+		for (size_t i = 0; i < fixedHeights.size(); i++) {
+			std::string fixedHRes = getFixedHeight(cx, cy, fixedHeights[i]);
+			if (ui->advOutRescale->findData(fixedHRes.c_str()) < 0) {
+				ui->advOutRescale->addItem(fixedHRes.c_str());
+				ui->advOutRecRescale->addItem(fixedHRes.c_str());
+				ui->advOutFFRescale->addItem(fixedHRes.c_str());
+			}
+		}
+
+		for (size_t i = 0; i < fixedWidths.size(); i++) {
+			std::string fixedWRes = getFixedWidth(cx, cy, fixedWidths[i]);
+			if (ui->advOutRescale->findData(fixedWRes.c_str()) < 0) {
+				ui->advOutRescale->addItem(fixedWRes.c_str());
+				ui->advOutRecRescale->addItem(fixedWRes.c_str());
+				ui->advOutFFRescale->addItem(fixedWRes.c_str());
 			}
 		}
 	}
+	if (output)
+		obs_output_release(output);
+	if (tService)
+		obs_service_release(tService);
 
 	std::string res = ResString(cx, cy);
 
