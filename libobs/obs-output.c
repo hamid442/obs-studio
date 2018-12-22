@@ -279,6 +279,16 @@ bool obs_output_start(obs_output_t *output)
 	}
 }
 
+struct darray *obs_output_get_scaled_resolutions(const obs_output_t *output,
+		uint32_t cx, uint32_t cy)
+{
+	if (!obs_output_valid(output, "obs_output_get_scaled_resolutions"))
+		return NULL;
+	if (output->info.get_scaled_resolutions)
+		return output->info.get_scaled_resolutions(cx, cy);
+	return NULL;
+}
+
 static inline bool data_active(struct obs_output *output)
 {
 	return os_atomic_load_bool(&output->data_active);
