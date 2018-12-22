@@ -1321,7 +1321,32 @@ void OBSBasicSettings::ResetDownscales(uint32_t cx, uint32_t cy)
 		}
 	}
 
-	string res = ResString(cx, cy);
+	obs_output_t *output = nullptr;
+	OBSBasic *main = qobject_cast<OBSBasic*>(parent());
+	if (main && main->outputHandler)
+		output = main->outputHandler->streamOutput;
+
+	struct resolution {
+		uint32_t cx;
+		uint32_t cy;
+	};
+	DARRAY(resolution) scaled_resolutions;
+	darray *output_resolutions = obs_output_get_scaled_resolutions(output,
+		cx, cy);
+	if (output_resolutions) {
+		scaled_resolutions.da = *output_resolutions;
+		for (size_t i = 0; i < scaled_resolutions.num; i++) {
+			std::string recommendedRes = ResString(scaled_resolutions.array[i].cx,
+				scaled_resolutions.array[i].cy);
+			if (ui->advOutRescale->findData(recommendedRes.c_str()) < 0) {
+				ui->advOutRescale->addItem(recommendedRes.c_str());
+				ui->advOutRecRescale->addItem(recommendedRes.c_str());
+				ui->advOutFFRescale->addItem(recommendedRes.c_str());
+			}
+		}
+	}
+
+	std::string res = ResString(cx, cy);
 
 	float baseAspect   = float(cx) / float(cy);
 	float outputAspect = float(out_cx) / float(out_cy);
