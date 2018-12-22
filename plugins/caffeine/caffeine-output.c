@@ -17,6 +17,7 @@
 #include "caffeine-api.h"
 #include "caffeine-foreground-process.h"
 #include "caffeine-service.h"
+#include "util/darray.h"
 
 #define CAFFEINE_LOG_TITLE "caffeine output"
 #include "caffeine-log.h"
@@ -1091,6 +1092,30 @@ static void caffeine_destroy(void *data)
 	bfree(data);
 }
 
+static struct resolution {
+	uint32_t cx;
+	uint32_t cy;
+};
+
+static struct darray *caffeine_scaled_resolutions(uint32_t cx, uint32_t cy)
+{
+	struct darray *d = bmalloc(sizeof(struct darray));
+	darray_init(d);
+	if (cy > 720) {
+		double aspect = (double)cx / (double)cy;
+		struct resolution res;
+		res.cy = 720;
+		res.cx = aspect * 720;
+		darray_push_back(sizeof(struct resolution), d, &res);
+	} else {
+		struct resolution res;
+		res.cy = cy;
+		res.cx = cx;
+		darray_push_back(sizeof(struct resolution), d, &res);
+	}
+	return d;
+}
+
 static float caffeine_get_congestion(void * data)
 {
 	struct caffeine_output * context = data;
@@ -1135,4 +1160,5 @@ struct obs_output_info caffeine_output_info = {
 	.destroy   = caffeine_destroy,
 	.get_congestion = caffeine_get_congestion,
 	.get_username = caffeine_get_username,
+	.get_scaled_resolutions = caffeine_scaled_resolutions,
 };
