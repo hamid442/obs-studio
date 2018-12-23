@@ -1,20 +1,20 @@
 project(obs-shader-filter)
 
-#set(CMAKE_PREFIX_PATH "${QTDIR}")
-#set(CMAKE_INCLUDE_CURRENT_DIR ON)
-#set(CMAKE_AUTOMOC ON)
-#set(CMAKE_AUTOUIC ON)
+set(CMAKE_PREFIX_PATH "${QTDIR}")
+set(CMAKE_INCLUDE_CURRENT_DIR ON)
+set(CMAKE_AUTOMOC ON)
+set(CMAKE_AUTOUIC ON)
 
 #find_package(LibObs REQUIRED)
-#find_package(Qt5Core REQUIRED)
-#find_package(Qt5Widgets REQUIRED)
+find_package(Qt5Core REQUIRED)
+find_package(Qt5Widgets REQUIRED)
 
-#include_directories(
+include_directories(
 #	SYSTEM "${CMAKE_SOURCE_DIR}/libobs"
 #	"${CMAKE_SOURCE_DIR}/UI/obs-frontend-api"
-#	${Qt5Core_INCLUDES}
-#	${Qt5Widgets_INCLUDES}
-#)
+	${Qt5Core_INCLUDES}
+	${Qt5Widgets_INCLUDES}
+)
 
 find_package(FFmpeg REQUIRED
 	COMPONENTS avcodec)
@@ -46,6 +46,8 @@ add_library(obs-shader-filter MODULE
 	
 target_link_libraries(obs-shader-filter
 	libobs
+	Qt5::Core
+	Qt5::Widgets
 	${obs-shader-filter_PLATFORM_DEPS}
 	${FFMPEG_LIBRARIES}
 #	obs-frontend-api
