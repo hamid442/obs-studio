@@ -329,6 +329,19 @@ public:
 	double _primaryScreenWidth;
 	double _primaryScreenHeight;
 
+	std::vector<double> _screenWidth;
+	std::vector<double> _screenHeight;
+
+	double getScreenHeight(double idx)
+	{
+		return idx < _screenHeight.size() ? _screenHeight[(uint32_t)idx] : 0.0;
+	}
+
+	double getScreenWidth(double idx)
+	{
+		return idx < _screenWidth.size() ? _screenWidth[(uint32_t)idx] : 0.0;
+	}
+
 	double _keyModifiers;
 	double _keyUp;
 	double _nativeKeyModifiers;

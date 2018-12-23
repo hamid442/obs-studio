@@ -1,4 +1,7 @@
 #include "obs-shader-filter.hpp"
+#include <QScreen>
+#include <QGuiApplication>
+#include <QCursor>
 
 OBS_DECLARE_MODULE()
 OBS_MODULE_USE_DEFAULT_LOCALE("obs_shader_filter", "en-US")
@@ -29,6 +32,10 @@ static const char *shader_filter_media_file_filter =
 "Video Files (*.mp4 *.ts *.mov *.wmv *.flv *.mkv *.avi *.gif *.webm);;";
 
 #define M_PI_D 3.141592653589793238462643383279502884197169399375
+
+static double getScreenWidth(double index);
+static double getScreenHeight(double index);
+
 static double hlsl_clamp(double in, double min, double max)
 {
 	if (in < min)
@@ -179,10 +186,12 @@ static void prepFunctions(std::vector<te_variable> *vars, ShaderSource *filter)
 	{"mouse_wheel_y", &filter->_mouseWheelY}, {"mouse_leave", &filter->_mouseLeave},
 	{"primary_screen_height", &filter->_primaryScreenHeight}, {"primary_screen_width", &filter->_primaryScreenWidth},
 	{"radians", hlsl_rad, TE_FUNCTION1 | TE_FLAG_PURE}, {"random", random_double, TE_FUNCTION2},
-	{"screen_height", &filter->_wholeScreenHeight},
-	{"screen_width", &filter->_wholeScreenWidth},
+	{"whole_screen_height", &filter->_wholeScreenHeight},
+	{"whole_screen_width", &filter->_wholeScreenWidth},
 	{"screen_mouse_pos_x", &filter->_screenMousePosX}, {"screen_mouse_pos_y", &filter->_screenMousePosY},
 	{"screen_mouse_visible", &filter->_screenMouseVisible},
+	{"screen_height", static_cast<double(*)(double)>(getScreenHeight), TE_FUNCTION1, 0},
+	{"screen_width", static_cast<double(*)(double)>(getScreenWidth), TE_FUNCTION1, 0},
 	{"max", dmax, TE_FUNCTION2 | TE_FLAG_PURE, 0},
 	{"min", dmin, TE_FUNCTION2 | TE_FLAG_PURE, 0},
 	/* Basic functions originally included in TinyExpr */
@@ -1900,13 +1909,6 @@ public:
 			}
 			_spawnCount -= floor(_spawnCount);
 
-			/*
-			for (size_t i = 0; i < _particles.size(); i++) {
-				transformAlpha *p = &_particles[i];
-				p->lifeTime += seconds;
-				p->alpha = hlsl_clamp(p->alpha - (p->decayAlpha * rate), 0, 255);
-			}
-			*/
 			std::for_each(_particles.begin(), _particles.end(), [&seconds, &rate](transformAlpha &p) {
 				p.lifeTime += seconds;
 				p.alpha = hlsl_clamp(p.alpha - (p.decayAlpha * rate), 0, 255);
@@ -2348,7 +2350,7 @@ void ShaderParameter::init(gs_shader_param_type paramType)
 		_shaderData = new StringData(this, _filter);
 		break;
 	case GS_SHADER_PARAM_UNKNOWN:
-		//_shaderData = new NullData(this, _filter);
+	default:
 		break;
 	}
 	if (_shaderData)
@@ -3198,11 +3200,11 @@ uint32_t ShaderSource::getHeight(void *data)
 
 static void getMouseCursor(void *data)
 {
-#ifdef _WIN32
 	ShaderSource *filter = static_cast<ShaderSource *>(data);
-
+	//int mouseScreen = qApp->desktop()->screenNumber(globalCursorPos);
+#ifdef _WIN32
 	CURSORINFO ci = { 0 };
-	HICON icon;
+	//HICON icon;
 
 	ci.cbSize = sizeof(ci);
 
@@ -3213,7 +3215,6 @@ static void getMouseCursor(void *data)
 
 	filter->_screenMousePosX = ci.ptScreenPos.x;
 	filter->_screenMousePosY = ci.ptScreenPos.y;
-//	blog(LOG_DEBUG, "mouse[%f,%f]", filter->_screenMousePosX, filter->_screenMousePosY);
 	filter->_screenMouseVisible = false;
 #elif __linux__ || __FreeBSD__
 	XFixesCursorImage *xc = XFixesGetCursorImage(filter->dpy);
@@ -3224,13 +3225,56 @@ static void getMouseCursor(void *data)
 	filter->_screenMousePosY = (double)xc->y;
 	filter->_screenMouseVisible = true;
 	UNUSED_PARAMETER(data);
+#else
+	if (filter) {
+		QPoint globalCursorPos = QCursor::pos();
+		filter->_screenMousePosX = globalCursorPos.x();
+		filter->_screenMousePosY = globalCursorPos.y();
+	}
+	filter->_screenMouseVisible = true;
 #endif
+//blog(LOG_DEBUG, "mouse[%f,%f]", filter->_screenMousePosX, filter->_screenMousePosY);
+}
+
+static double getScreenHeight(double index)
+{
+	QList<QScreen*> screens = QGuiApplication::screens();
+	uint32_t idx = index;
+	if (idx < screens.count())
+		return screens.at(idx)->size().height();
+	return 0.0;
+}
+
+static double getScreenWidth(double index)
+{
+	QList<QScreen*> screens = QGuiApplication::screens();
+	uint32_t idx = index;
+	if (idx < screens.count())
+		return screens.at(idx)->size().width();
+	return 0.0;
 }
 
 static void getScreenSizes(void *data)
 {
-#ifdef _WIN32
 	ShaderSource *filter = static_cast<ShaderSource *>(data);
+	/*
+	QList<QScreen*> screens = QGuiApplication::screens();
+	filter->_screenWidth.reserve(screens.count());
+	filter->_screenHeight.reserve(screens.count());
+	size_t c = filter->_screenHeight.size();
+	size_t i;
+	for (i = 0; i < c; i++) {
+		QSize size = screens.at(i)->size();
+		filter->_screenHeight[i] = size.height();
+		filter->_screenWidth[i] = size.width();
+	}
+	for (; i < screens.count(); i++) {
+		QSize size = screens.at(i)->size();
+		filter->_screenHeight.emplace_back(size.height());
+		filter->_screenWidth.emplace_back(size.width());
+	}
+	*/
+#ifdef _WIN32
 	filter->_wholeScreenWidth = GetSystemMetrics(SM_CXVIRTUALSCREEN);
 	filter->_wholeScreenHeight = GetSystemMetrics(SM_CYVIRTUALSCREEN);
 
@@ -3238,7 +3282,7 @@ static void getScreenSizes(void *data)
 	filter->_primaryScreenHeight = GetSystemMetrics(SM_CYSCREEN);
 	//int i = GetSystemMetrics(SM_CMONITORS);
 #elif __linux__ || __FreeBSD__
-	UNUSED_PARAMETER(data);
+
 #endif
 }
 
