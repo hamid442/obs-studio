@@ -1007,6 +1007,48 @@ void AutoConfigTestPage::FinalizeResults()
 				ui->finishPage));
 	}
 
+	struct resolution {
+		uint32_t cx;
+		uint32_t cy;
+	};
+
+	DARRAY(resolution) scaled_resolutions;
+
+	obs_service_t *tService = obs_service_create(wiz->serviceType.c_str(),
+		"temp_service", nullptr, nullptr);
+	obs_output_t *tOutput = obs_output_create(obs_service_get_output_type(tService),
+		"temp_output", nullptr, nullptr);
+
+	darray *output_resolutions = obs_output_get_scaled_resolutions(tOutput,
+		wiz->baseResolutionCX, wiz->baseResolutionCY);
+	/* Pick closest of service specified resolutions (if any) */
+	if (output_resolutions) {
+		int bestPixelDiff = 0x7FFFFFFF;
+		scaled_resolutions.da = *output_resolutions;
+		uint32_t out_cx = wiz->idealResolutionCX;
+		uint32_t out_cy = wiz->idealResolutionCY;
+		int oldPixelCount = int(out_cx * out_cy);
+		for (size_t i = 0; i < scaled_resolutions.num; i++) {
+			int newPixelCount = int(scaled_resolutions.array[i].cx
+				* scaled_resolutions.array[i].cy);
+			int diff = abs(newPixelCount - oldPixelCount);
+
+			if (diff < bestPixelDiff) {
+				wiz->idealResolutionCX = (int)scaled_resolutions.array[i].cx;
+				wiz->idealResolutionCY = (int)scaled_resolutions.array[i].cy;
+				bestPixelDiff = diff;
+			}
+		}
+		bfree(output_resolutions);
+	}
+	obs_output_release(tOutput);
+	obs_service_release(tService);
+
+	if (wiz->serviceSpecifiedFPS) {
+		wiz->idealFPSNum = wiz->specificFPSNum;
+		wiz->idealFPSDen = wiz->idealFPSDen;
+	}
+
 	QString baseRes = QString("%1x%2").arg(
 			QString::number(wiz->baseResolutionCX),
 			QString::number(wiz->baseResolutionCY));
