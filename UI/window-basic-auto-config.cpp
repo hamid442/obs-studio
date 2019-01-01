@@ -369,19 +369,24 @@ void AutoConfigStreamPage::StreamSettingsChanged(bool refreshPropertiesView)
 		obs_data_apply(serviceSettings, defaults);
 		obs_data_release(defaults);
 
-		streamPropertiesLayout->removeWidget(streamProperties);
+		//streamPropertiesLayout->removeWidget(streamProperties);
 		streamProperties->deleteLater();
 		streamProperties = new OBSPropertiesView(serviceSettings, qServiceType.toStdString().c_str(),
 			(PropertiesReloadCallback)obs_get_service_properties, 0);
 		streamProperties->setProperty("changed", QVariant(false));
+		streamProperties->setFrameShape(QFrame::StyledPanel);
+		streamProperties->setWidgetResizable(true);
 
 		QObject::connect(streamProperties, SIGNAL(Changed()),
 			this, SLOT(PropertiesChanged()));
-		streamPropertiesLayout->addWidget(streamProperties);
+		//streamPropertiesLayout->addWidget(streamProperties);
+		ui->formLayout->insertRow(1, streamProperties);
 
-		streamPropertiesLayout->setSizeConstraint(QLayout::SetNoConstraint);
-		streamProperties->setSizePolicy(QSizePolicy::Policy::Minimum, QSizePolicy::Policy::MinimumExpanding);
-		streamProperties->setMinimumHeight(200);
+		//streamPropertiesLayout->setSizeConstraint(QLayout::SetNoConstraint);
+		streamProperties->setSizePolicy(QSizePolicy::Policy::MinimumExpanding, QSizePolicy::Policy::MinimumExpanding);
+		//streamProperties->setMinimumHeight(200);
+		//QRect area = streamProperties->childrenRect();
+		//streamProperties->setMinimumHeight(area.height());
 	}
 	const char* currentSettings = obs_data_get_json(serviceSettings);
 	blog(LOG_INFO, "%s", currentSettings);
@@ -440,7 +445,8 @@ AutoConfigStreamPage::AutoConfigStreamPage(QWidget *parent)
 {
 	ui->setupUi(this);
 
-	streamPropertiesLayout = new QVBoxLayout(this);
+	//streamPropertiesLayout = new QVBoxLayout(this);
+	ui->formLayout->setFieldGrowthPolicy(QFormLayout::AllNonFixedFieldsGrow);
 
 	obs_service_t *service = static_cast<OBSBasic*>(QApplication::activeWindow())->GetService();
 	const char *service_type = obs_service_get_type(service);
@@ -450,17 +456,21 @@ AutoConfigStreamPage::AutoConfigStreamPage(QWidget *parent)
 	streamProperties = new OBSPropertiesView(serviceSettings, service_type,
 		(PropertiesReloadCallback)obs_get_service_properties, 0);
 	streamProperties->setProperty("changed", QVariant(false));
+	streamProperties->setFrameShape(QFrame::StyledPanel);
+	streamProperties->setWidgetResizable(true);
 
 	QObject::connect(streamProperties, SIGNAL(Changed()),
 			this, SLOT(PropertiesChanged()));
 
-	streamPropertiesLayout->addWidget(streamProperties);
-	ui->formLayout->insertRow(1, streamPropertiesLayout);
+	//streamPropertiesLayout->addWidget(streamProperties);
+	//ui->formLayout->insertRow(1, streamPropertiesLayout);
+	ui->formLayout->insertRow(1, streamProperties);
 
-	streamPropertiesLayout->setSizeConstraint(QLayout::SetNoConstraint);
-	streamProperties->setSizePolicy(QSizePolicy::Policy::Minimum, QSizePolicy::Policy::MinimumExpanding);
-
-	streamProperties->setMinimumHeight(200);
+	//streamPropertiesLayout->setSizeConstraint(QLayout::SetNoConstraint);
+	streamProperties->setSizePolicy(QSizePolicy::Policy::MinimumExpanding, QSizePolicy::Policy::MinimumExpanding);
+	//QRect area = streamProperties->childrenRect();
+	//streamProperties->setMinimumHeight(area.height());
+	//streamProperties->setMinimumHeight(200);
 
 	ui->bitrateLabel->setVisible(false);
 	ui->bitrate->setVisible(false);
@@ -486,15 +496,15 @@ AutoConfigStreamPage::AutoConfigStreamPage(QWidget *parent)
 		this, SLOT(SettingsChanged()));
 
 	connect(ui->doBandwidthTest, SIGNAL(toggled(bool)),
-		this, SLOT(SettingsChanged()));
+		this, SLOT(PropertiesChanged()));
 	connect(ui->regionUS, SIGNAL(toggled(bool)),
-		this, SLOT(SettingsChanged()));
+		this, SLOT(PropertiesChanged()));
 	connect(ui->regionEU, SIGNAL(toggled(bool)),
-		this, SLOT(SettingsChanged()));
+		this, SLOT(PropertiesChanged()));
 	connect(ui->regionAsia, SIGNAL(toggled(bool)),
-		this, SLOT(SettingsChanged()));
+		this, SLOT(PropertiesChanged()));
 	connect(ui->regionOther, SIGNAL(toggled(bool)),
-		this, SLOT(SettingsChanged()));
+		this, SLOT(PropertiesChanged()));
 }
 
 AutoConfigStreamPage::~AutoConfigStreamPage()
