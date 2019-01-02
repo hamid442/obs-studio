@@ -187,6 +187,7 @@ public:
 	virtual bool validatePage() override;
 
 public slots:
+	void reAdjustSize();
 	void UpdateCompleted();
 	void UpdateBandwidthTest();
 	void UpdateBitrate();

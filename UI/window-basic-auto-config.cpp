@@ -355,6 +355,15 @@ void AutoConfigStreamPage::initializePage()
 	firstRun = false;
 }
 
+void AutoConfigStreamPage::reAdjustSize()
+{
+	if (streamProperties) {
+		streamProperties->resize(streamProperties->sizeHint());
+		streamProperties->updateGeometry();
+	}
+	wiz->adjustSize();
+}
+
 void AutoConfigStreamPage::StreamSettingsChanged(bool refreshPropertiesView)
 {
 	/* Store current service temporarily */
@@ -379,15 +388,17 @@ void AutoConfigStreamPage::StreamSettingsChanged(bool refreshPropertiesView)
 		streamProperties = new OBSPropertiesView(serviceSettings, qServiceType.toStdString().c_str(),
 			(PropertiesReloadCallback)obs_get_service_properties, 0);
 		streamProperties->setProperty("changed", QVariant(false));
-		streamProperties->setFrameShape(QFrame::StyledPanel);
+		//streamProperties->setFrameShape(QFrame::StyledPanel);
 		streamProperties->setWidgetResizable(true);
 
 		QObject::connect(streamProperties, SIGNAL(Changed()),
 			this, SLOT(PropertiesChanged()));
 
 		ui->formLayout->insertRow(1, streamProperties);
-
 		streamProperties->setSizePolicy(QSizePolicy::Policy::MinimumExpanding, QSizePolicy::Policy::MinimumExpanding);
+
+		streamProperties->setSizeAdjustPolicy(QAbstractScrollArea::
+				SizeAdjustPolicy::AdjustToContents);
 	}
 
 	const char* currentSettings = obs_data_get_json(serviceSettings);
@@ -427,6 +438,8 @@ void AutoConfigStreamPage::StreamSettingsChanged(bool refreshPropertiesView)
 	obs_data_apply(wiz->serviceSettings, serviceSettings);
 
 	UpdateCompleted();
+	if (refreshPropertiesView)
+		QTimer::singleShot(0, this, SLOT(reAdjustSize()));
 }
 
 void AutoConfigStreamPage::SettingsChanged()
@@ -464,7 +477,7 @@ AutoConfigStreamPage::AutoConfigStreamPage(QWidget *parent)
 	streamProperties = new OBSPropertiesView(serviceSettings, service_type,
 		(PropertiesReloadCallback)obs_get_service_properties, 0);
 	streamProperties->setProperty("changed", QVariant(false));
-	streamProperties->setFrameShape(QFrame::StyledPanel);
+	//streamProperties->setFrameShape(QFrame::StyledPanel);
 	streamProperties->setWidgetResizable(true);
 
 	QObject::connect(streamProperties, SIGNAL(Changed()),
@@ -473,6 +486,7 @@ AutoConfigStreamPage::AutoConfigStreamPage(QWidget *parent)
 	ui->formLayout->insertRow(1, streamProperties);
 
 	streamProperties->setSizePolicy(QSizePolicy::Policy::MinimumExpanding, QSizePolicy::Policy::MinimumExpanding);
+	streamProperties->setMinimumHeight(streamProperties->sizeHint().height());
 
 	ui->bitrateLabel->setVisible(false);
 	ui->bitrate->setVisible(false);
