@@ -3286,6 +3286,20 @@ static void getScreenSizes(void *data)
 #endif
 }
 
+void *ShaderSource::getFilterUi(void *source, void *parent)
+{
+	ShaderSource *filter = static_cast<ShaderSource *>(source);
+	QWidget *parentWidget = static_cast<QWidget *>(parent);
+	//QWidget *gui = new QWidget(parentWidget);
+	QTabWidget *gui = new QTabWidget(parentWidget);
+
+	gui->addTab(nullptr, "Textures");
+	gui->addTab(nullptr, "Colors");
+	gui->addTab(nullptr, "Numbers");
+
+	return gui;
+}
+
 void ShaderSource::mouseClick(
 	void *data, const struct obs_mouse_event *event, int32_t type, bool mouse_up, uint32_t click_count)
 {
@@ -3432,6 +3446,15 @@ bool obs_module_load(void)
 	obs_get_audio_info(&aoi);
 	sample_rate = (double)aoi.samples_per_sec;
 	output_channels = (double)get_audio_channels(aoi.speakers);
+
+
+	struct obs_modeless_ui filter_ui = { 0 };
+	filter_ui.id = shader_filter.id;
+	filter_ui.target = "qt";
+	filter_ui.task = "properties";
+	filter_ui.create = ShaderSource::getFilterUi;
+	
+	obs_register_modeless_ui(&filter_ui);
 
 	char * errors = NULL;
 	char *cpath = obs_module_file("default.effect");

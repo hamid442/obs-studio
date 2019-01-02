@@ -28,6 +28,9 @@ extern "C" {
 #include <list>
 #include <algorithm>
 
+#include <QWidget>
+#include <QTabWidget>
+
 #include "fft.h"
 #include "tinyexpr.h"
 #include "mtrandom.h"
@@ -410,6 +413,7 @@ public:
 	void updateCache(gs_eparam_t *param);
 	void reload();
 
+	static void *            getFilterUi(void *source, void *parent);
 	static void *            create(obs_data_t *settings, obs_source_t *source);
 	static void              destroy(void *data);
 	static const char *      getName(void *unused);
