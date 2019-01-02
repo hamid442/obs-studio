@@ -3292,10 +3292,10 @@ void *ShaderSource::getFilterUi(void *source, void *parent)
 	QWidget *parentWidget = static_cast<QWidget *>(parent);
 	//QWidget *gui = new QWidget(parentWidget);
 	QTabWidget *gui = new QTabWidget(parentWidget);
-
-	gui->addTab(nullptr, "Textures");
-	gui->addTab(nullptr, "Colors");
-	gui->addTab(nullptr, "Numbers");
+	
+	gui->addTab(new QWidget(), "Textures");
+	gui->addTab(new QWidget(), "Colors");
+	gui->addTab(new QWidget(), "Numbers");
 
 	return gui;
 }

@@ -173,11 +173,18 @@ inline OBSSource OBSBasicFilters::GetFilter(int row, bool async)
 
 void OBSBasicFilters::UpdatePropertiesView(int row, bool async)
 {
-	if (view) {
+	if (view || customView)
 		updatePropertiesSignal.Disconnect();
+
+	if (view) {
 		ui->rightLayout->removeWidget(view);
 		view->deleteLater();
 		view = nullptr;
+	}
+	if (customView) {
+		ui->rightLayout->removeWidget(customView);
+		customView->deleteLater();
+		customView = nullptr;
 	}
 
 	OBSSource filter = GetFilter(row, async);
@@ -186,8 +193,19 @@ void OBSBasicFilters::UpdatePropertiesView(int row, bool async)
 
 	obs_data_t *settings = obs_source_get_settings(filter);
 
+	const char *id = obs_source_get_id(filter);
+	QWidget *gui = static_cast<QWidget *>(
+		obs_create_ui(id, "properties", "qt", filter, this));
+	QVBoxLayout *layout = new QVBoxLayout();
+	QDockWidget *dock = new QDockWidget(this);
+	customView = dock;
+	customView->setLayout(layout);
+	dock->setWidget(gui);
+	
+	//layout->addWidget(gui);
+
 	view = new OBSPropertiesView(settings, filter,
-			(PropertiesReloadCallback)obs_source_properties,
+		(PropertiesReloadCallback)obs_source_properties,
 			(PropertiesUpdateCallback)obs_source_update);
 
 	updatePropertiesSignal.Connect(obs_source_get_signal_handler(filter),
@@ -199,8 +217,15 @@ void OBSBasicFilters::UpdatePropertiesView(int row, bool async)
 
 	view->setMaximumHeight(250);
 	view->setMinimumHeight(150);
-	ui->rightLayout->addWidget(view);
-	view->show();
+	if (gui) {
+		customView->setMaximumHeight(250);
+		customView->setMinimumHeight(150);
+		ui->rightLayout->addWidget(customView);
+		customView->show();
+	} else {
+		ui->rightLayout->addWidget(view);
+		view->show();
+	}
 }
 
 void OBSBasicFilters::UpdateProperties(void *data, calldata_t *)
@@ -824,8 +849,9 @@ void OBSBasicFilters::ResetFilters()
 	obs_data_clear(settings);
 	obs_data_release(settings);
 
-	if (!view->DeferUpdate())
+	if (view && !view->DeferUpdate())
 		obs_source_update(filter, nullptr);
 
-	view->RefreshProperties();
+	if (view)
+		view->RefreshProperties();
 }
