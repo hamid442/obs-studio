@@ -171,6 +171,7 @@ class AutoConfigStreamPage : public QWizardPage {
 	Ui_AutoConfigStreamPage *ui;
 	QString lastService;
 	bool ready = false;
+	bool firstRun = true;
 
 	OBSPropertiesView *streamProperties = nullptr;
 	OBSData serviceSettings;
@@ -180,6 +181,7 @@ public:
 	AutoConfigStreamPage(QWidget *parent = nullptr);
 	~AutoConfigStreamPage();
 
+	virtual void initializePage() override;
 	virtual bool isComplete() const override;
 	virtual int nextId() const override;
 	virtual bool validatePage() override;

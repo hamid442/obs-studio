@@ -349,6 +349,12 @@ void AutoConfigStreamPage::UpdatePreferHardware()
 	ui->preferHardware->blockSignals(false);
 }
 
+void AutoConfigStreamPage::initializePage()
+{
+	StreamSettingsChanged(!firstRun);
+	firstRun = false;
+}
+
 void AutoConfigStreamPage::StreamSettingsChanged(bool refreshPropertiesView)
 {
 	/* Store current service temporarily */
@@ -369,7 +375,6 @@ void AutoConfigStreamPage::StreamSettingsChanged(bool refreshPropertiesView)
 		obs_data_apply(serviceSettings, defaults);
 		obs_data_release(defaults);
 
-		//streamPropertiesLayout->removeWidget(streamProperties);
 		streamProperties->deleteLater();
 		streamProperties = new OBSPropertiesView(serviceSettings, qServiceType.toStdString().c_str(),
 			(PropertiesReloadCallback)obs_get_service_properties, 0);
@@ -379,15 +384,12 @@ void AutoConfigStreamPage::StreamSettingsChanged(bool refreshPropertiesView)
 
 		QObject::connect(streamProperties, SIGNAL(Changed()),
 			this, SLOT(PropertiesChanged()));
-		//streamPropertiesLayout->addWidget(streamProperties);
+
 		ui->formLayout->insertRow(1, streamProperties);
 
-		//streamPropertiesLayout->setSizeConstraint(QLayout::SetNoConstraint);
 		streamProperties->setSizePolicy(QSizePolicy::Policy::MinimumExpanding, QSizePolicy::Policy::MinimumExpanding);
-		//streamProperties->setMinimumHeight(200);
-		//QRect area = streamProperties->childrenRect();
-		//streamProperties->setMinimumHeight(area.height());
 	}
+
 	const char* currentSettings = obs_data_get_json(serviceSettings);
 	blog(LOG_INFO, "%s", currentSettings);
 
@@ -444,14 +446,20 @@ AutoConfigStreamPage::AutoConfigStreamPage(QWidget *parent)
 	  ui          (new Ui_AutoConfigStreamPage)
 {
 	ui->setupUi(this);
+	firstRun = true;
 
-	//streamPropertiesLayout = new QVBoxLayout(this);
 	ui->formLayout->setFieldGrowthPolicy(QFormLayout::AllNonFixedFieldsGrow);
-
+	
 	obs_service_t *service = static_cast<OBSBasic*>(QApplication::activeWindow())->GetService();
 	const char *service_type = obs_service_get_type(service);
 
-	serviceSettings = obs_service_get_settings(service);
+	serviceSettings = obs_data_create();
+	OBSData currentSettings = obs_service_get_settings(service);
+	const char* currentJson = obs_data_get_json(currentSettings);
+
+	obs_data_apply(serviceSettings, currentSettings);
+	const char* serviceJson = obs_data_get_json(serviceSettings);
+	obs_data_release(currentSettings);
 
 	streamProperties = new OBSPropertiesView(serviceSettings, service_type,
 		(PropertiesReloadCallback)obs_get_service_properties, 0);
@@ -462,15 +470,9 @@ AutoConfigStreamPage::AutoConfigStreamPage(QWidget *parent)
 	QObject::connect(streamProperties, SIGNAL(Changed()),
 			this, SLOT(PropertiesChanged()));
 
-	//streamPropertiesLayout->addWidget(streamProperties);
-	//ui->formLayout->insertRow(1, streamPropertiesLayout);
 	ui->formLayout->insertRow(1, streamProperties);
 
-	//streamPropertiesLayout->setSizeConstraint(QLayout::SetNoConstraint);
 	streamProperties->setSizePolicy(QSizePolicy::Policy::MinimumExpanding, QSizePolicy::Policy::MinimumExpanding);
-	//QRect area = streamProperties->childrenRect();
-	//streamProperties->setMinimumHeight(area.height());
-	//streamProperties->setMinimumHeight(200);
 
 	ui->bitrateLabel->setVisible(false);
 	ui->bitrate->setVisible(false);
@@ -640,7 +642,7 @@ static bool validateRequirements(obs_data_t *settings)
 		if (!obs_data_item_has_user_value(item))
 			continue;
 
-		if (strcmpi(name, "requirements") == 0) {
+		if (strcmp(name, "requirements") == 0) {
 			switch (item_type) {
 			case OBS_DATA_STRING:
 			case OBS_DATA_OBJECT:
