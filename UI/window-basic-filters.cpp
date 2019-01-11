@@ -199,7 +199,7 @@ void OBSBasicFilters::UpdatePropertiesView(int row, bool async)
 
 	const char *id = obs_source_get_id(filter);
 	QWidget *gui = static_cast<QWidget*>(obs_create_ui(id, "properties",
-			"qt", source, this));
+			"qt", filter, this));
 
 	updatePropertiesSignal.Connect(obs_source_get_signal_handler(filter),
 			"update_properties",

@@ -2,6 +2,9 @@ project(obs-filters)
 
 option(DISABLE_SPEEXDSP "Disable building of the SpeexDSP-based Noise Suppression filter" OFF)
 
+find_package(Qt5Core REQUIRED)
+find_package(Qt5Widgets REQUIRED)
+
 if(DISABLE_SPEEXDSP)
 	message(STATUS "SpeexDSP support disabled")
 	set(LIBSPEEXDSP_FOUND FALSE)
@@ -45,18 +48,24 @@ set(obs-filters_SOURCES
 	color-key-filter.c
 	color-grade-filter.c
 	sharpness-filter.c
-	gain-filter.c
+	gain-filter.cpp
 	noise-gate-filter.c
 	mask-filter.c
 	invert-audio-polarity.c
 	compressor-filter.c)
 
+set(obs-filters_HEADERS
+	QGainWidget.h)
+
 add_library(obs-filters MODULE
+	${obs-filters_HEADERS}
 	${obs-filters_SOURCES}
 	${obs-filters_config_HEADERS}
 	${obs-filters_LIBSPEEXDSP_SOURCES})
 target_link_libraries(obs-filters
 	libobs
+	Qt5::Core
+	Qt5::Widgets
 	${obs-filters_PLATFORM_DEPS}
 	${obs-filters_LIBSPEEXDSP_LIBRARIES})
 
