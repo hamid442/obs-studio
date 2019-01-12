@@ -4,6 +4,9 @@
 #include <obs.hpp>
 #include <vector>
 #include <memory>
+#include <QSyntaxHighlighter>
+#include <QRegularExpression>
+#include <QTextDocument>
 
 class QFormLayout;
 class OBSPropertiesView;
@@ -102,6 +105,8 @@ private:
 	void AddFont(obs_property_t *prop, QFormLayout *layout, QLabel *&label);
 	void AddFrameRate(obs_property_t *prop, bool &warning,
 			QFormLayout *layout, QLabel *&label);
+	QWidget *AddSyntax(obs_property_t *prop, QFormLayout *layout,
+			QLabel *&label);
 
 	void AddProperty(obs_property_t *property, QFormLayout *layout);
 
@@ -132,4 +137,40 @@ public:
 
 	inline void UpdateSettings() {callback(obj, settings);}
 	inline bool DeferUpdate() const {return deferUpdate;}
+};
+
+class Highlighter : public QSyntaxHighlighter {
+	Q_OBJECT
+private:
+	bool _hasCStyleComments = true;
+	enum Languages {
+		none,
+		css,
+		cpp
+	};
+	enum Languages _language;
+	struct HighlightingRule {
+		//	QRegExp pattern;
+		QRegularExpression pattern;
+		QTextCharFormat format;
+	};
+	QVector<HighlightingRule> highlightingRules;
+
+	QRegularExpression commentStartExpression;
+	QRegularExpression commentEndExpression;
+
+	QTextCharFormat keywordFormat;
+	QTextCharFormat classFormat;
+	QTextCharFormat singleLineCommentFormat;
+	QTextCharFormat multiLineCommentFormat;
+	QTextCharFormat quotationFormat;
+	QTextCharFormat functionFormat;
+protected:
+	void highlightBlock(const QString &text);
+	void init(std::string language);
+public:
+	Highlighter(std::string language, QTextDocument *parent = 0) : QSyntaxHighlighter(parent)
+	{
+		init(language);
+	}
 };

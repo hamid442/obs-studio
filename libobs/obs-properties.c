@@ -55,6 +55,11 @@ struct text_data {
 	enum obs_text_type type;
 };
 
+struct syntax_data {
+	enum obs_text_type type;
+	char *language;
+};
+
 struct list_data {
 	DARRAY(struct list_item) items;
 	enum obs_combo_type      type;
@@ -85,6 +90,11 @@ struct frame_rate_data {
 	DARRAY(struct frame_rate_option) extra_options;
 	DARRAY(struct frame_rate_range)  ranges;
 };
+
+static inline void syntax_data_free(struct syntax_data *data)
+{
+	bfree(data->language);
+}
 
 static inline void path_data_free(struct path_data *data)
 {
@@ -223,6 +233,8 @@ static void obs_property_destroy(struct obs_property *property)
 		editable_list_data_free(get_property_data(property));
 	else if (property->type == OBS_PROPERTY_FRAME_RATE)
 		frame_rate_data_free(get_property_data(property));
+	else if (property->type == OBS_PROPERTY_SYNTAX)
+		syntax_data_free(get_property_data(property));
 
 	bfree(property->name);
 	bfree(property->desc);
@@ -313,6 +325,7 @@ static inline size_t get_property_size(enum obs_property_type type)
 	case OBS_PROPERTY_EDITABLE_LIST:
 		return sizeof(struct editable_list_data);
 	case OBS_PROPERTY_FRAME_RATE:return sizeof(struct frame_rate_data);
+	case OBS_PROPERTY_SYNTAX: return sizeof(struct syntax_data);
 	}
 
 	return 0;
@@ -440,6 +453,19 @@ obs_property_t *obs_properties_add_text(obs_properties_t *props,
 	struct obs_property *p = new_prop(props, name, desc, OBS_PROPERTY_TEXT);
 	struct text_data *data = get_property_data(p);
 	data->type = type;
+	return p;
+}
+
+obs_property_t *obs_properties_add_syntax(obs_properties_t *props,
+	const char *name, const char *desc, enum obs_text_type type,
+	const char *language)
+{
+	if (!props || has_prop(props, name)) return NULL;
+
+	struct obs_property *p = new_prop(props, name, desc, OBS_PROPERTY_SYNTAX);
+	struct syntax_data *data = get_property_data(p);
+	data->type = type;
+	data->language = bstrdup(language);
 	return p;
 }
 
@@ -742,6 +768,12 @@ enum obs_text_type obs_property_text_type(obs_property_t *p)
 {
 	struct text_data *data = get_type_data(p, OBS_PROPERTY_TEXT);
 	return data ? data->type : OBS_TEXT_DEFAULT;
+}
+
+const char *obs_property_syntax_language(obs_property_t *p)
+{
+	struct syntax_data *data = get_type_data(p, OBS_PROPERTY_SYNTAX);
+	return data ? data->language : NULL;
 }
 
 enum obs_path_type obs_property_path_type(obs_property_t *p)

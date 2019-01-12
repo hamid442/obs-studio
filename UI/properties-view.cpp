@@ -86,6 +86,119 @@ struct common_frame_rate {
 Q_DECLARE_METATYPE(frame_rate_tag);
 Q_DECLARE_METATYPE(media_frames_per_second);
 
+void Highlighter::init(std::string language)
+{
+	HighlightingRule rule;
+
+	if (astrcmpi_n(language.c_str(), "css", 3) == 0)
+		_language = css;
+	else if (astrcmpi_n(language.c_str(), "cpp", 3) == 0)
+		_language = cpp;
+	else
+		_language = none;
+
+	switch (_language) {
+	case css:
+	case cpp:
+		_hasCStyleComments = true;
+	default:
+		_hasCStyleComments = false;
+	}
+
+	keywordFormat.setForeground(Qt::darkBlue);
+	keywordFormat.setFontWeight(QFont::Bold);
+	QStringList keywordPatterns;
+	if (_language == cpp) {
+		keywordPatterns << "\\bchar\\b" << "\\bclass\\b" << "\\bconst\\b"
+			<< "\\bdouble\\b" << "\\benum\\b" << "\\bexplicit\\b"
+			<< "\\bfriend\\b" << "\\binline\\b" << "\\bint\\b"
+			<< "\\blong\\b" << "\\bnamespace\\b" << "\\boperator\\b"
+			<< "\\bprivate\\b" << "\\bprotected\\b" << "\\bpublic\\b"
+			<< "\\bshort\\b" << "\\bsignals\\b" << "\\bsigned\\b"
+			<< "\\bslots\\b" << "\\bstatic\\b" << "\\bstruct\\b"
+			<< "\\btemplate\\b" << "\\btypedef\\b" << "\\btypename\\b"
+			<< "\\bunion\\b" << "\\bunsigned\\b" << "\\bvirtual\\b"
+			<< "\\bvoid\\b" << "\\bvolatile\\b";
+	} else {
+
+	}
+	foreach(const QString &pattern, keywordPatterns)
+	{
+		rule.pattern = QRegularExpression(pattern);
+		rule.format = keywordFormat;
+		highlightingRules.append(rule);
+	}
+
+	if (_language == cpp) {
+		classFormat.setFontWeight(QFont::Bold);
+		classFormat.setForeground(Qt::darkMagenta);
+		rule.pattern = QRegularExpression("\\bQ[A-Za-z]+\\b");
+		rule.format = classFormat;
+		highlightingRules.append(rule);
+
+		quotationFormat.setForeground(Qt::darkGreen);
+		rule.pattern = QRegularExpression("\".*\"");
+		rule.format = quotationFormat;
+		highlightingRules.append(rule);
+
+		functionFormat.setFontItalic(true);
+		functionFormat.setForeground(Qt::blue);
+		rule.pattern = QRegularExpression("\\b[A-Za-z0-9_]+(?=\\()");
+		rule.format = functionFormat;
+		highlightingRules.append(rule);
+
+		singleLineCommentFormat.setForeground(Qt::red);
+		rule.pattern = QRegularExpression("//[^\n]*");
+		rule.format = singleLineCommentFormat;
+		highlightingRules.append(rule);
+
+		multiLineCommentFormat.setForeground(Qt::red);
+		commentStartExpression = QRegularExpression("/\\*");
+		commentEndExpression = QRegularExpression("\\*/");
+	} else {
+		singleLineCommentFormat.setForeground(Qt::red);
+		rule.pattern = QRegularExpression("//[^\n]*");
+		rule.format = singleLineCommentFormat;
+		highlightingRules.append(rule);
+
+		multiLineCommentFormat.setForeground(Qt::red);
+		commentStartExpression = QRegularExpression("/\\*");
+		commentEndExpression = QRegularExpression("\\*/");
+	}
+}
+
+void Highlighter::highlightBlock(const QString &text)
+{
+	foreach(const HighlightingRule &rule, highlightingRules)
+	{
+		QRegularExpressionMatchIterator matchIterator = rule.pattern.globalMatch(text);
+		while (matchIterator.hasNext()) {
+			QRegularExpressionMatch match = matchIterator.next();
+			setFormat(match.capturedStart(), match.capturedLength(), rule.format);
+		}
+		if(commentStartExpression.isValid() && commentEndExpression.isValid()){
+			setCurrentBlockState(0);
+			int startIndex = 0;
+			if (previousBlockState() != 1)
+				startIndex = text.indexOf(commentStartExpression);
+			while (startIndex >= 0) {
+				QRegularExpressionMatch match = commentEndExpression.match(text, startIndex);
+				int endIndex = match.capturedStart();
+				int commentLength = 0;
+				if (endIndex == -1) {
+					setCurrentBlockState(1);
+					commentLength = text.length() - startIndex;
+				} else {
+					commentLength = endIndex - startIndex
+						+ match.capturedLength();
+				}
+				setFormat(startIndex, commentLength, multiLineCommentFormat);
+				startIndex = text.indexOf(commentStartExpression, startIndex + commentLength);
+			}
+		}
+	}
+}
+
 void OBSPropertiesView::ReloadProperties()
 {
 	if (obj) {
@@ -280,6 +393,20 @@ QWidget *OBSPropertiesView::AddText(obs_property_t *prop, QFormLayout *layout,
 	edit->setToolTip(QT_UTF8(obs_property_long_description(prop)));
 
 	return NewWidget(prop, edit, SIGNAL(textEdited(const QString &)));
+}
+
+QWidget *OBSPropertiesView::AddSyntax(obs_property_t *prop, QFormLayout *layout,
+	QLabel *&label)
+{
+	const char    *name = obs_property_name(prop);
+	const char    *val = obs_data_get_string(settings, name);
+	obs_text_type type = obs_property_text_type(prop);
+	const char    *language = obs_property_syntax_language(prop);
+	std::string    lang = language;
+
+	QPlainTextEdit *edit = new QPlainTextEdit(QT_UTF8(val));
+	Highlighter *highlight = new Highlighter(lang, edit->document());
+	return NewWidget(prop, edit, SIGNAL(textChanged()));
 }
 
 void OBSPropertiesView::AddPath(obs_property_t *prop, QFormLayout *layout,
@@ -1355,6 +1482,9 @@ void OBSPropertiesView::AddProperty(obs_property_t *property,
 		break;
 	case OBS_PROPERTY_TEXT:
 		widget = AddText(property, layout, label);
+		break;
+	case OBS_PROPERTY_SYNTAX:
+		widget = AddSyntax(property, layout, label);
 		break;
 	case OBS_PROPERTY_PATH:
 		AddPath(property, layout, &label);

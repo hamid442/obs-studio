@@ -55,6 +55,7 @@ enum obs_property_type {
 	OBS_PROPERTY_FONT,
 	OBS_PROPERTY_EDITABLE_LIST,
 	OBS_PROPERTY_FRAME_RATE,
+	OBS_PROPERTY_SYNTAX,
 };
 
 enum obs_combo_format {
@@ -162,6 +163,10 @@ EXPORT obs_property_t *obs_properties_add_text(obs_properties_t *props,
 		const char *name, const char *description,
 		enum obs_text_type type);
 
+EXPORT obs_property_t *obs_properties_add_syntax(obs_properties_t *props,
+	const char *name, const char *description,
+	enum obs_text_type type, const char *language);
+
 /**
  * Adds a 'path' property.  Can be a directory or a file.
  *
@@ -264,6 +269,7 @@ EXPORT double                 obs_property_float_max(obs_property_t *p);
 EXPORT double                 obs_property_float_step(obs_property_t *p);
 EXPORT enum obs_number_type   obs_property_float_type(obs_property_t *p);
 EXPORT enum obs_text_type     obs_property_text_type(obs_property_t *p);
+EXPORT const char *           obs_property_syntax_language(obs_property_t *p);
 EXPORT enum obs_path_type     obs_property_path_type(obs_property_t *p);
 EXPORT const char *           obs_property_path_filter(obs_property_t *p);
 EXPORT const char *           obs_property_path_default_path(obs_property_t *p);
