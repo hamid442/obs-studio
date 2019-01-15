@@ -3216,6 +3216,16 @@ void OBSBasic::RenderMain(void *data, uint32_t cx, uint32_t cy)
 	gs_viewport_push();
 	gs_projection_push();
 
+	QSize previewSize = GetPixelSize(window->ui->preview);
+	float right  = float(previewSize.width())  - window->previewX;
+	float bottom = float(previewSize.height()) - window->previewY;
+
+	gs_ortho(-window->previewX, right,
+		-window->previewY, bottom,
+		-100.0f, 100.0f);
+
+	window->ui->preview->DrawOverflow();
+
 	/* --------------------------------------- */
 
 	gs_ortho(0.0f, float(ovi.base_width), 0.0f, float(ovi.base_height),
@@ -3224,6 +3234,7 @@ void OBSBasic::RenderMain(void *data, uint32_t cx, uint32_t cy)
 			window->previewCX, window->previewCY);
 
 	window->DrawBackdrop(float(ovi.base_width), float(ovi.base_height));
+
 
 	if (window->IsPreviewProgramMode()) {
 		OBSScene scene = window->GetCurrentScene();
@@ -3237,9 +3248,6 @@ void OBSBasic::RenderMain(void *data, uint32_t cx, uint32_t cy)
 
 	/* --------------------------------------- */
 
-	QSize previewSize = GetPixelSize(window->ui->preview);
-	float right  = float(previewSize.width())  - window->previewX;
-	float bottom = float(previewSize.height()) - window->previewY;
 
 	gs_ortho(-window->previewX, right,
 	         -window->previewY, bottom,
