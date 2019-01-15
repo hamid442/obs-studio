@@ -27,7 +27,31 @@
 
 #define CLIP_FLASH_DURATION_MS 1000
 
-inline void QGainWidget::calculateBallisticsForChannel(int channelNr,
+struct gain_data {
+	obs_source_t *context;
+	size_t channels;
+	float multiple;
+	pthread_mutex_t mutex;
+	float peak[MAX_AUDIO_CHANNELS];
+	float input_peak[MAX_AUDIO_CHANNELS];
+	float mag[MAX_AUDIO_CHANNELS];
+	float input_mag[MAX_AUDIO_CHANNELS];
+};
+
+inline void OBSAudioMeter::handleChannelCofigurationChange()
+{
+	QMutexLocker locker(&dataMutex);
+
+
+	// Make room for 3 pixels meter, with one pixel between each.
+	// Then 9/13 pixels for ticks and numbers.
+	if (vertical)
+		setMinimumSize(_channels * 4 + 14, 130);
+	else
+		setMinimumSize(130, _channels * 4 + 8);
+}
+
+inline void OBSAudioMeter::calculateBallisticsForChannel(int channelNr,
 	uint64_t ts, qreal timeSinceLastRedraw)
 {
 	if (currentPeak[channelNr] >= displayPeak[channelNr] ||
@@ -55,7 +79,7 @@ inline void QGainWidget::calculateBallisticsForChannel(int channelNr,
 		displayInputPeak[channelNr] = CLAMP(displayInputPeak[channelNr] - decay,
 			currentInputPeak[channelNr], 0.0);
 	}
-	
+
 	if (currentPeak[channelNr] >= displayPeakHold[channelNr] ||
 		!isfinite(displayPeakHold[channelNr])) {
 		// Attack of peak-hold is immediate, but keep track
@@ -72,7 +96,7 @@ inline void QGainWidget::calculateBallisticsForChannel(int channelNr,
 			displayPeakHoldLastUpdateTime[channelNr] = ts;
 		}
 	}
-	
+
 	if (currentInputPeak[channelNr] >= displayInputPeakHold[channelNr] ||
 		!isfinite(displayInputPeakHold[channelNr])) {
 		// Attack of peak-hold is immediate, but keep track
@@ -91,7 +115,7 @@ inline void QGainWidget::calculateBallisticsForChannel(int channelNr,
 				ts;
 		}
 	}
-	
+
 	if (!isfinite(displayMagnitude[channelNr])) {
 		// The statements in the else-leg do not work with
 		// NaN and infinite displayMagnitude.
@@ -109,7 +133,7 @@ inline void QGainWidget::calculateBallisticsForChannel(int channelNr,
 	}
 }
 
-void QGainWidget::calculateBallistics(uint64_t ts, qreal timeSinceLastRedraw)
+void OBSAudioMeter::calculateBallistics(uint64_t ts, qreal timeSinceLastRedraw)
 {
 	QMutexLocker locker(&dataMutex);
 
@@ -118,7 +142,7 @@ void QGainWidget::calculateBallistics(uint64_t ts, qreal timeSinceLastRedraw)
 			timeSinceLastRedraw);
 }
 
-void QGainWidget::paintInputMeter(QPainter &painter, int x, int y, int width,
+void OBSAudioMeter::paintInputMeter(QPainter &painter, int x, int y, int width,
 	int height, float peakHold)
 {
 	QMutexLocker locker(&dataMutex);
@@ -138,7 +162,137 @@ void QGainWidget::paintInputMeter(QPainter &painter, int x, int y, int width,
 	painter.fillRect(x, y, width, height, color);
 }
 
-void QGainWidget::paintHMeter(QPainter &painter, int x, int y, int width,
+void OBSAudioMeter::paintHTicks(QPainter &painter, int x, int y, int width,
+	int height)
+{
+	if (_tick_opts == none)
+		return;
+	qreal scale = width / minimumLevel;
+
+	painter.setFont(tickFont);
+	painter.setPen(majorTickColor);
+	
+	if (_tick_opts == bottom) {
+		// Draw major tick lines and numeric indicators.
+		for (int i = 0; i >= minimumLevel; i -= 5) {
+			int position = int(x + width - (i * scale) - 1);
+			if (_tick_db) {
+				QString str = QString::number(i);
+
+				if (i == 0 || i == -5)
+					painter.drawText(position - 3, height, str);
+				else
+					painter.drawText(position - 5, height, str);
+			}
+			painter.drawLine(position, y, position, y + 2);
+		}
+
+		// Draw minor tick lines.
+		painter.setPen(minorTickColor);
+		for (int i = 0; i >= minimumLevel; i--) {
+			int position = int(x + width - (i * scale) - 1);
+			if (i % 5 != 0)
+				painter.drawLine(position, y, position, y + 1);
+		}
+	} else {
+		//painter.translate(width, 0);
+		//painter.scale(-1, 1);
+		// Draw major tick lines.
+		for (int i = 0; i >= minimumLevel; i -= 5) {
+			int position = int(x + width - (i * scale) - 1);
+			painter.drawLine(position, y + height, position, y + (height-2));
+		}
+
+		// Draw minor tick lines.
+		painter.setPen(minorTickColor);
+		for (int i = 0; i >= minimumLevel; i--) {
+			int position = int(x + width - (i * scale) - 1);
+			if (i % 5 != 0)
+				painter.drawLine(position, y + height, position, y + (height-1));
+		}
+		// Draw numeric indicators
+		painter.setPen(majorTickColor);
+		for (int i = 0; i >= minimumLevel; i -= 5) {
+			int position = int(x + width - (i * scale) - 1);
+			if (_tick_db) {
+				QString str = QString::number(i);
+
+				if (i == 0 || i == -5)
+					painter.drawText(position - 3, y + (height - 4), str);
+				else
+					painter.drawText(position - 5, y + (height - 4), str);
+			}
+		}
+	}
+}
+
+void OBSAudioMeter::paintVTicks(QPainter &painter, int x, int y, int width, int height)
+{
+	if (_tick_opts == none)
+		return;
+	qreal scale = height / minimumLevel;
+
+	painter.setFont(tickFont);
+	painter.setPen(majorTickColor);
+
+	if (_tick_opts == right) {
+		// Draw major tick lines and numeric indicators.
+		for (int i = 0; i >= minimumLevel; i -= 5) {
+			int position = y + int((i * scale) - 1);
+			if (_tick_db) {
+				QString str = QString::number(i);
+
+				if (i == 0)
+					painter.drawText(x + 5, position + 4, str);
+				else if (i == -60)
+					painter.drawText(x + 4, position, str);
+				else
+					painter.drawText(x + 4, position + 2, str);
+			}
+			painter.drawLine(x, position, x + 2, position);
+		}
+
+		// Draw minor tick lines.
+		painter.setPen(minorTickColor);
+		for (int i = 0; i >= minimumLevel; i--) {
+			int position = y + int((i * scale) - 1);
+			if (i % 5 != 0)
+				painter.drawLine(x, position, x + 1, position);
+		}
+	} else {
+		// Draw major tick lines
+		for (int i = 0; i >= minimumLevel; i -= 5) {
+			int position = y + int((i * scale) - 1);
+			painter.drawLine(x + width, position, x + (width - 2), position);
+		}
+
+		// Draw minor tick lines.
+		painter.setPen(minorTickColor);
+		for (int i = 0; i >= minimumLevel; i--) {
+			int position = y + int((i * scale) - 1);
+			if (i % 5 != 0)
+				painter.drawLine(x + width, position, x + (width - 1), position);
+		}
+
+		if (_tick_db) {
+			painter.setPen(majorTickColor);
+			int fontHeight = painter.font().pixelSize();
+			for (int i = 0; i >= minimumLevel; i -= 5) {
+				int position = y + int((i * scale) - 1);
+				QString str = QString::number(i);
+
+				if (i == 0)
+					painter.drawText(x, position + 4 - fontHeight, (width - 3), fontHeight, Qt::AlignBottom | Qt::AlignRight, str);
+				else if (i == minimumLevel)
+					painter.drawText(x, position + 1 - fontHeight, (width - 3), fontHeight, Qt::AlignBottom | Qt::AlignRight, str);
+				else
+					painter.drawText(x, position + 2 - fontHeight, (width - 3), fontHeight, Qt::AlignBottom | Qt::AlignRight, str);
+			}
+		}
+	}
+}
+
+void OBSAudioMeter::paintHMeter(QPainter &painter, int x, int y, int width,
 	int height, float magnitude, float peak, float inputPeak, float peakHold, float inputPeakHold = -M_INFINITE)
 {
 	qreal scale = width / minimumLevel;
@@ -215,13 +369,7 @@ void QGainWidget::paintHMeter(QPainter &painter, int x, int y, int width,
 		backgroundErrorColor);
 
 	/*Draw Meter*/
-	if (peakPosition < inputPeakPosition)
-		drawMeter(inputPeakPosition, inputPeakHoldPosition, diffNominalColor, diffWarningColor, diffErrorColor);
-
 	drawMeter(peakPosition, peakHoldPosition, foregroundNominalColor, foregroundWarningColor, foregroundErrorColor);
-
-	if (peakPosition > inputPeakPosition)
-		drawMeter(inputPeakPosition, inputPeakHoldPosition, diffNominalColor, diffWarningColor, diffErrorColor);
 
 	/*Draw Magnitude*/
 	if (magnitudePosition - 3 >= minimumPosition)
@@ -229,7 +377,7 @@ void QGainWidget::paintHMeter(QPainter &painter, int x, int y, int width,
 			magnitudeColor);
 }
 
-void QGainWidget::paintVMeter(QPainter &painter, int x, int y, int width,
+void OBSAudioMeter::paintVMeter(QPainter &painter, int x, int y, int width,
 	int height, float magnitude, float peak, float inputPeak, float peakHold, float inputPeakHold = -M_INFINITE)
 {
 	qreal scale = height / minimumLevel;
@@ -304,153 +452,142 @@ void QGainWidget::paintVMeter(QPainter &painter, int x, int y, int width,
 		backgroundErrorColor);
 
 	/*Draw Meter*/
-	if (peakPosition < inputPeakPosition)
-		drawMeter(inputPeakPosition, inputPeakHoldPosition, diffNominalColor, diffWarningColor, diffErrorColor);
-
 	drawMeter(peakPosition, peakHoldPosition, foregroundNominalColor, foregroundWarningColor, foregroundErrorColor);
-
-	if (peakPosition > inputPeakPosition)
-		drawMeter(inputPeakPosition, inputPeakHoldPosition, diffNominalColor, diffWarningColor, diffErrorColor);
 
 	if (magnitudePosition - 3 >= minimumPosition)
 		painter.fillRect(x, magnitudePosition - 3, width, 3,
 			magnitudeColor);
 }
 
-void QGainWidget::paintEvent(QPaintEvent *event)
+void OBSAudioMeter::paintEvent(QPaintEvent *event)
 {
 	uint64_t ts = os_gettime_ns();
 	qreal timeSinceLastRedraw = (ts - lastRedrawTime) * 0.000000001;
 	calculateBallistics(ts, timeSinceLastRedraw);
+	handleChannelCofigurationChange();
+
+	bool idle = detectIdle(ts);
 
 	QPainter painter(this);
 	/*Draw cached background*/
+	const QRect rect = event->region().boundingRect();
+	int width = rect.width();
+	int height = rect.height();
+	/*
 	int width = this->width();
 	int height = this->height();
+	*/
+	tick_location ticks = _tick_opts;
+
+	// Draw the ticks in a off-screen buffer when the widget changes size.
+	QSize tickPaintCacheSize;
+	if (vertical)
+		tickPaintCacheSize = QSize(14, height);
+	else
+		tickPaintCacheSize = QSize(width, 9);
+
+	if (tickPaintCache == nullptr ||
+		tickPaintCache->size() != tickPaintCacheSize) {
+		delete tickPaintCache;
+		tickPaintCache = new QPixmap(tickPaintCacheSize);
+
+		QColor clearColor(0, 0, 0, 0);
+		tickPaintCache->fill(clearColor);
+
+		QPainter tickPainter(tickPaintCache);
+		if (vertical) {
+			tickPainter.translate(0, height);
+			tickPainter.scale(1, -1);
+			paintVTicks(tickPainter, 0, 11,
+				tickPaintCacheSize.width(),
+				tickPaintCacheSize.height() - 11);
+		} else {
+			paintHTicks(tickPainter, 6, 0,
+				tickPaintCacheSize.width() - 6,
+				tickPaintCacheSize.height());
+		}
+		tickPainter.end();
+	}
 
 	int maxChannelNr = _channels;
+	// Actual painting of the widget starts here.
+
+	// Invert the Y axis to ease the math
+	if (vertical) {
+		painter.translate(0, height);
+		painter.scale(1, -1);
+	}
+	if (ticks != none) {
+		if (vertical) {
+			if (ticks == right) {
+				painter.drawPixmap(maxChannelNr * 4 - 1, 7, *tickPaintCache);
+			} else {
+				painter.drawPixmap(0, 7, *tickPaintCache);
+			}
+		} else {
+			if (ticks == bottom) {
+				painter.drawPixmap(0, maxChannelNr * 4 - 1, *tickPaintCache);
+			} else {
+				painter.drawPixmap(0, 0, *tickPaintCache);
+			}
+		}
+	}
+
+	float maxPeak = -M_INFINITE;
 	for (int channelNr = 0; channelNr < maxChannelNr; channelNr++) {
+		int offset = channelNr * 4;
+		if (vertical && ticks == left) {
+			offset += tickPaintCacheSize.width();
+		} else if (!vertical && ticks == top) {
+			offset += tickPaintCacheSize.height();
+		}
 		if (vertical)
-			paintVMeter(painter, channelNr * 4, 8, 3, height - 10,
+			paintVMeter(painter, offset, 8, 3, height - 10,
 				displayMagnitude[channelNr],
 				displayPeak[channelNr],
 				displayInputPeak[channelNr],
 				displayPeakHold[channelNr],
 				displayInputPeakHold[channelNr]);
 		else
-			paintHMeter(painter, 5, channelNr * 4, width - 5, 3,
+			paintHMeter(painter, 5, offset, width - 5, 3,
 				displayMagnitude[channelNr],
 				displayPeak[channelNr],
 				displayInputPeak[channelNr],
 				displayPeakHold[channelNr],
 				displayInputPeakHold[channelNr]);
 
-		// -60.0, -50.0, -9.0);
+		if (displayPeak[channelNr] > maxPeak)
+			maxPeak = displayPeak[channelNr];
+
+		if (idle)
+			continue;
+
 		// By not drawing the input meter boxes the user can
 		// see that the audio stream has been stopped, without
 		// having too much visual impact.
 		if (vertical)
-			paintInputMeter(painter, channelNr * 4, 3, 3, 3,
+			paintInputMeter(painter, offset, 3, 3, 3,
 				displayInputPeakHold[channelNr]);
 		else
-			paintInputMeter(painter, 0, channelNr * 4, 3, 3,
+			paintInputMeter(painter, 0, offset, 3, 3,
 				displayInputPeakHold[channelNr]);
 	}
-
-	/*Draw Handle*/
-	int w = vertical ? maxChannelNr * 4 : _handleWidth;
-	int h = vertical ? _handleWidth : maxChannelNr * 4;
-	int x = this->rect().topLeft().x() +
-		vertical ? 0 : (_scale * (double)(width - _handleWidth));
-	int y = this->rect().topLeft().y() +
-		vertical ? (_scale * (double)(height - _handleWidth)): 0;
-	painter.fillRect(x, y, w, h, Qt::blue);
 
 	lastRedrawTime = ts;
 }
 
-void QGainWidget::mousePressEvent(QMouseEvent *event)
-{
-	QPoint point = event->pos();
-	QPointF pointf = event->localPos();
-	switch (event->button()) {
-	case Qt::RightButton:
-		_scale = 0.5;
-		_db = 0.0;
-		_mul = 1.0;
-		blog(LOG_INFO, "[%f db, %f]", _db, _mul);
-		break;
-	case Qt::LeftButton:
-		if (vertical)
-			_scale = clamp((pointf.y() / (double)(this->height() - _handleWidth)), 0, 1.0);
-		else
-			_scale = clamp((pointf.x() / (double)(this->width() - _handleWidth)), 0, 1.0);
-		_db = lerp(_scale, _minDb, _maxDb);
-		_mul = db_to_mul((float)_db);
-		blog(LOG_INFO, "[%f db, %f]", _db, _mul);
-		_mousePressed = true;
-		break;
-	default:
-		return;
-	}
+void QGainWidget::updateDb(double db) {
+	_db = db;
+	_mul = db_to_mul(_db);
+	double diffDb = abs(_minDb - _maxDb);
+	double relDb = _db - _minDb;
+	_scale = relDb / diffDb;
 
 	obs_data_t *settings = obs_source_get_settings(_source);
-	obs_data_set_double(settings, S_GAIN_DB, (double)_db);
+	obs_data_set_double(settings, "db", (double)_db);
 	obs_source_update(_source, settings);
 	obs_data_release(settings);
 	obs_source_update_properties(_source);
-
-	
-//	blog(LOG_INFO, "[%f / %f] (%f)", pointf.x(), this->width(), (pointf.x() / (double)this->width()));
-//	repaint();
-}
-
-void QGainWidget::mouseReleaseEvent(QMouseEvent *event)
-{
-	_mousePressed = false;
-}
-
-void QGainWidget::mouseMoveEvent(QMouseEvent *event)
-{
-	if (_mousePressed) {
-		QPoint point = event->pos();
-		QPointF pointf = event->localPos();
-		//	blog(LOG_INFO, "[%f / %f] (%f)", pointf.x(), this->width(), (pointf.x() / (double)this->width()));
-
-		if (vertical)
-			_scale = clamp((pointf.y() / (double)(this->height() - _handleWidth)), 0, 1.0);
-		else
-			_scale = clamp((pointf.x() / (double)(this->width() - _handleWidth)), 0, 1.0);
-		_db = lerp(_scale, _minDb, _maxDb);
-		_mul = db_to_mul((float)_db);
-		blog(LOG_INFO, "[%f db, %f]", _db, _mul);
-
-		obs_data_t *settings = obs_source_get_settings(_source);
-		obs_data_set_double(settings, S_GAIN_DB, (double)_db);
-		obs_source_update(_source, settings);
-		obs_data_release(settings);
-		obs_source_update_properties(_source);
-	}
-}
-
-void QGainWidget::mouseDoubleClickEvent(QMouseEvent *event)
-{
-
-}
-
-void QGainWidget::dragMoveEvent(QDragMoveEvent *event)
-{
-
-}
-
-void QGainWidget::dragLeaveEvent(QDragLeaveEvent *event)
-{
-
-}
-
-void QGainWidget::dragEnterEvent(QDragEnterEvent *event)
-{
-
 }
 
 extern "C" {
@@ -552,15 +689,93 @@ extern "C" {
 		obs_properties_add_float_slider(ppts, S_GAIN_DB, TEXT_GAIN_DB,
 			-30.0, 30.0, 0.1);
 
-		obs_properties_set_param(ppts, gf, nullptr);
+		obs_properties_set_param(ppts, &gf->channels, nullptr);
 		return ppts;
+	}
+
+	static void getSample(OBSAudioMeter *meter)
+	{
+		if (!meter)
+			return;
+		const obs_source_t *source = meter->getSource();
+		obs_properties_t *props = obs_source_properties(source);
+		struct audio_peak_data* data = static_cast<struct audio_peak_data*>(
+			obs_properties_get_param(props));
+
+		if (data) {
+			if (pthread_mutex_trylock(&data->mutex) == 0) {
+				meter->setChannels(data->channels);
+				meter->setLevels(data->mag, data->peak, data->input_peak);
+
+				pthread_mutex_unlock(&data->mutex);
+			}
+		} else {
+			meter->resetLevels();
+		}
+		obs_properties_destroy(props);
+	}
+
+	static void getBeforeSample(OBSAudioMeter *meter)
+	{
+		if (!meter)
+			return;
+		const obs_source_t *source = meter->getSource();
+		obs_properties_t *props = obs_source_properties(source);
+		struct audio_peak_data* data = static_cast<struct audio_peak_data*>(
+			obs_properties_get_param(props));
+
+		if (data) {
+			if (pthread_mutex_trylock(&data->mutex) == 0) {
+				meter->setChannels(data->channels);
+				meter->setLevels(data->mag, data->peak, data->peak);
+
+				pthread_mutex_unlock(&data->mutex);
+			}
+		} else {
+			meter->resetLevels();
+		}
+		obs_properties_destroy(props);
+	}
+
+	static void getAfterSample(OBSAudioMeter *meter)
+	{
+		if (!meter)
+			return;
+		const obs_source_t *source = meter->getSource();
+		obs_properties_t *props = obs_source_properties(source);
+		struct audio_peak_data* data = static_cast<struct audio_peak_data*>(
+			obs_properties_get_param(props));
+
+		if (data) {
+			if (pthread_mutex_trylock(&data->mutex) == 0) {
+				meter->setChannels(data->channels);
+				meter->setLevels(data->input_mag, data->input_peak, data->input_peak);
+
+				pthread_mutex_unlock(&data->mutex);
+			}
+		} else {
+			meter->resetLevels();
+		}
+		obs_properties_destroy(props);
 	}
 
 	void *gain_ui(void *source, void *parent)
 	{
 		QWidget *parentWidget = static_cast<QWidget*>(parent);
-		return new QGainWidget(parentWidget, Qt::WindowFlags(),
+		/*
+		OBSAudioMeter *meter = new OBSAudioMeter(parentWidget, Qt::WindowFlags(),
 			static_cast<obs_source_t*>(source));
+			*/
+		
+		QGainWidget *meter = new QGainWidget(parentWidget, Qt::WindowFlags(),
+			static_cast<obs_source_t*>(source));
+			
+		//meter->setCallback(getSample);
+		
+		meter->setBeforeCallback(getBeforeSample);
+		meter->setAfterCallback(getAfterSample);
+		
+		return meter;
 	}
 
 }
