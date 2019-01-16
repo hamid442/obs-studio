@@ -52,10 +52,12 @@ set(obs-filters_SOURCES
 	noise-gate-filter.c
 	mask-filter.c
 	invert-audio-polarity.c
-	compressor-filter.c)
+	compressor-filter.c
+	../../../UI/double-slider.cpp)
 
 set(obs-filters_HEADERS
-	QGainWidget.h)
+	QGainWidget.h
+	../../../UI/double-slider.hpp)
 
 add_library(obs-filters MODULE
 	${obs-filters_HEADERS}

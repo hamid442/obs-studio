@@ -14,6 +14,7 @@
 #include <QSlider>
 #include <QSizePolicy>
 #include <cmath>
+#include "double-slider.hpp"
 #include "util/threading.h"
 #include "util/platform.h"
 
@@ -33,7 +34,7 @@ constexpr double clamp(double t, double min, double max)
 }
 
 #define CLAMP(x, min, max) (clamp(x, min, max))
-
+/*
 class DoubleSlider : public QSlider {
 	Q_OBJECT
 private:
@@ -73,6 +74,7 @@ public slots:
 		setValue(lround((val - minVal) / minStep));
 	}
 };
+*/
 
 struct audio_peak_data {
 	size_t channels;
@@ -406,7 +408,7 @@ public:
 };
 
 class QGainWidget : public QWidget{
-
+	Q_OBJECT
 private:
 	OBSAudioMeter *beforeMeter = nullptr;
 	OBSAudioMeter *afterMeter = nullptr;
