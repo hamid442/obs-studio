@@ -5,6 +5,8 @@ option(DISABLE_SPEEXDSP "Disable building of the SpeexDSP-based Noise Suppressio
 find_package(Qt5Core REQUIRED)
 find_package(Qt5Widgets REQUIRED)
 
+set(CMAKE_AUTOMOC TRUE)
+
 if(DISABLE_SPEEXDSP)
 	message(STATUS "SpeexDSP support disabled")
 	set(LIBSPEEXDSP_FOUND FALSE)
@@ -29,7 +31,8 @@ configure_file("${CMAKE_CURRENT_SOURCE_DIR}/obs-filters-config.h.in"
 set(obs-filters_config_HEADERS
 	"${CMAKE_BINARY_DIR}/plugins/obs-filters/config/obs-filters-config.h")
 include_directories(${LIBSPEEXDSP_INCLUDE_DIRS}
-	"${CMAKE_BINARY_DIR}/plugins/obs-filters/config")
+	"${CMAKE_BINARY_DIR}/plugins/obs-filters/config"
+	"${CMAKE_BINARY_DIR}/UI")
 
 if(MSVC)
 	set(obs-filters_PLATFORM_DEPS
@@ -53,10 +56,12 @@ set(obs-filters_SOURCES
 	mask-filter.c
 	invert-audio-polarity.c
 	compressor-filter.c
+	OBSAudioMeter.cpp
 	../../../UI/double-slider.cpp)
 
 set(obs-filters_HEADERS
 	QGainWidget.h
+	OBSAudioMeter.h
 	../../../UI/double-slider.hpp)
 
 add_library(obs-filters MODULE
