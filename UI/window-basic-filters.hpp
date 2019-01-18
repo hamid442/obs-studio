@@ -21,7 +21,7 @@
 #include <QDialogButtonBox>
 #include <memory>
 #include <obs.hpp>
-
+#include "OBSAudioMeter.hpp"
 #include "properties-view.hpp"
 
 class OBSBasic;
@@ -39,6 +39,8 @@ private:
 	OBSSource source;
 	OBSPropertiesView *view = nullptr;
 	QWidget *customView = nullptr;
+	OBSAudioMeter *beforeMeter = nullptr;
+	OBSAudioMeter *afterMeter = nullptr;
 
 	OBSSignal addSignal;
 	OBSSignal removeSignal;
@@ -47,6 +49,7 @@ private:
 	OBSSignal removeSourceSignal;
 	OBSSignal renameSourceSignal;
 	OBSSignal updatePropertiesSignal;
+	OBSSignal updateMetersSignal;
 
 	inline OBSSource GetFilter(int row, bool async);
 
@@ -59,6 +62,7 @@ private:
 	static void SourceRemoved(void *param, calldata_t *data);
 	static void SourceRenamed(void *param, calldata_t *data);
 	static void UpdateProperties(void *data, calldata_t *params);
+	static void UpdateMeters(void *data, calldata_t *params);
 	static void DrawPreview(void *data, uint32_t cx, uint32_t cy);
 
 	QMenu *CreateAddFilterPopupMenu(bool async);
@@ -111,6 +115,8 @@ private slots:
 			QAbstractItemDelegate::EndEditHint endHint);
 
 public:
+	void setPeakInfo(float *in_peak, float *in_mag, float *out_peak,
+		float *out_mag, int channels);
 	OBSBasicFilters(QWidget *parent, OBSSource source_);
 	~OBSBasicFilters();
 

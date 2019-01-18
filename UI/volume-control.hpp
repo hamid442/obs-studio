@@ -8,10 +8,12 @@
 #include <QMutex>
 #include <QList>
 
+#include <OBSAudioMeter.hpp>
+
 class QPushButton;
 class VolumeMeterTimer;
 
-class VolumeMeter : public QWidget
+class VolumeMeter : public OBSAudioMeter//public QWidget
 {
 	Q_OBJECT
 	Q_PROPERTY(QColor backgroundNominalColor
@@ -79,7 +81,7 @@ class VolumeMeter : public QWidget
 	Q_PROPERTY(qreal inputPeakHoldDuration
 		READ getInputPeakHoldDuration
 		WRITE setInputPeakHoldDuration DESIGNABLE true)
-
+	
 private slots:
 	void ClipEnding();
 
@@ -157,7 +159,7 @@ public:
 		const float magnitude[MAX_AUDIO_CHANNELS],
 		const float peak[MAX_AUDIO_CHANNELS],
 		const float inputPeak[MAX_AUDIO_CHANNELS]);
-
+	
 	QColor getBackgroundNominalColor() const;
 	void setBackgroundNominalColor(QColor c);
 	QColor getBackgroundWarningColor() const;

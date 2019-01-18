@@ -78,6 +78,7 @@ static const char *source_signals[] = {
 	"void transition_start(ptr source)",
 	"void transition_video_stop(ptr source)",
 	"void transition_stop(ptr source)",
+	"void filter_audio(ptr in_peak, ptr in_mag, ptr out_peak, ptr out_mag)",
 	NULL
 };
 
@@ -2496,15 +2497,115 @@ static inline struct obs_audio_data *filter_async_audio(obs_source_t *source,
 		struct obs_audio_data *in)
 {
 	size_t i;
+	bool processed_filter = false;
+	float input_sum[MAX_AV_PLANES] = { 0 };
+	float input_peak[MAX_AV_PLANES] = { 0 };
+	float input_mag[MAX_AV_PLANES] = { 0 };
+	float output_sum[MAX_AV_PLANES] = { 0 };
+	float output_peak[MAX_AV_PLANES] = { 0 };
+	float output_mag[MAX_AV_PLANES] = { 0 };
+
+	long long channels = 0;
+	struct calldata data;
+	uint8_t stack[272];
+	calldata_init_fixed(&data, stack, sizeof(stack));
+
 	for (i = source->filters.num; i > 0; i--) {
 		struct obs_source *filter = source->filters.array[i-1];
 
-		if (!filter->enabled)
+		if (!filter->enabled) {
+			memcpy(&input_mag, &output_mag,
+				sizeof(float)*MAX_AV_PLANES);
+			memcpy(&input_peak, &output_peak,
+				sizeof(float)*MAX_AV_PLANES);
+			memcpy(&input_sum, &output_sum,
+				sizeof(float)*MAX_AV_PLANES);
+
+			for (int c = 0; c < MAX_AV_PLANES; c++) {
+				input_sum[c] = 0.0;
+				input_peak[c] = 0.0;
+				input_mag[c] = 0.0;
+				if (!in || !in->data[c])
+					continue;
+
+				channels++;
+			}
+			processed_filter = true;
+
+			calldata_set_ptr(&data, "in_peak", &input_peak);
+			calldata_set_ptr(&data, "in_mag", &input_mag);
+			calldata_set_ptr(&data, "out_peak", &output_peak);
+			calldata_set_ptr(&data, "out_mag", &output_mag);
+			calldata_set_int(&data, "channels", channels);
+			/* Process output peak / magnitude */
+			signal_handler_t *sh =
+				obs_source_get_signal_handler(filter);
+			signal_handler_signal(sh, "filter_audio", &data);
 			continue;
+		}
 
 		if (filter->context.data && filter->info.filter_audio) {
+			/* Process input peak / magnitude */
+			if (!processed_filter) {
+				for (int c = 0; c < MAX_AV_PLANES; c++) {
+					input_sum[c] = 0.0;
+					input_peak[c] = 0.0;
+					input_mag[c] = 0.0;
+					if (!in || !in->data[c])
+						continue;
+
+					channels++;
+					float **adata = (float**)in->data;
+					for (size_t f = 0; f < in->frames; f++) {
+						float sample = adata[c][f];
+						input_sum[c] += sample * sample;
+						float abs_sample = fabsf(sample);
+						if (abs_sample > input_peak[c])
+							input_peak[c] = abs_sample;
+					}
+					input_mag[c] = sqrtf(input_sum[c] /
+						in->frames);
+				}
+				processed_filter = true;
+			} else {
+				memcpy(&input_mag, &output_mag,
+					sizeof(float)*MAX_AV_PLANES);
+				memcpy(&input_peak, &output_peak,
+					sizeof(float)*MAX_AV_PLANES);
+				memcpy(&input_sum, &output_sum,
+					sizeof(float)*MAX_AV_PLANES);
+			}
 			in = filter->info.filter_audio(filter->context.data,
 					in);
+			for (int c = 0; c < MAX_AV_PLANES; c++) {
+				output_sum[c] = 0.0;
+				output_peak[c] = 0.0;
+				output_mag[c] = 0.0;
+				if (!in || !in->data[c])
+					continue;
+
+				float **adata = (float**)in->data;
+				for (size_t f = 0; f < in->frames; f++) {
+					float sample = adata[c][f];
+					output_sum[c] += sample * sample;
+					float abs_sample = fabsf(sample);
+					if (abs_sample > output_peak[c])
+						output_peak[c] = abs_sample;
+				}
+				output_mag[c] = sqrtf(output_sum[c] /
+					in->frames);
+			}
+
+			calldata_set_ptr(&data, "in_peak", &input_peak);
+			calldata_set_ptr(&data, "in_mag", &input_mag);
+			calldata_set_ptr(&data, "out_peak", &output_peak);
+			calldata_set_ptr(&data, "out_mag", &output_mag);
+			calldata_set_int(&data, "channels", channels);
+			/* Process output peak / magnitude */
+			signal_handler_t *sh =
+				obs_source_get_signal_handler(filter);
+			signal_handler_signal(sh, "filter_audio", &data);
+
 			if (!in)
 				return NULL;
 		}

@@ -500,7 +500,8 @@ void VolumeMeter::setPeakMeterType(enum obs_peak_meter_type peakMeterType)
 
 VolumeMeter::VolumeMeter(QWidget *parent, obs_volmeter_t *obs_volmeter,
 		bool vertical)
-		: QWidget(parent), obs_volmeter(obs_volmeter),
+		: OBSAudioMeter(parent),//QWidget(parent),
+		obs_volmeter(obs_volmeter),
 		vertical(vertical)
 {
 	// Use a font that can be rendered small.

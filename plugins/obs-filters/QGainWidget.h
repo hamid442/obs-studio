@@ -17,6 +17,7 @@
 #include <cmath>
 #include "OBSAudioMeter.h"
 #include "../../../../UI/double-slider.hpp"
+//#include "../../../../UI/properties-view.hpp"
 #include "util/threading.h"
 #include "util/platform.h"
 
@@ -62,7 +63,6 @@ protected:
 	void paintEvent(QPaintEvent *event) override;
 	void mouseMoveEvent(QMouseEvent *event) override;
 	void mousePressEvent(QMouseEvent *event) override;
-	void mouseDoubleClickEvent(QMouseEvent *event) override;
 	void mouseReleaseEvent(QMouseEvent *event) override;
 	void dragMoveEvent(QDragMoveEvent *event) override;
 	void dragLeaveEvent(QDragLeaveEvent *event) override;
@@ -98,7 +98,6 @@ public:
 
 	~QGainWidget()
 	{
-		//if (redrawTimer)
-		//	redrawTimer->deleteLater();
+
 	};
 };

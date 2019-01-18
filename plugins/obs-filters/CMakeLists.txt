@@ -31,8 +31,11 @@ configure_file("${CMAKE_CURRENT_SOURCE_DIR}/obs-filters-config.h.in"
 set(obs-filters_config_HEADERS
 	"${CMAKE_BINARY_DIR}/plugins/obs-filters/config/obs-filters-config.h")
 include_directories(${LIBSPEEXDSP_INCLUDE_DIRS}
+#	"${CMAKE_BINARY_DIR}/libobs"
 	"${CMAKE_BINARY_DIR}/plugins/obs-filters/config"
 	"${CMAKE_BINARY_DIR}/UI")
+#	"${CMAKE_BINARY_DIR}/UI/obs-frontend-api")
+#include_directories(SYSTEM "obs-frontend-api")
 
 if(MSVC)
 	set(obs-filters_PLATFORM_DEPS

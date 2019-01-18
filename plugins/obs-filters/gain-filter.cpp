@@ -309,5 +309,4 @@ extern "C" {
 		
 		return meter;
 	}
-
 }
