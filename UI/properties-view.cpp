@@ -1327,21 +1327,22 @@ void OBSPropertiesView::AddFrameRate(obs_property_t *prop, bool &warning,
 		emit info->ControlChanged();
 	});
 }
-
+/*
 void OBSPropertiesView::SetTransient(obs_property_t *prop)
 {
 	const char *name = obs_property_name(prop);
 	bool       val   = obs_property_transient(prop);
 	obs_data_set_transient(settings, name, val);
 }
-
+*/
+/*
 void OBSPropertiesView::AddMessage(obs_property_t *prop, QFormLayout * layout)
 {
 	const char *desc = obs_property_description(prop);
 	QLabel *label = new QLabel(QT_UTF8(desc));
 	layout->addRow(NULL, label);
 }
-
+*/
 void OBSPropertiesView::AddProperty(obs_property_t *property,
 		QFormLayout *layout)
 {
@@ -1355,7 +1356,7 @@ void OBSPropertiesView::AddProperty(obs_property_t *property,
 	QWidget *widget = nullptr;
 	bool    warning = false;
 
-	SetTransient(property);
+//	SetTransient(property);
 
 	switch (type) {
 	case OBS_PROPERTY_INVALID:
@@ -1393,16 +1394,17 @@ void OBSPropertiesView::AddProperty(obs_property_t *property,
 	case OBS_PROPERTY_FRAME_RATE:
 		AddFrameRate(property, warning, layout, label);
 		break;
+	/*
 	case OBS_PROPERTY_MESSAGE:
 		AddMessage(property, layout);
 		break;
+		*/
 	}
 
 	if (widget && !obs_property_enabled(property))
 		widget->setEnabled(false);
 
 	if (!label &&
-	    type != OBS_PROPERTY_MESSAGE &&
 	    type != OBS_PROPERTY_BOOL &&
 	    type != OBS_PROPERTY_BUTTON)
 		label = new QLabel(QT_UTF8(obs_property_description(property)));
@@ -1769,7 +1771,7 @@ void WidgetInfo::ControlChanged()
 {
 	const char        *setting  = obs_property_name(property);
 	obs_property_type type      = obs_property_get_type(property);
-	bool              transient = obs_property_transient(property);
+	//bool              transient = obs_property_transient(property);
 
 	switch (type) {
 	case OBS_PROPERTY_INVALID: return;
@@ -1797,9 +1799,9 @@ void WidgetInfo::ControlChanged()
 			return;
 		break;
 	}
-
+	/*
 	obs_data_set_transient(view->settings, setting, transient);
-
+	*/
 	if (view->callback && !view->deferUpdate)
 		view->callback(view->obj, view->settings);
 

@@ -40,7 +40,7 @@ struct obs_data_item {
 	size_t               default_size;
 	size_t               autoselect_size;
 	size_t               capacity;
-	bool                 transient;
+//	bool                 transient;
 };
 
 struct obs_data {
@@ -604,10 +604,10 @@ static json_t *obs_data_to_json(obs_data_t *data)
 
 		if (!obs_data_item_has_user_value(item))
 			continue;
-
+/*
 		if (obs_data_item_is_transient_value(item))
 			continue;
-
+			*/
 		if (type == OBS_DATA_STRING)
 			set_json_string(json, name, item);
 		else if (type == OBS_DATA_NUMBER)
@@ -1100,13 +1100,13 @@ void obs_data_set_array(obs_data_t *data, const char *name,
 {
 	obs_set_array(data, NULL, name, array, set_item);
 }
-
+/*
 void obs_data_set_transient(obs_data_t *data, const char *name, bool val)
 {
 	obs_data_item_t *item = obs_data_item_byname(data, name);
 	obs_data_item_set_transient(item, val);
 }
-
+*/
 void obs_data_set_default_string(obs_data_t *data, const char *name,
 		const char *val)
 {
@@ -1367,12 +1367,12 @@ bool obs_data_has_autoselect_value(obs_data_t *data, const char *name)
 {
 	return data && obs_data_item_has_autoselect_value(get_item(data, name));
 }
-
+/*
 bool obs_data_is_transient_value(obs_data_t *data, const char *name)
 {
 	return data && obs_data_item_is_transient_value(get_item(data, name));
 }
-
+*/
 bool obs_data_item_has_user_value(obs_data_item_t *item)
 {
 	return item && item->data_size;
@@ -1387,12 +1387,12 @@ bool obs_data_item_has_autoselect_value(obs_data_item_t *item)
 {
 	return item && item->autoselect_size;
 }
-
+/*
 bool obs_data_item_is_transient_value(obs_data_item_t *item)
 {
 	return item && item->transient;
 }
-
+*/
 /* ------------------------------------------------------------------------- */
 /* Clearing data values */
 
@@ -1629,13 +1629,13 @@ void obs_data_item_set_autoselect_array(obs_data_item_t **item,
 {
 	obs_set_array(NULL, item, NULL, val, set_item_auto);
 }
-
+/*
 void obs_data_item_set_transient(obs_data_item_t *item, bool val)
 {
 	if (item)
 		item->transient = val;
 }
-
+*/
 static inline bool item_valid(struct obs_data_item *item,
 		enum obs_data_type type)
 {

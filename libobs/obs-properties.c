@@ -151,7 +151,7 @@ struct obs_property {
 	enum obs_property_type  type;
 	bool                    visible;
 	bool                    enabled;
-	bool                    transient;
+//	bool                    transient;
 
 	struct obs_properties   *parent;
 
@@ -315,7 +315,7 @@ static inline size_t get_property_size(enum obs_property_type type)
 	case OBS_PROPERTY_EDITABLE_LIST:
 		return sizeof(struct editable_list_data);
 	case OBS_PROPERTY_FRAME_RATE: return sizeof(struct frame_rate_data);
-	case OBS_PROPERTY_MESSAGE: return 0;
+//	case OBS_PROPERTY_MESSAGE: return 0;
 	}
 
 	return 0;
@@ -332,7 +332,7 @@ static inline struct obs_property *new_prop(struct obs_properties *props,
 	p->parent    = props;
 	p->enabled   = true;
 	p->visible   = true;
-	p->transient = false;
+	//p->transient = false;
 	p->type      = type;
 	p->name      = bstrdup(name);
 	p->desc      = bstrdup(desc);
@@ -446,7 +446,7 @@ obs_property_t *obs_properties_add_text(obs_properties_t *props,
 	data->type = type;
 	return p;
 }
-
+/*
 obs_property_t *obs_properties_add_message(obs_properties_t *props,
 	const char *name, const char *message)
 {
@@ -454,7 +454,7 @@ obs_property_t *obs_properties_add_message(obs_properties_t *props,
 
 	return new_prop(props, name, message, OBS_PROPERTY_MESSAGE);
 }
-
+*/
 obs_property_t *obs_properties_add_path(obs_properties_t *props,
 		const char *name, const char *desc, enum obs_path_type type,
 		const char *filter, const char *default_path)
@@ -672,12 +672,12 @@ void obs_property_set_enabled(obs_property_t *p, bool enabled)
 {
 	if (p) p->enabled = enabled;
 }
-
+/*
 void obs_property_set_transient(obs_property_t *p, bool transient)
 {
 	if (p) p->transient = transient;
 }
-
+*/
 void obs_property_set_description(obs_property_t *p, const char *description)
 {
 	if (p) {
@@ -727,12 +727,12 @@ bool obs_property_visible(obs_property_t *p)
 {
 	return p ? p->visible : false;
 }
-
+/*
 bool obs_property_transient(obs_property_t *p)
 {
 	return p ? p->transient : false;
 }
-
+*/
 int obs_property_int_min(obs_property_t *p)
 {
 	struct int_data *data = get_type_data(p, OBS_PROPERTY_INT);
