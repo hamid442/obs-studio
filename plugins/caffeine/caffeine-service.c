@@ -166,15 +166,16 @@ static bool signin_clicked(obs_properties_t * props, obs_property_t * prop,
 	struct caffeine_auth_response * response =
 		caffeine_signin(username, password, otp);
 
+	obs_data_erase(settings, PASSWORD_KEY);
+	obs_data_erase(settings, OTP_KEY);
+
 	if (!response) {
 		show_message(props, obs_module_text("SigninFailed"));
-	}
-	else if (response->next) {
+	} else if (response->next) {
 		if (strcmp(response->next, "mfa_otp_required") == 0) {
 			if (otp_visible) {
 				show_message(props, obs_module_text("OtpIncorrect"));
-			}
-			else {
+			} else {
 				show_message(props, obs_module_text("OtpRequired"));
 				obs_property_set_visible(otp_prop, true);
 			}
@@ -185,16 +186,11 @@ static bool signin_clicked(obs_properties_t * props, obs_property_t * prop,
 		if (strcmp(response->next, "email_verification") == 0) {
 			show_message(props, obs_module_text("EmailVerificationRequired"));
 		}
-	}
-	else if (!response->credentials) {
+	} else if (!response->credentials) {
 		show_message(props, obs_module_text("NoAuthResponse"));
-	}
-	else {
+	} else {
 		obs_data_set_string(settings, REFRESH_TOKEN_KEY,
 			caffeine_refresh_token(response->credentials));
-
-		obs_data_erase(settings, PASSWORD_KEY);
-		obs_data_erase(settings, OTP_KEY);
 
 		signed_in_state(props);
 
@@ -249,14 +245,9 @@ static obs_properties_t * caffeine_service_properties(void * data)
 
 	prop = obs_properties_add_text(props, PASSWORD_KEY,
 		obs_module_text("Password"), OBS_TEXT_PASSWORD);
-	obs_property_set_transient(prop, true);
 
 	prop = obs_properties_add_text(props, OTP_KEY,
 		obs_module_text("OneTimePassword"), OBS_TEXT_PASSWORD);
-	obs_property_set_transient(prop, true);
-
-	prop = obs_properties_add_message(props, SIGNIN_MESSAGE_KEY, "");
-	obs_property_set_visible(prop, false);
 
 	prop = obs_properties_add_text(props, REFRESH_TOKEN_KEY,
 		REFRESH_TOKEN_KEY, OBS_TEXT_DEFAULT);
