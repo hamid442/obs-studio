@@ -527,7 +527,7 @@ obs_property_t *obs_properties_add_button2(obs_properties_t *props,
 	p->priv = priv;
 	return p;
 }
-
+/*
 obs_property_t *obs_properties_add_button3(obs_properties_t *props,
 		const char *name, const char *text,
 		obs_property_clicked3_t callback, void *priv)
@@ -541,7 +541,7 @@ obs_property_t *obs_properties_add_button3(obs_properties_t *props,
 	p->priv = priv;
 	return p;
 }
-
+*/
 obs_property_t *obs_properties_add_font(obs_properties_t *props,
 		const char *name, const char *desc)
 {

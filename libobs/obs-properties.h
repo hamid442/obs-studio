@@ -205,11 +205,11 @@ EXPORT obs_property_t *obs_properties_add_button(obs_properties_t *props,
 EXPORT obs_property_t *obs_properties_add_button2(obs_properties_t *props,
 		const char *name, const char *text,
 		obs_property_clicked_t callback, void *priv);
-
+/*
 EXPORT obs_property_t *obs_properties_add_button3(obs_properties_t *props,
 		const char *name, const char *text,
 		obs_property_clicked3_t callback, void *priv);
-
+		*/
 /**
  * Adds a font selection property.
  *

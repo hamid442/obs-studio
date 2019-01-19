@@ -210,6 +210,8 @@ static bool signout_clicked(obs_properties_t * props, obs_property_t * prop,
 
 	obs_data_erase(settings, REFRESH_TOKEN_KEY);
 	obs_data_erase(settings, USERNAME_KEY);
+	obs_data_erase(settings, PASSWORD_KEY);
+	obs_data_erase(settings, OTP_KEY);
 	obs_data_set_string(settings, BROADCAST_TITLE_KEY,
 		obs_module_text("DefaultBroadcastTitle"));
 	signed_out_state(props);
@@ -254,10 +256,10 @@ static obs_properties_t * caffeine_service_properties(void * data)
 	obs_property_set_modified_callback(prop, refresh_token_changed);
 	obs_property_set_visible(prop, false);
 
-	obs_properties_add_button3(props, SIGNIN_KEY,
+	obs_properties_add_button2(props, SIGNIN_KEY,
 		obs_module_text("ButtonSignIn"), signin_clicked, NULL);
 
-	obs_properties_add_button3(props, SIGNOUT_KEY,
+	obs_properties_add_button2(props, SIGNOUT_KEY,
 		obs_module_text("ButtonSignOut"), signout_clicked, NULL);
 
 	obs_properties_add_text(props, BROADCAST_TITLE_KEY,
