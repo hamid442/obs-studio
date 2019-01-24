@@ -698,7 +698,7 @@ public:
 			else
 				_descs.push_back(d + strNum);
 			_bindingNames.push_back(toSnakeCase(_names[i]));
-			val = _param->getAnnotationValue("tooltiop" + strNum);
+			val = _param->getAnnotationValue("tooltip" + strNum);
 			if (val)
 				_tooltips.push_back(*val);
 			else
