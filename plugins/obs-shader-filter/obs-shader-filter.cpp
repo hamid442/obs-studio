@@ -693,38 +693,37 @@ public:
 		std::string d = _parent->getDescription();
 		std::string strNum = "";
 		EVal       *val = nullptr;
+		auto push_back = [=](std::vector<std::string>* list, std::string name, std::string fallback) {
+			EVal *v = _param->getAnnotationValue(name);
+			if (v)
+				list->push_back(*v);
+			else
+				list->push_back(fallback);
+		};
 		for (i = 0; i < _dataCount; i++) {
 			if (_dataCount > 1)
 				strNum = "_" + std::to_string(i);
 			_names.push_back(n + strNum);
-			val = _param->getAnnotationValue("desc" + strNum);
-			if (val)
-				_descs.push_back(*val);
-			else
-				_descs.push_back(d + strNum);
+			push_back(&_descs, "desc" + strNum, d + strNum);
 			_bindingNames.push_back(toSnakeCase(_names[i]));
-			val = _param->getAnnotationValue("tooltip" + strNum);
-			if (val)
-				_tooltips.push_back(*val);
-			else
-				_tooltips.push_back(_bindingNames[i]);
+			push_back(&_tooltips, "tooltip" + strNum, _bindingNames[i]);
 			_values.push_back(empty);
 			_bindings.push_back(emptyBinding);
-
-			val = _param->getAnnotationValue("expr" + strNum);
-			if (val)
-				_expressions.push_back(*val);
-			else
-				_expressions.push_back("");
+			push_back(&_expressions, "expr" + strNum, "");
 		}
 
-		for (i = 0; i < 4; i++) {
-			if (_filter->resizeExpressions[i].empty()) {
-				val = _param->getAnnotationValue("resize_expr_" + dir[i]);
-				if (val)
-					_filter->resizeExpressions[i] = val->getString();
+		auto assign = [=](std::string *str, std::string name) {
+			if (str->empty()) {
+				EVal *v = _param->getAnnotationValue(name);
+				if (v)
+					*str = v->getString();
 			}
-		}
+		};
+		for (i = 0; i < 4; i++)
+			assign(&_filter->resizeExpressions[i], "resize_expr_" + dir[i]);
+
+		assign(&_filter->mixAExpression, "mix_a");
+		assign(&_filter->mixBExpression, "mix_b");
 	};
 
 	virtual void getProperties(ShaderSource *filter, obs_properties_t *props)
