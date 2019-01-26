@@ -321,6 +321,7 @@ public:
 	EVal()
 	{
 	};
+
 	~EVal()
 	{
 		if (data)
@@ -1653,52 +1654,29 @@ public:
 		_spawnRate = hlsl_clamp(_param->getAnnotationValue<float>("spawn_rate", 0), 0, 1000);
 
 		if (_isParticle) {
+			const std::vector<std::pair<std::string *, std::string>> expressions = {
+				{&_emitterXExpr, "emitter_x"},
+				{&_emitterYExpr, "emitter_y"},
+				{&_emitterZExpr, "emitter_z"},
+				{&_emitterXRotateExpr, "emitter_rotate_x"},
+				{&_emitterYRotateExpr, "emitter_rotate_y"},
+				{&_emitterZRotateExpr, "emitter_rotate_z"},
+				{&_rotateXExpr, "rotate_x"},
+				{&_rotateYExpr, "rotate_y"},
+				{&_rotateZExpr, "rotate_z"},
+				{&_translateXExpr, "translate_x"},
+				{&_translateYExpr, "translate_y"},
+				{&_translateZExpr, "translate_z"},
+				{&_alphaExpr, "alpha"},
+				{&_alphaDecayExpr, "alpha_decay"},
+				{&_localLifeTimeExpr,"particle_sec"}
+			};
 			EVal *l = nullptr;
-			l = _param->getAnnotationValue("emitter_x");
-			if (l)
-				_emitterXExpr = *l;
-			l = _param->getAnnotationValue("emitter_y");
-			if (l)
-				_emitterYExpr = *l;
-			l = _param->getAnnotationValue("emitter_z");
-			if (l)
-				_emitterZExpr = *l;
-			l = _param->getAnnotationValue("emitter_rotate_x");
-			if (l)
-				_emitterXRotateExpr = *l;
-			l = _param->getAnnotationValue("emitter_rotate_y");
-			if (l)
-				_emitterYRotateExpr = *l;
-			l = _param->getAnnotationValue("emitter_rotate_z");
-			if (l)
-				_emitterZRotateExpr = *l;
-			l = _param->getAnnotationValue("rotate_x");
-			if (l)
-				_rotateXExpr = *l;
-			l = _param->getAnnotationValue("rotate_y");
-			if (l)
-				_rotateYExpr = *l;
-			l = _param->getAnnotationValue("rotate_z");
-			if (l)
-				_rotateZExpr = *l;
-			l = _param->getAnnotationValue("translate_x");
-			if (l)
-				_translateXExpr = *l;
-			l = _param->getAnnotationValue("translate_y");
-			if (l)
-				_translateYExpr = *l;
-			l = _param->getAnnotationValue("translate_z");
-			if (l)
-				_translateZExpr = *l;
-			l = _param->getAnnotationValue("alpha");
-			if (l)
-				_alphaExpr = *l;
-			l = _param->getAnnotationValue("alpha_decay");
-			if (l)
-				_alphaDecayExpr = *l;
-			l = _param->getAnnotationValue("particle_sec");
-			if (l)
-				_localLifeTimeExpr = *l;
+			for (size_t i = 0; i < expressions.size(); i++) {
+				l = _param->getAnnotationValue(expressions[i].second);
+				if (l)
+					*expressions[i].first = *l;
+			}
 			_despawnOutOfView = _param->getAnnotationValue<bool>("remove_not_visible", false);
 			_despawnOld = _param->getAnnotationValue<bool>("remove_old", true);
 		}
@@ -1847,75 +1825,46 @@ public:
 		double x = 0;
 		double y = 0;
 		double z = 0;
-		if (!_emitterXExpr.empty()) {
-			_filter->compileExpression(_emitterXExpr);
-			x = _filter->evaluateExpression<double>(0);
-		}
-		if (!_emitterYExpr.empty()) {
-			_filter->compileExpression(_emitterYExpr);
-			y = _filter->evaluateExpression<double>(0);
-		}
-		if (!_emitterZExpr.empty()) {
-			_filter->compileExpression(_emitterZExpr);
-			z = _filter->evaluateExpression<double>(0);
-		}
+		auto assign = [=](const std::string &expr, double *v, const double fallback) {
+			if (!expr.empty()) {
+				_filter->compileExpression(expr);
+				*v = _filter->evaluateExpression<double>(fallback);
+			} else {
+				*v = fallback;
+			}
+		};
+		auto assign_flt = [=](const std::string &expr, float *v, const double fallback) {
+			if (!expr.empty()) {
+				_filter->compileExpression(expr);
+				*v = _filter->evaluateExpression<double>(fallback);
+			} else {
+				*v = fallback;
+			}
+		};
+		assign(_emitterXExpr, &x, 0);
+		assign(_emitterYExpr, &y, 0);
+		assign(_emitterZExpr, &z, 0);
 		matrix4_translate3f(&p.position, &p.position, x, y, z);
-		if (!_emitterXRotateExpr.empty()) {
-			_filter->compileExpression(_emitterXRotateExpr);
-			x = _filter->evaluateExpression<double>(0);
-		}
-		if (!_emitterYRotateExpr.empty()) {
-			_filter->compileExpression(_emitterYRotateExpr);
-			y = _filter->evaluateExpression<double>(0);
-		}
-		if (!_emitterZRotateExpr.empty()) {
-			_filter->compileExpression(_emitterZRotateExpr);
-			z = _filter->evaluateExpression<double>(0);
-		}
+
+		assign(_emitterXRotateExpr, &x, 0);
+		assign(_emitterYRotateExpr, &y, 0);
+		assign(_emitterZRotateExpr, &z, 0);
 		matrix4_rotate_aa4f(&p.position, &p.position, x, y, z, rate);
 
-		if (!_rotateXExpr.empty()) {
-			_filter->compileExpression(_rotateXExpr);
-			x = _filter->evaluateExpression<double>(0);
-		}
-		if (!_rotateYExpr.empty()) {
-			_filter->compileExpression(_rotateYExpr);
-			y = _filter->evaluateExpression<double>(0);
-		}
-		if (!_rotateZExpr.empty()) {
-			_filter->compileExpression(_rotateZExpr);
-			z = _filter->evaluateExpression<double>(0);
-		}
+		assign(_rotateXExpr, &x, 0);
+		assign(_rotateYExpr, &y, 0);
+		assign(_rotateZExpr, &z, 0);
 		matrix4_translate3f(&p.transform, &p.transform, x*rate, y*rate, z*rate);
 
-		if (!_translateXExpr.empty()) {
-			_filter->compileExpression(_translateXExpr);
-			x = _filter->evaluateExpression<double>(0);
-		}
-		if (!_translateYExpr.empty()) {
-			_filter->compileExpression(_translateYExpr);
-			y = _filter->evaluateExpression<double>(0);
-		}
-		if (!_translateZExpr.empty()) {
-			_filter->compileExpression(_translateZExpr);
-			z = _filter->evaluateExpression<double>(0);
-		}
+		assign(_translateXExpr, &x, 0);
+		assign(_translateYExpr, &y, 0);
+		assign(_translateZExpr, &z, 0);
 		matrix4_rotate_aa4f(&p.transform, &p.transform, x, y, z, rate);
 
-		if (!_localLifeTimeExpr.empty()) {
-			_filter->compileExpression(_localLifeTimeExpr);
-			p.localLifeTime = _filter->evaluateExpression<double>(0);
-		}
-
+		assign_flt(_localLifeTimeExpr, &p.localLifeTime, 0);
 		p.lifeTime = -seconds;
-		if (!_alphaExpr.empty()) {
-			_filter->compileExpression(_alphaExpr);
-			p.alpha = _filter->evaluateExpression<double>(255.0);
-		}
-		if (!_alphaDecayExpr.empty()) {
-			_filter->compileExpression(_alphaDecayExpr);
-			p.decayAlpha = _filter->evaluateExpression<double>(0);
-		}
+		assign_flt(_alphaExpr, &p.alpha, 255.0);
+		assign_flt(_alphaDecayExpr, &p.decayAlpha, 0);
 		_particles.push_back(p);
 	}
 
