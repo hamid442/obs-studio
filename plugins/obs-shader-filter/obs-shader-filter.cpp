@@ -838,9 +838,10 @@ protected:
 	bool              _showExpressionLess;
 	std::vector<bool> _skipProperty;
 	std::vector<bool> _disableProperty;
-	double            _min;
-	double            _max;
-	double            _step;
+	std::vector<double> _min;
+	std::vector<double> _max;
+	std::vector<double> _step;
+	std::vector<double> _default;
 	enum BindType {
 		unspecified, none, byte, short_integer, integer, floating_point, double_point
 	};
@@ -898,15 +899,44 @@ public:
 		_isInt = isIntType(paramType);
 		_skipWholeProperty = _bind ? true : false;
 		_skipCalculations = false;
+		_min.reserve(_dataCount);
+		_max.reserve(_dataCount);
+		_step.reserve(_dataCount);
+		_default.reserve(_dataCount);
+		_disableProperty.reserve(_dataCount);
+		_skipProperty.reserve(_dataCount);
+
 		size_t i;
-		if (_isFloat) {
-			_min = (double)_param->getAnnotationValue<float>("min", -FLT_MAX);
-			_max = (double)_param->getAnnotationValue<float>("max", FLT_MAX);
-			_step = (double)_param->getAnnotationValue<float>("step", 1.0);
-		} else {
-			_min = (double)_param->getAnnotationValue<int>("min", INT_MIN);
-			_max = (double)_param->getAnnotationValue<int>("max", INT_MAX);
-			_step = (double)_param->getAnnotationValue<int>("step", 1);
+		std::string strNum = "";
+		for (i = 0; i < _dataCount; i++) {
+			if (_dataCount > 1)
+				strNum = "_" + std::to_string(i);
+			if (_isFloat) {
+				_min[i] = (double)_param->getAnnotationValue<float>("min" + strNum, -FLT_MAX);
+				_max[i] = (double)_param->getAnnotationValue<float>("max" + strNum, FLT_MAX);
+				_step[i] = (double)_param->getAnnotationValue<float>("step" + strNum, 1.0);
+				_default[i] = (double)_param->getAnnotationValue<float>("default" + strNum, ((_min[i] + _max[i]) / 2.0));
+			} else if (_isInt) {
+				_min[i] = (double)_param->getAnnotationValue<int>("min" + strNum, INT_MIN);
+				_max[i] = (double)_param->getAnnotationValue<int>("max" + strNum, INT_MAX);
+				_step[i] = (double)_param->getAnnotationValue<int>("step" + strNum, 1);
+				_default[i] = (double)_param->getAnnotationValue<int>("default" + strNum, (int)((_min[i] + _max[i]) / 2.0));
+			} else {
+				switch (_numType) {
+				case combobox:
+				case list:
+					_min[i] = (double)_param->getAnnotationValue<int>("min" + strNum, INT_MIN);
+					_max[i] = (double)_param->getAnnotationValue<int>("max" + strNum, INT_MAX);
+					_step[i] = (double)_param->getAnnotationValue<int>("step" + strNum, 1);
+					_default[i] = (double)_param->getAnnotationValue<int>("default" + strNum, (int)((_min[i] + _max[i]) / 2.0));
+					break;
+				default:
+					_min[i] = 0.0;
+					_max[i] = 1.0;
+					_step[i] = 1.0;
+					_default[i] = (double)_param->getAnnotationValue<bool>("default" + strNum, false);
+				}
+			}
 		}
 
 		EVal *guitype = _param->getAnnotationValue("type");
@@ -922,8 +952,33 @@ public:
 			_numType = slider;
 		}
 
-		_disableProperty.reserve(_dataCount);
-		_skipProperty.reserve(_dataCount);
+		obs_data_t *settings = _filter->getSettings();
+		if (_isFloat) {
+			if (_numType == color && _dataCount == 4) {
+				struct vec4 temp;
+				vec4_set(&temp, _default[0], _default[1], _default[2], _default[3]);
+				obs_data_set_default_vec4(settings, _names[0].c_str(), &temp);
+			} else {
+				for (i = 0; i < _dataCount; i++) {
+					obs_data_set_default_double(settings, _names[i].c_str(), _default[i]);
+				}
+			}
+		} else if (_isInt) {
+			for (i = 0; i < _dataCount; i++) {
+				obs_data_set_default_int(settings, _names[i].c_str(), (int)_default[i]);
+			}
+		} else {
+			for (i = 0; i < _dataCount; i++) {
+				switch (_numType) {
+				case combobox:
+				case list:
+					obs_data_set_default_int(settings, _names[i].c_str(), (int)_default[i]);
+					break;
+				default:
+					obs_data_set_bool(settings, _names[i].c_str(), (bool)_default[i]);
+				}
+			}
+		}
 
 		for (i = 0; i < _dataCount; i++) {
 			if (_filter)
@@ -982,11 +1037,11 @@ public:
 					break;
 				case slider:
 					p = obs_properties_add_float_slider(
-						props, _names[i].c_str(), _descs[i].c_str(), _min, _max, _step);
+						props, _names[i].c_str(), _descs[i].c_str(), _min[i], _max[i], _step[i]);
 					break;
 				default:
 					p = obs_properties_add_float(
-						props, _names[i].c_str(), _descs[i].c_str(), _min, _max, _step);
+						props, _names[i].c_str(), _descs[i].c_str(), _min[i], _max[i], _step[i]);
 					break;
 				}
 				obs_property_set_enabled(p, !_disableProperty[i]);
@@ -1007,11 +1062,11 @@ public:
 					break;
 				case slider:
 					p = obs_properties_add_int_slider(props, _names[i].c_str(), _descs[i].c_str(),
-						(int)_min, (int)_max, (int)_step);
+						(int)_min[i], (int)_max[i], (int)_step[i]);
 					break;
 				default:
 					p = obs_properties_add_int(props, _names[i].c_str(), _descs[i].c_str(),
-						(int)_min, (int)_max, (int)_step);
+						(int)_min[i], (int)_max[i], (int)_step[i]);
 					break;
 				}
 				obs_property_set_enabled(p, !_disableProperty[i]);
