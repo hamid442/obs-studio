@@ -226,6 +226,12 @@ public:
 		if (_mutexCreated)
 			pthread_mutex_destroy(&_mutex);
 	}
+	int trylock()
+	{
+		if (_mutexCreated)
+			return pthread_mutex_trylock(&_mutex);
+		return -1;
+	}
 	void lock()
 	{
 		if (_mutexCreated)
@@ -312,6 +318,7 @@ public:
 	double _mouseType;
 	double _screenMousePosX;
 	double _screenMousePosY;
+	double _screenIndex;
 	double _screenMouseVisible;
 	double _mouseX;
 	double _mouseY;
@@ -331,16 +338,6 @@ public:
 
 	std::vector<double> _screenWidth;
 	std::vector<double> _screenHeight;
-
-	double getScreenHeight(double idx)
-	{
-		return idx < _screenHeight.size() ? _screenHeight[(uint32_t)idx] : 0.0;
-	}
-
-	double getScreenWidth(double idx)
-	{
-		return idx < _screenWidth.size() ? _screenWidth[(uint32_t)idx] : 0.0;
-	}
 
 	double _keyModifiers;
 	double _keyUp;
@@ -392,7 +389,7 @@ public:
 	void                           appendVariable(te_variable var);
 	void                           appendVariable(std::string &name, double *binding);
 
-	void compileExpression(std::string expresion = "");
+	void compileExpression(std::string expr = "");
 
 	template<class DataType> DataType evaluateExpression(DataType default_value = 0);
 	bool                              expressionCompiled();

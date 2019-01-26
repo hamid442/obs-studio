@@ -7,13 +7,6 @@ OBS_DECLARE_MODULE()
 OBS_MODULE_USE_DEFAULT_LOCALE("obs_shader_filter", "en-US")
 #define blog(level, msg, ...) blog(level, "shader-filter: " msg, ##__VA_ARGS__)
 
-#ifdef _WIN32
-#include <Windows.h>
-#elif __linux__ || __FreeBSD__
-#include <X11/extensions/Xfixes.h>
-#define xdisp (XCompcap::disp())
-#endif
-
 static const float farZ = 2097152.0f; // 2 pow 21
 static const float nearZ = 1.0f / farZ;
 
@@ -24,7 +17,14 @@ static bool shader_filter_reload_effect_clicked(obs_properties_t *props, obs_pro
 static bool shader_filter_file_name_changed(obs_properties_t *props, obs_property_t *p, obs_data_t *settings);
 
 static void getMouseCursor(void *data);
+
 static void getScreenSizes(void *data);
+
+static double getMousePositionXRelative(double index);
+
+static double getMousePositionYRelative(double index);
+
+static double getMouseScreen();
 
 static const char *shader_filter_texture_file_filter = "Textures (*.bmp *.tga *.png *.jpeg *.jpg *.gif);;";
 
@@ -34,6 +34,7 @@ static const char *shader_filter_media_file_filter =
 #define M_PI_D 3.141592653589793238462643383279502884197169399375
 
 static double getScreenWidth(double index);
+
 static double getScreenHeight(double index);
 
 static double hlsl_clamp(double in, double min, double max)
@@ -154,6 +155,10 @@ static double npr(double n, double r)
 	return ncr(n, r) * fac(r);
 }
 
+static std::vector<double> screenHeights;
+static std::vector<double> screenWidths;
+static PThreadMutex *screenMutex = nullptr;
+
 const static double flt_max = FLT_MAX;
 const static double flt_min = FLT_MIN;
 const static double int_min = INT_MIN;
@@ -161,7 +166,7 @@ const static double int_max = INT_MAX;
 static double       sample_rate;
 static double       frame_rate;
 static double       output_channels;
-static std::string dir[4] = { "left", "right", "top", "bottom" };
+static std::string  dir[4] = { "left", "right", "top", "bottom" };
 static gs_effect_t *default_effect = nullptr;
 
 /* Additional likely to be used functions for mathmatical expressions */
@@ -178,7 +183,7 @@ static void prepFunctions(std::vector<te_variable> *vars, ShaderSource *filter)
 	{"mel_from_hz", audio_mel_from_hz, TE_FUNCTION1 | TE_FLAG_PURE},
 	{"mouse_click_x", &filter->_mouseClickX},
 	{"mouse_click_y", &filter->_mouseClickY},
-	{"mouse_pos_x", &filter->_mouseX}, {"mouse_pos_y", &filter->_mouseY},
+	{"mouse_event_pos_x", &filter->_mouseX}, {"mouse_event_pos_y", &filter->_mouseY},
 	{"mouse_type", &filter->_mouseType},
 	{"mouse_up", &filter->_mouseUp},
 	{"mouse_wheel_delta_x", &filter->_mouseWheelDeltaX},
@@ -188,10 +193,12 @@ static void prepFunctions(std::vector<te_variable> *vars, ShaderSource *filter)
 	{"radians", hlsl_rad, TE_FUNCTION1 | TE_FLAG_PURE}, {"random", random_double, TE_FUNCTION2},
 	{"whole_screen_height", &filter->_wholeScreenHeight},
 	{"whole_screen_width", &filter->_wholeScreenWidth},
-	{"screen_mouse_pos_x", &filter->_screenMousePosX}, {"screen_mouse_pos_y", &filter->_screenMousePosY},
+	{"mouse_pos_x", &filter->_screenMousePosX},
+	{"mouse_pos_y", &filter->_screenMousePosY},
 	{"screen_mouse_visible", &filter->_screenMouseVisible},
 	{"screen_height", static_cast<double(*)(double)>(getScreenHeight), TE_FUNCTION1, 0},
 	{"screen_width", static_cast<double(*)(double)>(getScreenWidth), TE_FUNCTION1, 0},
+	{"mouse_screen", &filter->_screenIndex},
 	{"max", dmax, TE_FUNCTION2 | TE_FLAG_PURE, 0},
 	{"min", dmin, TE_FUNCTION2 | TE_FLAG_PURE, 0},
 	/* Basic functions originally included in TinyExpr */
@@ -2543,11 +2550,12 @@ void ShaderSource::appendVariable(std::string &name, double *binding)
 	}
 }
 
-void ShaderSource::compileExpression(std::string expresion)
+void ShaderSource::compileExpression(std::string expr)
 {
-	expression.compile(expresion);
+	expression.compile(expr);
 	if (!expressionCompiled())
-		blog(LOG_WARNING, "%s", obs_source_get_name(obs_filter_get_parent(context)));
+		blog(LOG_WARNING, "%s failed to compile %s", obs_source_get_name(obs_filter_get_parent(context)),
+				expr.c_str());
 }
 
 bool ShaderSource::expressionCompiled()
@@ -3253,96 +3261,97 @@ uint32_t ShaderSource::getHeight(void *data)
 	return filter->getHeight();
 }
 
+static double getScreenHeight(double idx)
+{
+	uint32_t i = (uint32_t)idx;
+	return i < screenHeights.size() ? screenHeights[i] : 0.0;
+}
+
+static double getScreenWidth(double idx)
+{
+	uint32_t i = (uint32_t)idx;
+	return i < screenWidths.size() ? screenWidths[i] : 0.0;
+}
+
 static void getMouseCursor(void *data)
 {
 	ShaderSource *filter = static_cast<ShaderSource *>(data);
-	//int mouseScreen = qApp->desktop()->screenNumber(globalCursorPos);
-#ifdef _WIN32
-	CURSORINFO ci = { 0 };
-	//HICON icon;
-
-	ci.cbSize = sizeof(ci);
-
-	if (!GetCursorInfo(&ci)) {
-		filter->_screenMouseVisible = false;
-		return;
+	QList<QScreen*> screens = QGuiApplication::screens();
+	QPoint cursor = QCursor::pos();
+	for (size_t i = 0; i < screens.size(); i++) {
+		QScreen *screen = screens.at(i);
+		if (screen->geometry().contains(cursor)) {
+			QPoint p = QCursor::pos(screens.at(i));
+			filter->_screenMousePosX = (double)p.x();
+			filter->_screenMousePosY = (double)p.y();
+			filter->_screenIndex = (double)i;
+			filter->_screenMouseVisible = true;
+			return;
+		}
 	}
-
-	filter->_screenMousePosX = ci.ptScreenPos.x;
-	filter->_screenMousePosY = ci.ptScreenPos.y;
 	filter->_screenMouseVisible = false;
-#elif __linux__ || __FreeBSD__
-	XFixesCursorImage *xc = XFixesGetCursorImage(filter->dpy);
-	if (!xc)
-		return;
-
-	filter->_screenMousePosX = (double)xc->x;
-	filter->_screenMousePosY = (double)xc->y;
-	filter->_screenMouseVisible = true;
-	UNUSED_PARAMETER(data);
-#else
-	if (filter) {
-		QPoint globalCursorPos = QCursor::pos();
-		filter->_screenMousePosX = globalCursorPos.x();
-		filter->_screenMousePosY = globalCursorPos.y();
-	}
-	filter->_screenMouseVisible = true;
-#endif
-//blog(LOG_DEBUG, "mouse[%f,%f]", filter->_screenMousePosX, filter->_screenMousePosY);
 }
 
-static double getScreenHeight(double index)
+static double getMousePositionXRelative(double index)
 {
 	QList<QScreen*> screens = QGuiApplication::screens();
 	uint32_t idx = index;
-	if (idx < screens.count())
-		return screens.at(idx)->size().height();
+	if (idx < screens.count()) {
+		QPoint p = QCursor::pos(screens.at(index));
+		return (double)p.x();
+	}
 	return 0.0;
 }
 
-static double getScreenWidth(double index)
+static double getMousePositionYRelative(double index)
 {
 	QList<QScreen*> screens = QGuiApplication::screens();
 	uint32_t idx = index;
-	if (idx < screens.count())
-		return screens.at(idx)->size().width();
+	if (idx < screens.count()) {
+		QPoint p = QCursor::pos(screens.at(index));
+		return (double)p.y();
+	}
+	return 0.0;
+}
+
+static double getMouseScreen()
+{
+	QPoint cursor = QCursor::pos();
+	QList<QScreen*> screens = QGuiApplication::screens();
+	for (size_t i = 0; i < screens.size(); i++) {
+		QScreen *screen = screens.at(i);
+		if (screen->geometry().contains(cursor))
+			return (double)i;
+	}
 	return 0.0;
 }
 
 static void getScreenSizes(void *data)
 {
-	ShaderSource *filter = static_cast<ShaderSource *>(data);
-	/*
-	QList<QScreen*> screens = QGuiApplication::screens();
-	filter->_screenWidth.reserve(screens.count());
-	filter->_screenHeight.reserve(screens.count());
-	size_t c = filter->_screenHeight.size();
-	size_t i;
-	for (i = 0; i < c; i++) {
-		QSize size = screens.at(i)->size();
-		filter->_screenHeight[i] = size.height();
-		filter->_screenWidth[i] = size.width();
+	if (screenMutex->trylock() == 0) {
+		QList<QScreen*> screens = QGuiApplication::screens();
+		size_t c = screenHeights.size();
+		if (screens.count() > c) {
+			screenHeights.reserve(screens.count());
+			screenWidths.reserve(screens.count());
+		}
+		size_t i;
+		for (i = 0; i < c; i++) {
+			QSize size = screens.at(i)->size();
+			screenHeights[i] = size.height();
+			screenWidths[i] = size.width();
+		}
+		for (; i < screens.count(); i++) {
+			QSize size = screens.at(i)->size();
+			screenHeights.emplace_back(size.height());
+			screenWidths.emplace_back(size.width());
+		}
+		screenMutex->unlock();
 	}
-	for (; i < screens.count(); i++) {
-		QSize size = screens.at(i)->size();
-		filter->_screenHeight.emplace_back(size.height());
-		filter->_screenWidth.emplace_back(size.width());
-	}
-	*/
-#ifdef _WIN32
-	filter->_wholeScreenWidth = GetSystemMetrics(SM_CXVIRTUALSCREEN);
-	filter->_wholeScreenHeight = GetSystemMetrics(SM_CYVIRTUALSCREEN);
-
-	filter->_primaryScreenWidth = GetSystemMetrics(SM_CXSCREEN);
-	filter->_primaryScreenHeight = GetSystemMetrics(SM_CYSCREEN);
-	//int i = GetSystemMetrics(SM_CMONITORS);
-#elif __linux__ || __FreeBSD__
-
-#endif
 }
 
-void ShaderSource::mouseClick(
-	void *data, const struct obs_mouse_event *event, int32_t type, bool mouse_up, uint32_t click_count)
+void ShaderSource::mouseClick(void *data, const struct obs_mouse_event *event,
+		int32_t type, bool mouse_up, uint32_t click_count)
 {
 	ShaderSource *filter = static_cast<ShaderSource *>(data);
 	filter->_mouseType = type;
@@ -3425,6 +3434,7 @@ static bool shader_filter_file_name_changed(obs_properties_t *props, obs_propert
 
 bool obs_module_load(void)
 {
+	screenMutex = new PThreadMutex();
 	struct obs_source_info shader_filter = { 0 };
 	shader_filter.id = "obs_shader_filter";
 	shader_filter.type = OBS_SOURCE_TYPE_FILTER;
@@ -3505,7 +3515,7 @@ bool obs_module_load(void)
 	if (!default_effect)
 		default_effect = gs_effect_create(effect_string, NULL, &errors);
 	if (errors)
-		blog(LOG_DEBUG, "obs-shader-filter: %s", errors);
+		blog(LOG_DEBUG, "%s", errors);
 	obs_leave_graphics();
 
 	bfree(effect_string);
@@ -3522,4 +3532,5 @@ void obs_module_unload(void)
 		gs_effect_destroy(default_effect);
 
 	obs_leave_graphics();
+	delete screenMutex;
 }
