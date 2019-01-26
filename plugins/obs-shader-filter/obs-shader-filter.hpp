@@ -357,6 +357,9 @@ public:
 	int         resizeBottom = 0;
 
 	std::string transitionTimeExpression;
+	std::string mixAExpression;
+	std::string mixBExpression;
+	double mixPercent;
 
 	int baseWidth = 0;
 	int baseHeight = 0;

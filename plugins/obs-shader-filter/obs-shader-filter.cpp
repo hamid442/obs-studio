@@ -195,6 +195,7 @@ static void prepFunctions(std::vector<te_variable> *vars, ShaderSource *filter)
 	{"screen_height", static_cast<double(*)(double)>(getScreenHeight), TE_FUNCTION1, 0},
 	{"screen_width", static_cast<double(*)(double)>(getScreenWidth), TE_FUNCTION1, 0},
 	{"mouse_screen", &filter->_screenIndex},
+	{"mix", &filter->mixPercent},
 	{"max", dmax, TE_FUNCTION2 | TE_FLAG_PURE, 0},
 	{"min", dmin, TE_FUNCTION2 | TE_FLAG_PURE, 0},
 	/* Basic functions originally included in TinyExpr */
@@ -3093,14 +3094,24 @@ void ShaderSource::transitionStop(void *data)
 
 static float mix_a(void *data, float t)
 {
-	UNUSED_PARAMETER(data);
-	return 1.0f - t;
+	ShaderSource *filter = static_cast<ShaderSource *>(data);
+	filter->mixPercent = t;
+	filter->compileExpression(filter->mixAExpression);
+	float vol = 1.0f - t;
+	if (filter->expressionCompiled())
+		vol = filter->evaluateExpression<float>(vol);
+	return vol;
 }
 
 static float mix_b(void *data, float t)
 {
-	UNUSED_PARAMETER(data);
-	return t;
+	ShaderSource *filter = static_cast<ShaderSource *>(data);
+	filter->mixPercent = t;
+	filter->compileExpression(filter->mixAExpression);
+	float vol = t;
+	if (filter->expressionCompiled())
+		vol = filter->evaluateExpression<float>(vol);
+	return vol;
 }
 
 bool ShaderSource::audioRenderTransition(void *data, uint64_t *ts_out,
