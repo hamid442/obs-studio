@@ -6846,6 +6846,47 @@ void OBSBasic::on_actionShowAbout_triggered()
 	about->setAttribute(Qt::WA_DeleteOnClose, true);
 }
 
+void OBSBasic::addBrowserWidget(std::string path, bool firstLoad)
+{
+#ifdef BROWSER_AVAILABLE
+	auto it = std::find(cefUrls.begin(), cefUrls.end(), path);
+	if (it != cefUrls.end()) {
+		/* */
+		return;
+	}
+	OBSBasic::InitBrowserPanelSafeBlock(true);
+	QCefWidget *cefWidget = nullptr;
+	cefWidget = cef->create_widget(nullptr, path, panel_cookies);
+	QDockWidget *widget = new QDockWidget(this);
+	widget->setWidget(cefWidget);
+	widget->setAllowedAreas(Qt::AllDockWidgetAreas);
+
+	this->addDockWidget(Qt::RightDockWidgetArea, widget);
+
+	if (firstLoad) {
+		widget->setFloating(true);
+		widget->setVisible(true);
+	} else {
+		const char *dockStateStr = config_get_string(this->Config(),
+			path.c_str(), "DockState");
+		QByteArray dockState =
+			QByteArray::fromBase64(QByteArray(dockStateStr));
+		this->restoreState(dockState);
+	}
+#endif
+}
+
+void OBSBasic::on_actionBasicCefWidget_triggered()
+{
+#ifdef BROWSER_AVAILABLE
+	std::string path;
+	bool success = NameDialog::AskForName(this, QTStr("Basic.Url.Title"),
+			QTStr("Basic.Url.Text"), path, QT_UTF8(path.c_str()));
+
+	addBrowserWidget(path);
+#endif
+}
+
 void OBSBasic::ResizeOutputSizeOfSource()
 {
 	if (ui->streamButton->isChecked() || ui->recordButton->isChecked() ||

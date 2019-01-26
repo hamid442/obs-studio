@@ -39,6 +39,11 @@
 #include <util/threading.h>
 #include <util/util.hpp>
 
+class QCefWidget;
+#include <browser-panel.hpp>
+extern QCef *cef;
+extern QCefCookieManager *panel_cookies;
+
 #include <QPointer>
 
 class QMessageBox;
@@ -495,6 +500,7 @@ private slots:
 	SourceTreeItem *GetItemWidgetFromSceneItem(obs_sceneitem_t *sceneItem);
 
 	void on_actionShowAbout_triggered();
+	void on_actionBasicCefWidget_triggered();
 
 private:
 	/* OBS Callbacks */
@@ -778,9 +784,11 @@ public:
 		const override;
 
 	static void InitBrowserPanelSafeBlock(bool showDialog);
+	void addBrowserWidget(std::string path, bool firstLoad = true);
 
 private:
 	std::unique_ptr<Ui::OBSBasic> ui;
+	std::vector<std::string> cefUrls;
 };
 
 class ColorSelect : public QWidget {
