@@ -111,7 +111,7 @@ struct bind2 {
 
 class TinyExpr : public std::vector<te_variable> {
 	std::string _expr;
-	te_expr *   _compiled = nullptr;
+	te_expr    *_compiled = nullptr;
 	int         _err = 0;
 	std::string _errString = "";
 
@@ -251,7 +251,7 @@ class ShaderData;
 
 class ShaderParameter {
 protected:
-	EParam *    _param = nullptr;
+	EParam     *_param = nullptr;
 	std::string _name;
 	std::string _description;
 
@@ -259,9 +259,9 @@ protected:
 
 	gs_shader_param_type _paramType;
 
-	ShaderData *    _shaderData = nullptr;
+	ShaderData     *_shaderData = nullptr;
 	obs_property_t *_property = nullptr;
-	ShaderSource *  _filter = nullptr;
+	ShaderSource   *_filter = nullptr;
 
 public:
 	ShaderParameter(gs_eparam_t *param, ShaderSource *filter);
@@ -271,7 +271,7 @@ public:
 
 	std::string getName();
 	std::string getDescription();
-	EParam *    getParameter();
+	EParam     *getParameter();
 	gs_shader_param_type getParameterType();
 
 	void lock();
@@ -379,7 +379,7 @@ public:
 
 	obs_source_t *context = nullptr;
 
-	obs_data_t *                   getSettings();
+	obs_data_t                    *getSettings();
 	std::string                    getPath();
 	void                           setPath(std::string path);
 	void                           prepReload();
@@ -407,9 +407,9 @@ public:
 	void updateCache(gs_eparam_t *param);
 	void reload();
 
-	static void *            create(obs_data_t *settings, obs_source_t *source);
+	static void             *create(obs_data_t *settings, obs_source_t *source);
 	static void              destroy(void *data);
-	static const char *      getName(void *unused);
+	static const char       *getName(void *unused);
 	static void              videoTick(void *data, float seconds);
 	static void              videoTickSource(void *data, float seconds);
 	static void              videoTickTransition(void *data, float seconds);
