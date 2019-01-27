@@ -7,7 +7,7 @@
 #include <QSyntaxHighlighter>
 #include <QRegularExpression>
 #include <QTextDocument>
-#include "json11.hpp"
+#include <json11.hpp>
 
 class QFormLayout;
 class OBSPropertiesView;
@@ -153,17 +153,17 @@ public:
 	};
 private:
 	std::map<std::string, QTextCharFormat> styles;
-	std::vector<Json> languageDefinitions;
+	std::vector<json11::Json> languageDefinitions;
 	std::vector<Validator> validationTests;
 	std::vector<HighlightingRule> highlightingRules;
-	Json _currentDefinition;
+	json11::Json _currentDefinition;
 protected:
 	void highlightBlock(const QString &text);
 	void init(const QString &text);
 public:
 	void addLanguageValidator(Validator validationTest);
 	void addLanguageDefinition(json11::Json json);
-	QTextCharFormat getStyle(std::string &id);
+	const QTextCharFormat &getStyle(const std::string &id);
 
 	Highlighter(std::string language, QTextDocument *parent = 0) : QSyntaxHighlighter(parent)
 	{

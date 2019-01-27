@@ -134,13 +134,18 @@ static void addLanguages(Highlighter *highlighter)
 		return;
 	}
 	highlighter->addLanguageDefinition(json);
-	//highlighter->addLanguageValidator(validator);
+	//blog(LOG_INFO, "//JSON\n%s", json.dump().c_str());
+	Highlighter::Validator validator;
+	validator.language = "CSS";
+	validator.patterns.push_back(QRegularExpression("^\/[/*](css|CSS)"));
+	highlighter->addLanguageValidator(validator);
 	bfree(highlightRules);
 }
 
 void Highlighter::addLanguageDefinition(Json json)
 {
 	Json langName = json["name"];
+	//blog(LOG_INFO, "//JSON\n%s", json.dump().c_str());
 	if (langName.is_string()) {
 		std::string language = json["name"].string_value();
 		for (size_t i = 0; i < languageDefinitions.size(); i++) {
@@ -177,9 +182,11 @@ void Highlighter::init(const QString &text)
 	}
 
 	if (language.empty()) {
+		blog(LOG_DEBUG, "language highlighting: (none)");
 		return;
 	}
 
+	blog(LOG_DEBUG, "language highlighting: %s", language.c_str());
 	for (size_t i = 0; i < languageDefinitions.size(); i++) {
 		std::string exists = languageDefinitions[i]["name"].string_value();
 		if (language.compare(exists) == 0) {
@@ -190,13 +197,16 @@ void Highlighter::init(const QString &text)
 }
 
 template<class _Fn>
-static void applyLanguageStyleImpl(const Json &json, const Json &repo, const QString &text, Highlighter *highlighter, _Fn callback)
+static void applyLanguageStyleImpl(const Json &json, const Json &repo, const QString &text, const Highlighter *highlighter, _Fn callback)
 {
 	if (!highlighter)
 		return;
 	Json patterns = json["patterns"];
 	Json repo_patterns = repo["at-rules"]["patterns"];
 
+	QString m;
+	QString b;
+	QString e;
 	QRegularExpression match;
 	QRegularExpression begin;
 	QRegularExpression end;
@@ -204,61 +214,128 @@ static void applyLanguageStyleImpl(const Json &json, const Json &repo, const QSt
 	std::vector<std::string> names;
 	std::vector<std::string> beginNames;
 	std::vector<std::string> endNames;
+	bool single;
+
 	if (patterns.is_array()) {
 		const std::vector<Json> &items = json.array_items();
 		for (size_t i = 0; i < items.size(); i++) {
 			Json actualJson = items[i];
 
-			const std::map<std::string, Json> &jsons = items[i].object_items();
+			const std::map<std::string, Json> &children = items[i].object_items();
 			std::string include = "include";
-			if (jsons.count(include)) {
+			if (children.count(include)) {
 				/*search for this key*/
-				std::string hash = jsons.at(include).string_value();
+				std::string hash = children.at(include).string_value();
 				std::string key = hash.substr(1);
 				/*recurse*/
 				applyLanguageStyleImpl(actualJson, repo, text, highlighter, callback);
 				actualJson = repo_patterns[key];
 			}
 			name = actualJson["name"].string_value();
-			//std::vector<std::string> captureNames;
+			const std::map<std::string, Json> &actualChildren = actualJson.object_items();
+
+			const std::map<std::string, Json> &captures = actualJson["captures"].object_items();
+			const std::map<std::string, Json> &beginCaptures = actualJson["beginCaptures"].object_items();
+			const std::map<std::string, Json> &endCaptures = actualJson["endCaptures"].object_items();
+			names.clear();
+			beginNames.clear();
+			endNames.clear();
+			for (auto it = captures.begin(); it != captures.end(); it++) {
+				if (it->second.object_items().count("include")) {
+					std::string hash = children.at(include).string_value();
+					std::string key = hash.substr(1);
+					names.push_back(repo_patterns[key]["name"].string_value());
+				} else {
+					names.push_back(it->second["name"].string_value());
+				}
+			}
+			for (auto it = beginCaptures.begin(); it != beginCaptures.end(); it++) {
+				if (it->second.object_items().count("include")) {
+					std::string hash = children.at(include).string_value();
+					std::string key = hash.substr(1);
+					beginNames.push_back(repo_patterns[key]["name"].string_value());
+				} else {
+					beginNames.push_back(it->second["name"].string_value());
+				}
+			}
+			for (auto it = endCaptures.begin(); it != endCaptures.end(); it++) {
+				if (it->second.object_items().count("include")) {
+					std::string hash = children.at(include).string_value();
+					std::string key = hash.substr(1);
+					endNames.push_back(repo_patterns[key]["name"].string_value());
+				} else {
+					endNames.push_back(it->second["name"].string_value());
+				}
+			}
+
+			if (actualChildren.count("match"))
+				single = true;
+			else
+				single = false;
+			m.fromStdString(actualJson["match"].string_value());
+			b.fromStdString(actualJson["begin"].string_value());
+			e.fromStdString(actualJson["end"].string_value());
+			match.setPattern(m);
+			begin.setPattern(b);
+			end.setPattern(e);
 			/*do thing*/
-			callback(text, highlighter, &match, &begin, &end, &name, &names, &beginNames, &endNames, single);
-			
+			callback(text, highlighter, match, begin, end, name,
+				names, beginNames, endNames, single);
 		}
 	}
 }
 
 template<class _Fn>
-static void applyLanguageStyle(const Json &json,const QString &text, Highlighter *highlighter, _Fn callback)
+static void applyLanguageStyle(const Json &json, const QString &text, const Highlighter *highlighter, _Fn callback)
 {
+	//blog(LOG_INFO, "//JSON\n%s", json.dump().c_str());
 	applyLanguageStyleImpl(json, json, text, highlighter, callback);
 }
 
-QTextCharFormat Highlighter::getStyle(std::string &id)
+const QTextCharFormat &Highlighter::getStyle(const std::string &id)
 {
 	return styles[id];
+}
+
+std::string getId(QString expression,const QRegularExpressionMatch &matched)
+{
+	QRegularExpression replacement = QRegularExpression("[$]{(\\d+).*}");
+	QRegularExpressionMatch match = replacement.match(expression);
+	QString idx = match.captured(1);
+	blog(LOG_INFO, "idx: %s", idx.toStdString().c_str());
+	QString capture = matched.captured(idx);
+	blog(LOG_INFO, "capture: %s", capture.toStdString().c_str());
+	QString s = expression.replace(replacement, capture);
+
+	return s.toStdString();
 }
 
 void Highlighter::highlightBlock(const QString &text)
 {
 	init(text);
 
-	applyLanguageStyle(_currentDefinition, text, this, [=](QString &text, Highlighter *highlighter,
-		QRegularExpression &whole, QRegularExpression &begin, QRegularExpression &end,
-		std::string &name, std::vector<std::string> &names,
-		std::vector<std::string> &beginNames, std::vector<std::string> &endNames, bool single)
+	applyLanguageStyle(_currentDefinition, text, this, [=](const QString &text, const Highlighter *highlighter,
+		const QRegularExpression &whole, const QRegularExpression &begin, const QRegularExpression &end,
+		const std::string &name, const std::vector<std::string> &names,
+		const std::vector<std::string> &beginNames, const std::vector<std::string> &endNames, bool single)
 	{
+		QRegularExpression replacement;
+		QString expression;
+		std::string id;
+		replacement.setPattern("[$]{(\\d+).*}");
 		if (single) {
 			QRegularExpressionMatchIterator matchIterator = whole.globalMatch(text);
 			while (matchIterator.hasNext()) {
 				QRegularExpressionMatch match = matchIterator.next();
 				int captures = whole.captureCount();
 
-				highlighter->setFormat(match.capturedStart(),
-					match.capturedLength(), highlighter->getStyle(name));
+				setFormat(match.capturedStart(),
+					match.capturedLength(), getStyle(name));
 				for (int i = 0; i < captures; i++) {
-					highlighter->setFormat(match.capturedStart(i),
-						match.capturedLength(i), highlighter->getStyle(names[i]));
+					expression.fromStdString(names[i]);
+					id = getId(expression, match);
+					setFormat(match.capturedStart(i),
+						match.capturedLength(i), getStyle(id));
 				}
 			}
 		} else {
@@ -269,16 +346,20 @@ void Highlighter::highlightBlock(const QString &text)
 				int captures = begin.captureCount();
 
 				int index = match.capturedStart();
-				highlighter->setFormat(index, match.capturedLength() - index,
-						highlighter->getStyle(name));
+				setFormat(index, match.capturedLength() - index,
+						getStyle(name));
 				for (int i = 0; i < captures; i++) {
-					highlighter->setFormat(match.capturedStart(i),
-						match.capturedLength(i), highlighter->getStyle(beginNames[i]));
+					expression.fromStdString(beginNames[i]);
+					id = getId(expression, match);
+					setFormat(match.capturedStart(i),
+						match.capturedLength(i), getStyle(id));
 				}
 				captures = end.captureCount();
 				for (int i = 0; i < captures; i++) {
-					highlighter->setFormat(endmatch.capturedStart(i),
-						endmatch.capturedLength(i), highlighter->getStyle(endNames[i]));
+					expression.fromStdString(endNames[i]);
+					id = getId(expression, match);
+					setFormat(endmatch.capturedStart(i),
+						endmatch.capturedLength(i), getStyle(id));
 				}
 			}
 		}

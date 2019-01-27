@@ -12,6 +12,7 @@ if(UNIX AND NOT APPLE)
 endif()
 
 include_directories(SYSTEM "${CMAKE_SOURCE_DIR}/deps/obs-scripting")
+include_directories(SYSTEM "${CMAKE_SOURCE_DIR}/deps/json11")
 
 configure_file(
 	"${CMAKE_CURRENT_SOURCE_DIR}/frontend-tools-config.h.in"
@@ -23,6 +24,7 @@ set(frontend-tools_HEADERS
 	auto-scene-switcher.hpp
 	output-timer.hpp
 	tool-helpers.hpp
+	../../../deps/json11/json11.cpp
 	../../properties-view.hpp
 	../../properties-view.moc.hpp
 	../../horizontal-scroll-area.hpp
@@ -34,6 +36,7 @@ set(frontend-tools_SOURCES
 	auto-scene-switcher.cpp
 	frontend-tools.c
 	output-timer.cpp
+	../../../deps/json11/json11.hpp
 	../../properties-view.cpp
 	../../horizontal-scroll-area.cpp
 	../../vertical-scroll-area.cpp
