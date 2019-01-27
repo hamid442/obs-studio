@@ -29,6 +29,7 @@
 #include <string>
 
 using namespace std;
+using namespace json11;
 
 static inline QColor color_from_int(long long val)
 {
@@ -86,117 +87,202 @@ struct common_frame_rate {
 Q_DECLARE_METATYPE(frame_rate_tag);
 Q_DECLARE_METATYPE(media_frames_per_second);
 
-void Highlighter::init(std::string language)
+/*
+	"patterns" : [
+		{
+			"name" : "id",
+			"match" : "regex_expression",
+			"begin" : "regex_expression",
+			"end" : "regex_expression",
+			"captures" : {
+				"index" : {
+					"capture group name"
+				},...
+			},
+			beginCaptures : {
+				"index" : {
+					"capture group name"
+				},...
+			},
+			endCaptures : {
+				"index" : {
+					"capture group name"
+				},...
+			},
+			patterns : ...
+
+			or
+
+			"include" : "#id"
+		}
+	],
+	"repository" : {
+		"at-repos" : {
+			"patterns"...
+		}
+	}
+*/
+
+static void addLanguages(Highlighter *highlighter)
+{
+	char *json_file = "C:\\Users\\Alex\\Desktop\\Github\\obs-studio-andersama\\css.tmLanguage.json";
+	char *highlightRules = os_quick_read_utf8_file(json_file);
+	std::string err;
+	Json json = Json::parse(highlightRules, err);
+	if (!err.empty()) {
+		bfree(highlightRules);
+		return;
+	}
+	highlighter->addLanguageDefinition(json);
+	//highlighter->addLanguageValidator(validator);
+	bfree(highlightRules);
+}
+
+void Highlighter::addLanguageDefinition(Json json)
+{
+	Json langName = json["name"];
+	if (langName.is_string()) {
+		std::string language = json["name"].string_value();
+		for (size_t i = 0; i < languageDefinitions.size(); i++) {
+			std::string exists = languageDefinitions[i]["name"].string_value();
+			if (language.compare(exists) == 0)
+				return;
+		}
+		languageDefinitions.push_back(json);
+	}
+}
+
+void Highlighter::addLanguageValidator(Validator validationTest)
+{
+	validationTests.push_back(validationTest);
+}
+
+void Highlighter::init(const QString &text)
 {
 	HighlightingRule rule;
-
-	if (astrcmpi_n(language.c_str(), "css", 3) == 0)
-		_language = css;
-	else if (astrcmpi_n(language.c_str(), "cpp", 3) == 0)
-		_language = cpp;
-	else
-		_language = none;
-
-	switch (_language) {
-	case css:
-	case cpp:
-		_hasCStyleComments = true;
-	default:
-		_hasCStyleComments = false;
+	QString input;
+	size_t i;
+	size_t j;
+	std::string language = "";
+	for (i = 0; i < validationTests.size(); i++) {
+		for (j = 0; j < validationTests[i].patterns.size(); j++) {
+			QRegularExpressionMatchIterator matchIterator = validationTests[i].patterns[j].globalMatch(text);
+			if (!matchIterator.hasNext())
+				break;
+		}
+		if (j >= validationTests[i].patterns.size()) {
+			language = validationTests[i].language;
+			break;
+		}
 	}
 
-	keywordFormat.setForeground(Qt::darkBlue);
-	keywordFormat.setFontWeight(QFont::Bold);
-	QStringList keywordPatterns;
-	if (_language == cpp) {
-		keywordPatterns << "\\bchar\\b" << "\\bclass\\b" << "\\bconst\\b"
-			<< "\\bdouble\\b" << "\\benum\\b" << "\\bexplicit\\b"
-			<< "\\bfriend\\b" << "\\binline\\b" << "\\bint\\b"
-			<< "\\blong\\b" << "\\bnamespace\\b" << "\\boperator\\b"
-			<< "\\bprivate\\b" << "\\bprotected\\b" << "\\bpublic\\b"
-			<< "\\bshort\\b" << "\\bsignals\\b" << "\\bsigned\\b"
-			<< "\\bslots\\b" << "\\bstatic\\b" << "\\bstruct\\b"
-			<< "\\btemplate\\b" << "\\btypedef\\b" << "\\btypename\\b"
-			<< "\\bunion\\b" << "\\bunsigned\\b" << "\\bvirtual\\b"
-			<< "\\bvoid\\b" << "\\bvolatile\\b";
-	} else {
-
-	}
-	foreach(const QString &pattern, keywordPatterns)
-	{
-		rule.pattern = QRegularExpression(pattern);
-		rule.format = keywordFormat;
-		highlightingRules.append(rule);
+	if (language.empty()) {
+		return;
 	}
 
-	if (_language == cpp) {
-		classFormat.setFontWeight(QFont::Bold);
-		classFormat.setForeground(Qt::darkMagenta);
-		rule.pattern = QRegularExpression("\\bQ[A-Za-z]+\\b");
-		rule.format = classFormat;
-		highlightingRules.append(rule);
-
-		quotationFormat.setForeground(Qt::darkGreen);
-		rule.pattern = QRegularExpression("\".*\"");
-		rule.format = quotationFormat;
-		highlightingRules.append(rule);
-
-		functionFormat.setFontItalic(true);
-		functionFormat.setForeground(Qt::blue);
-		rule.pattern = QRegularExpression("\\b[A-Za-z0-9_]+(?=\\()");
-		rule.format = functionFormat;
-		highlightingRules.append(rule);
-
-		singleLineCommentFormat.setForeground(Qt::red);
-		rule.pattern = QRegularExpression("//[^\n]*");
-		rule.format = singleLineCommentFormat;
-		highlightingRules.append(rule);
-
-		multiLineCommentFormat.setForeground(Qt::red);
-		commentStartExpression = QRegularExpression("/\\*");
-		commentEndExpression = QRegularExpression("\\*/");
-	} else {
-		singleLineCommentFormat.setForeground(Qt::red);
-		rule.pattern = QRegularExpression("//[^\n]*");
-		rule.format = singleLineCommentFormat;
-		highlightingRules.append(rule);
-
-		multiLineCommentFormat.setForeground(Qt::red);
-		commentStartExpression = QRegularExpression("/\\*");
-		commentEndExpression = QRegularExpression("\\*/");
+	for (size_t i = 0; i < languageDefinitions.size(); i++) {
+		std::string exists = languageDefinitions[i]["name"].string_value();
+		if (language.compare(exists) == 0) {
+			_currentDefinition = languageDefinitions[i];
+			break;
+		}
 	}
+}
+
+template<class _Fn>
+static void applyLanguageStyleImpl(const Json &json, const Json &repo, const QString &text, Highlighter *highlighter, _Fn callback)
+{
+	if (!highlighter)
+		return;
+	Json patterns = json["patterns"];
+	Json repo_patterns = repo["at-rules"]["patterns"];
+
+	QRegularExpression match;
+	QRegularExpression begin;
+	QRegularExpression end;
+	std::string name;
+	std::vector<std::string> names;
+	std::vector<std::string> beginNames;
+	std::vector<std::string> endNames;
+	if (patterns.is_array()) {
+		const std::vector<Json> &items = json.array_items();
+		for (size_t i = 0; i < items.size(); i++) {
+			Json actualJson = items[i];
+
+			const std::map<std::string, Json> &jsons = items[i].object_items();
+			std::string include = "include";
+			if (jsons.count(include)) {
+				/*search for this key*/
+				std::string hash = jsons.at(include).string_value();
+				std::string key = hash.substr(1);
+				/*recurse*/
+				applyLanguageStyleImpl(actualJson, repo, text, highlighter, callback);
+				actualJson = repo_patterns[key];
+			}
+			name = actualJson["name"].string_value();
+			//std::vector<std::string> captureNames;
+			/*do thing*/
+			callback(text, highlighter, &match, &begin, &end, &name, &names, &beginNames, &endNames, single);
+			
+		}
+	}
+}
+
+template<class _Fn>
+static void applyLanguageStyle(const Json &json,const QString &text, Highlighter *highlighter, _Fn callback)
+{
+	applyLanguageStyleImpl(json, json, text, highlighter, callback);
+}
+
+QTextCharFormat Highlighter::getStyle(std::string &id)
+{
+	return styles[id];
 }
 
 void Highlighter::highlightBlock(const QString &text)
 {
-	foreach(const HighlightingRule &rule, highlightingRules)
+	init(text);
+
+	applyLanguageStyle(_currentDefinition, text, this, [=](QString &text, Highlighter *highlighter,
+		QRegularExpression &whole, QRegularExpression &begin, QRegularExpression &end,
+		std::string &name, std::vector<std::string> &names,
+		std::vector<std::string> &beginNames, std::vector<std::string> &endNames, bool single)
 	{
-		QRegularExpressionMatchIterator matchIterator = rule.pattern.globalMatch(text);
-		while (matchIterator.hasNext()) {
-			QRegularExpressionMatch match = matchIterator.next();
-			setFormat(match.capturedStart(), match.capturedLength(), rule.format);
-		}
-		if(commentStartExpression.isValid() && commentEndExpression.isValid()){
-			setCurrentBlockState(0);
-			int startIndex = 0;
-			if (previousBlockState() != 1)
-				startIndex = text.indexOf(commentStartExpression);
-			while (startIndex >= 0) {
-				QRegularExpressionMatch match = commentEndExpression.match(text, startIndex);
-				int endIndex = match.capturedStart();
-				int commentLength = 0;
-				if (endIndex == -1) {
-					setCurrentBlockState(1);
-					commentLength = text.length() - startIndex;
-				} else {
-					commentLength = endIndex - startIndex
-						+ match.capturedLength();
+		if (single) {
+			QRegularExpressionMatchIterator matchIterator = whole.globalMatch(text);
+			while (matchIterator.hasNext()) {
+				QRegularExpressionMatch match = matchIterator.next();
+				int captures = whole.captureCount();
+
+				highlighter->setFormat(match.capturedStart(),
+					match.capturedLength(), highlighter->getStyle(name));
+				for (int i = 0; i < captures; i++) {
+					highlighter->setFormat(match.capturedStart(i),
+						match.capturedLength(i), highlighter->getStyle(names[i]));
 				}
-				setFormat(startIndex, commentLength, multiLineCommentFormat);
-				startIndex = text.indexOf(commentStartExpression, startIndex + commentLength);
+			}
+		} else {
+			QRegularExpressionMatchIterator startIterator = begin.globalMatch(text);
+			while (startIterator.hasNext()) {
+				QRegularExpressionMatch match = startIterator.next();
+				QRegularExpressionMatch endmatch = end.match(text, match.capturedStart());
+				int captures = begin.captureCount();
+
+				int index = match.capturedStart();
+				highlighter->setFormat(index, match.capturedLength() - index,
+						highlighter->getStyle(name));
+				for (int i = 0; i < captures; i++) {
+					highlighter->setFormat(match.capturedStart(i),
+						match.capturedLength(i), highlighter->getStyle(beginNames[i]));
+				}
+				captures = end.captureCount();
+				for (int i = 0; i < captures; i++) {
+					highlighter->setFormat(endmatch.capturedStart(i),
+						endmatch.capturedLength(i), highlighter->getStyle(endNames[i]));
+				}
 			}
 		}
-	}
+	});
 }
 
 void OBSPropertiesView::ReloadProperties()
@@ -353,6 +439,8 @@ QWidget *OBSPropertiesView::AddText(obs_property_t *prop, QFormLayout *layout,
 
 	if (type == OBS_TEXT_MULTILINE) {
 		QPlainTextEdit *edit = new QPlainTextEdit(QT_UTF8(val));
+		Highlighter *highlight = new Highlighter("cpp", edit->document());
+		addLanguages(highlight);
 		return NewWidget(prop, edit, SIGNAL(textChanged()));
 
 	} else if (type == OBS_TEXT_PASSWORD) {

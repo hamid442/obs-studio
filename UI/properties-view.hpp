@@ -7,6 +7,7 @@
 #include <QSyntaxHighlighter>
 #include <QRegularExpression>
 #include <QTextDocument>
+#include "json11.hpp"
 
 class QFormLayout;
 class OBSPropertiesView;
@@ -141,36 +142,30 @@ public:
 
 class Highlighter : public QSyntaxHighlighter {
 	Q_OBJECT
-private:
-	bool _hasCStyleComments = true;
-	enum Languages {
-		none,
-		css,
-		cpp
-	};
-	enum Languages _language;
+public:
 	struct HighlightingRule {
-		//	QRegExp pattern;
 		QRegularExpression pattern;
 		QTextCharFormat format;
 	};
-	QVector<HighlightingRule> highlightingRules;
-
-	QRegularExpression commentStartExpression;
-	QRegularExpression commentEndExpression;
-
-	QTextCharFormat keywordFormat;
-	QTextCharFormat classFormat;
-	QTextCharFormat singleLineCommentFormat;
-	QTextCharFormat multiLineCommentFormat;
-	QTextCharFormat quotationFormat;
-	QTextCharFormat functionFormat;
+	struct Validator {
+		std::vector<QRegularExpression> patterns;
+		std::string language;
+	};
+private:
+	std::map<std::string, QTextCharFormat> styles;
+	std::vector<Json> languageDefinitions;
+	std::vector<Validator> validationTests;
+	std::vector<HighlightingRule> highlightingRules;
+	Json _currentDefinition;
 protected:
 	void highlightBlock(const QString &text);
-	void init(std::string language);
+	void init(const QString &text);
 public:
+	void addLanguageValidator(Validator validationTest);
+	void addLanguageDefinition(json11::Json json);
+	QTextCharFormat getStyle(std::string &id);
+
 	Highlighter(std::string language, QTextDocument *parent = 0) : QSyntaxHighlighter(parent)
 	{
-		init(language);
 	}
 };
