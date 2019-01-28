@@ -39,6 +39,17 @@ else()
 	set(MIXER_ENABLED TRUE)
 endif()
 
+if(NOT DEFINED CAFFEINE_CLIENTID OR "${CAFFEINE_CLIENTID}" STREQUAL "" OR
+   NOT DEFINED CAFFEINE_SECRETID OR "${CAFFEINE_SECRETID}" STREQUAL "" OR
+   NOT DEFINED CAFFEINE_HASH     OR "${CAFFEINE_HASH}"     STREQUAL "")
+	set(CAFFEINE_ENABLED FALSE)
+	set(CAFFEINE_CLIENTID "")
+	set(CAFFEINE_SECRETID "")
+	set(CAFFEINE_HASH "0")
+else()
+	set(CAFFEINE_ENABLED TRUE)
+endif()
+
 configure_file(
 	"${CMAKE_CURRENT_SOURCE_DIR}/ui-config.h.in"
 	"${CMAKE_CURRENT_BINARY_DIR}/ui-config.h")
@@ -155,6 +166,15 @@ if(BROWSER_AVAILABLE_INTERNAL)
 			)
 		list(APPEND obs_PLATFORM_HEADERS
 			auth-mixer.hpp
+			)
+	endif()
+	
+	if(CAFFEINE_ENABLED)
+		list(APPEND obs_PLATFORM_SOURCES
+			auth-caffeine.cpp
+			)
+		list(APPEND obs_PLATFORM_HEADERS
+			auth-caffeine.hpp
 			)
 	endif()
 endif()

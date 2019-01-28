@@ -194,6 +194,7 @@ void assignDockToggle(QDockWidget *dock, QAction *action)
 
 extern void RegisterTwitchAuth();
 extern void RegisterMixerAuth();
+extern void RegisterCaffeineAuth();
 
 OBSBasic::OBSBasic(QWidget *parent)
 	: OBSMainWindow  (parent),
@@ -206,6 +207,9 @@ OBSBasic::OBSBasic(QWidget *parent)
 #endif
 #if MIXER_ENABLED
 	RegisterMixerAuth();
+#endif
+#if CAFFEINE_ENABLED
+	RegisterCaffeineAuth();
 #endif
 
 	setAcceptDrops(true);
