@@ -157,6 +157,7 @@ private:
 	std::vector<Validator> validationTests;
 	std::vector<HighlightingRule> highlightingRules;
 	json11::Json _currentDefinition;
+	std::string _language;
 protected:
 	void highlightBlock(const QString &text);
 	void init(const QString &text);

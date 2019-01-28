@@ -216,7 +216,7 @@ void Highlighter::init(const QString &text)
 			break;
 		}
 	}
-
+	_language = language;
 	if (language.empty()) {
 		blog(LOG_DEBUG, "language highlighting: (none)");
 		return;
@@ -245,9 +245,9 @@ std::string getId(QString expression, const QRegularExpressionMatch &matched)
 		else
 			idx = match.captured(2);
 		*/
-		blog(LOG_INFO, "idx: %s", idx.toStdString().c_str());
+		//blog(LOG_INFO, "idx: %s", idx.toStdString().c_str());
 		QString capture = matched.captured(idx);
-		blog(LOG_INFO, "capture: %s", capture.toStdString().c_str());
+		//blog(LOG_INFO, "capture: %s", capture.toStdString().c_str());
 		QString s = expression.replace(replacement, capture);
 
 		return s.toStdString();
@@ -267,7 +267,7 @@ static void applyLanguageStyleImpl(const Json &json, const Json &repo, const QSt
 	if (!highlighter || length <= 0)
 		return;
 	Json patterns = json["patterns"];
-	blog(LOG_INFO, "//REPO\n%s", repo.dump().c_str());
+	//blog(LOG_INFO, "//REPO\n%s", repo.dump().c_str());
 
 	QString m;
 	QString b;
@@ -282,11 +282,11 @@ static void applyLanguageStyleImpl(const Json &json, const Json &repo, const QSt
 	bool single;
 
 	if (patterns.is_array()) {
-		blog(LOG_INFO, "//PATTERNS\n%s", patterns.dump().c_str());
+		//blog(LOG_INFO, "//PATTERNS\n%s", patterns.dump().c_str());
 		const std::vector<Json> &items = patterns.array_items();
 		for (size_t i = 0; i < items.size(); i++) {
 			Json actualJson = items[i];
-			blog(LOG_INFO, "//ITEMINFO\n%s", actualJson.dump().c_str());
+			//blog(LOG_INFO, "//ITEMINFO\n%s", actualJson.dump().c_str());
 			bool found = false;
 			if (json_has(actualJson, "include")) {
 				/*search for this key*/
@@ -304,7 +304,7 @@ static void applyLanguageStyleImpl(const Json &json, const Json &repo, const QSt
 
 				actualJson = repo[key];
 			}
-			blog(LOG_INFO, "//REGEXINFO\n%s", actualJson.dump().c_str());
+			//blog(LOG_INFO, "//REGEXINFO\n%s", actualJson.dump().c_str());
 			name = actualJson["name"].string_value();
 			//applyLanguageStyleImpl(actualJson, repo, text, highlighter, callback);
 			const std::map<std::string, Json> &captures = actualJson["captures"].object_items();
@@ -352,7 +352,7 @@ static void applyLanguageStyleImpl(const Json &json, const Json &repo, const QSt
 					int start = plainmatch.capturedStart();
 					if(!name.empty())
 						callback(start, len, getId(id_expr.fromStdString(name), plainmatch));
-					if ((offset + length) < plainmatch.capturedLength() + len)
+					if ((offset + length) < plainmatch.capturedEnd())
 						continue;
 					int captures = plainmatch.lastCapturedIndex();
 					for (int i = 1; i < captures; i++) {
@@ -385,7 +385,7 @@ static void applyLanguageStyleImpl(const Json &json, const Json &repo, const QSt
 						if(i < beginNames.size() && !beginNames[i].empty())
 							callback(beginmatch.capturedStart(i), len, getId(id_expr.fromStdString(beginNames[i]), beginmatch));
 						if(i < endNames.size() && !endNames[i].empty())
-							callback(endmatch.capturedStart(i), 0, getId(id_expr.fromStdString(endNames[i]), endmatch));
+							callback(endmatch.capturedStart(i), 1, getId(id_expr.fromStdString(endNames[i]), endmatch));
 						//applyLanguageStyleImpl(actualJson, repo, text, highlighter, callback, start, len);
 					}
 					len = endmatch.capturedEnd() - beginmatch.capturedStart();
@@ -407,9 +407,10 @@ template<class _Fn>
 static void applyLanguageStyle(const Json &json, const QString &text, const Highlighter *highlighter, _Fn callback)
 {
 	//blog(LOG_INFO, "//JSON\n%s", json.dump().c_str());
+	blog(LOG_INFO, "text:\n%s", text.toStdString().c_str());
 	std::vector<std::string> seen;
 	applyLanguageStyleImpl(json, json["repository"], text,
-			highlighter, callback, 0, text.length(), &seen);
+			highlighter, callback, 0, text.toStdString().length(), &seen);
 }
 
 const QTextCharFormat &Highlighter::getStyle(const std::string &id)
@@ -420,8 +421,10 @@ const QTextCharFormat &Highlighter::getStyle(const std::string &id)
 void Highlighter::highlightBlock(const QString &text)
 {
 	init(text);
-
+	//blog(LOG_INFO, "lang: %s", )
 	applyLanguageStyle(_currentDefinition, text, this, [=](int start, int len, std::string id) {
+		QString subStr = text.mid(start, len);
+		blog(LOG_INFO, "id: %s\n[%d,%d]\n%s", id.c_str(), start, len, subStr.toStdString().c_str());
 		setFormat(start, len, getStyle(id));
 	});
 	/*[=](const QString &text, const Highlighter *highlighter,
