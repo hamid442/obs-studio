@@ -163,6 +163,7 @@ protected:
 public:
 	void addLanguageValidator(Validator validationTest);
 	void addLanguageDefinition(json11::Json json);
+	void addTheme(json11::Json json);
 	const QTextCharFormat &getStyle(const std::string &id);
 
 	Highlighter(std::string language, QTextDocument *parent = 0) : QSyntaxHighlighter(parent)
