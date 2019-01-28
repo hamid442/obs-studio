@@ -158,9 +158,11 @@ private:
 	std::vector<HighlightingRule> highlightingRules;
 	json11::Json _currentDefinition;
 	std::string _language;
+	std::vector<std::string> _texts;
+	void resetState();
 protected:
 	void highlightBlock(const QString &text);
-	void init(const QString &text);
+	std::vector<std::tuple<int,int,std::string>> init(const QString &text);
 public:
 	void addLanguageValidator(Validator validationTest);
 	void addLanguageDefinition(json11::Json json);

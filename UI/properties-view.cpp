@@ -198,10 +198,14 @@ void Highlighter::addLanguageValidator(Validator validationTest)
 	validationTests.push_back(validationTest);
 }
 
-void Highlighter::init(const QString &text)
+std::vector<std::tuple<int, int, std::string>> Highlighter::init(const QString &text)
 {
-	HighlightingRule rule;
-	QString input;
+	size_t regex_cursor = 0;
+	size_t upper_limit = text.toStdString().length();
+	blog(LOG_INFO, "%u / %u", regex_cursor, upper_limit);
+	blog(LOG_INFO, "%s", text.toStdString().c_str());
+
+	std::vector<std::tuple<int, int, std::string>> highlights;
 	size_t i;
 	size_t j;
 	std::string language = "";
@@ -213,13 +217,15 @@ void Highlighter::init(const QString &text)
 		}
 		if (j >= validationTests[i].patterns.size()) {
 			language = validationTests[i].language;
+			resetState();
 			break;
 		}
 	}
-	_language = language;
+
 	if (language.empty()) {
-		blog(LOG_DEBUG, "language highlighting: (none)");
-		return;
+		blog(LOG_DEBUG, "language highlighting: (none or %s)", _language.c_str());
+	} else {
+		_language = language;
 	}
 
 	blog(LOG_DEBUG, "language highlighting: %s", language.c_str());
@@ -230,6 +236,12 @@ void Highlighter::init(const QString &text)
 			break;
 		}
 	}
+
+	for (; regex_cursor < upper_limit; regex_cursor++) {
+
+	}
+
+	return highlights;
 }
 
 std::string getId(QString expression, const QRegularExpressionMatch &matched)
@@ -262,9 +274,11 @@ static auto json_has = [](const Json &json, const std::string key) {
 
 template<class _Fn>
 static void applyLanguageStyleImpl(const Json &json, const Json &repo, const QString &text,
-		const Highlighter *highlighter, _Fn callback, int offset, int length, std::vector<std::string> *seen)
+		const Highlighter *highlighter, _Fn callback, int offset, int length, std::vector<std::string> *seen,
+		int depth = 0)
 {
-	if (!highlighter || length <= 0)
+	int fulllength = text.toStdString().length();
+	if (!highlighter || length <= 0 || offset >= fulllength)
 		return;
 	Json patterns = json["patterns"];
 	//blog(LOG_INFO, "//REPO\n%s", repo.dump().c_str());
@@ -279,8 +293,7 @@ static void applyLanguageStyleImpl(const Json &json, const Json &repo, const QSt
 	std::vector<std::string> names;
 	std::vector<std::string> beginNames;
 	std::vector<std::string> endNames;
-	bool single;
-
+	//
 	if (patterns.is_array()) {
 		//blog(LOG_INFO, "//PATTERNS\n%s", patterns.dump().c_str());
 		const std::vector<Json> &items = patterns.array_items();
@@ -303,47 +316,34 @@ static void applyLanguageStyleImpl(const Json &json, const Json &repo, const QSt
 					seen->push_back(key);
 
 				actualJson = repo[key];
+				applyLanguageStyleImpl(actualJson, repo, text, highlighter,
+					callback, offset, length, seen, depth+1);
 			}
+
 			//blog(LOG_INFO, "//REGEXINFO\n%s", actualJson.dump().c_str());
 			name = actualJson["name"].string_value();
 			//applyLanguageStyleImpl(actualJson, repo, text, highlighter, callback);
-			const std::map<std::string, Json> &captures = actualJson["captures"].object_items();
-			const std::map<std::string, Json> &beginCaptures = actualJson["beginCaptures"].object_items();
-			const std::map<std::string, Json> &endCaptures = actualJson["endCaptures"].object_items();
+			
 			names.clear();
 			beginNames.clear();
 			endNames.clear();
-			for (auto it = captures.begin(); it != captures.end(); it++) {
-				if (json_has(it->second, "include")) {
-					std::string hash = it->second["include"].string_value();
-					std::string key = hash.substr(1);
-					names.push_back(repo[key]["name"].string_value());
-				} else {
-					names.push_back(it->second["name"].string_value());
-				}
-			}
-			for (auto it = beginCaptures.begin(); it != beginCaptures.end(); it++) {
-				if (json_has(it->second, "include")) {
-					std::string hash = it->second["include"].string_value();
-					std::string key = hash.substr(1);
-					beginNames.push_back(repo[key]["name"].string_value());
-				} else {
-					beginNames.push_back(it->second["name"].string_value());
-				}
-			}
-			for (auto it = endCaptures.begin(); it != endCaptures.end(); it++) {
-				if (json_has(it->second, "include")) {
-					std::string hash = it->second["include"].string_value();
-					std::string key = hash.substr(1);
-					endNames.push_back(repo[key]["name"].string_value());
-				} else {
-					endNames.push_back(it->second["name"].string_value());
-				}
-			}
 
 			QString id_expr;
 			if (json_has(actualJson, "match")) {
+				const std::map<std::string, Json> &captures = actualJson["captures"].object_items();
+
+				for (auto it = captures.begin(); it != captures.end(); it++) {
+					if (json_has(it->second, "include")) {
+						std::string hash = it->second["include"].string_value();
+						std::string key = hash.substr(1);
+						names.push_back(repo[key]["name"].string_value());
+					} else {
+						names.push_back(it->second["name"].string_value());
+					}
+				}
+
 				m.fromStdString(actualJson["match"].string_value());
+				blog(LOG_INFO, "MATCH:\n%s", actualJson["match"].string_value().c_str());
 				match.setPattern(m);
 				QRegularExpressionMatchIterator matchIterator = match.globalMatch(text, offset);
 				while (matchIterator.hasNext()) {
@@ -351,7 +351,7 @@ static void applyLanguageStyleImpl(const Json &json, const Json &repo, const QSt
 					int len = plainmatch.capturedLength();
 					int start = plainmatch.capturedStart();
 					if(!name.empty())
-						callback(start, len, getId(id_expr.fromStdString(name), plainmatch));
+						callback(start, len, getId(id_expr.fromStdString(name), plainmatch), depth);
 					if ((offset + length) < plainmatch.capturedEnd())
 						continue;
 					int captures = plainmatch.lastCapturedIndex();
@@ -359,14 +359,40 @@ static void applyLanguageStyleImpl(const Json &json, const Json &repo, const QSt
 						start = plainmatch.capturedStart(i);
 						len = plainmatch.capturedLength(i);
 						if(i < names.size() && !names[i].empty())
-							callback(start, len, getId(id_expr.fromStdString(names[i]), plainmatch));
+							callback(start, len, getId(id_expr.fromStdString(names[i]), plainmatch), depth);
 						//applyLanguageStyleImpl(actualJson, repo, text, highlighter, callback, start, len);
 					}
 
 				}
 			} else if (json_has(actualJson, "begin")) {
+				const std::map<std::string, Json> &beginCaptures = actualJson["beginCaptures"].object_items();
+				const std::map<std::string, Json> &endCaptures = actualJson["endCaptures"].object_items();
+
+				for (auto it = beginCaptures.begin(); it != beginCaptures.end(); it++) {
+					if (json_has(it->second, "include")) {
+						std::string hash = it->second["include"].string_value();
+						std::string key = hash.substr(1);
+						beginNames.push_back(repo[key]["name"].string_value());
+					} else {
+						beginNames.push_back(it->second["name"].string_value());
+					}
+				}
+				for (auto it = endCaptures.begin(); it != endCaptures.end(); it++) {
+					if (json_has(it->second, "include")) {
+						std::string hash = it->second["include"].string_value();
+						std::string key = hash.substr(1);
+						endNames.push_back(repo[key]["name"].string_value());
+					} else {
+						endNames.push_back(it->second["name"].string_value());
+					}
+				}
+
 				b.fromStdString(actualJson["begin"].string_value());
 				e.fromStdString(actualJson["end"].string_value());
+
+				blog(LOG_INFO, "BEGIN:\n%s", actualJson["begin"].string_value().c_str());
+				blog(LOG_INFO, "END:\n%s", actualJson["end"].string_value().c_str());
+
 				begin.setPattern(b);
 				end.setPattern(e);
 				QRegularExpressionMatchIterator matchIterator = begin.globalMatch(text, offset);
@@ -377,15 +403,15 @@ static void applyLanguageStyleImpl(const Json &json, const Json &repo, const QSt
 					int start = beginmatch.capturedStart();
 					if (!endmatch.hasMatch() || (offset+length) < endmatch.capturedEnd())
 						continue;
-					callback(beginmatch.capturedStart(), len, getId(id_expr.fromStdString(name), beginmatch));
+					callback(beginmatch.capturedStart(), len, getId(id_expr.fromStdString(name), beginmatch), depth);
 					int captures = beginmatch.lastCapturedIndex();
 					for (int i = 1; i < captures; i++) {
 						start = beginmatch.capturedStart(i);
 						len = endmatch.capturedEnd(i) - beginmatch.capturedStart(i);
 						if(i < beginNames.size() && !beginNames[i].empty())
-							callback(beginmatch.capturedStart(i), len, getId(id_expr.fromStdString(beginNames[i]), beginmatch));
+							callback(beginmatch.capturedStart(i), len, getId(id_expr.fromStdString(beginNames[i]), beginmatch), depth);
 						if(i < endNames.size() && !endNames[i].empty())
-							callback(endmatch.capturedStart(i), 1, getId(id_expr.fromStdString(endNames[i]), endmatch));
+							callback(endmatch.capturedStart(i), 1, getId(id_expr.fromStdString(endNames[i]), endmatch), depth);
 						//applyLanguageStyleImpl(actualJson, repo, text, highlighter, callback, start, len);
 					}
 					len = endmatch.capturedEnd() - beginmatch.capturedStart();
@@ -420,67 +446,14 @@ const QTextCharFormat &Highlighter::getStyle(const std::string &id)
 
 void Highlighter::highlightBlock(const QString &text)
 {
-	init(text);
-	//blog(LOG_INFO, "lang: %s", )
-	applyLanguageStyle(_currentDefinition, text, this, [=](int start, int len, std::string id) {
-		QString subStr = text.mid(start, len);
-		blog(LOG_INFO, "id: %s\n[%d,%d]\n%s", id.c_str(), start, len, subStr.toStdString().c_str());
+	std::vector<std::tuple<int, int, std::string>> highlights = init(text);
+
+	for (size_t i = 0; i < highlights.size(); i++) {
+		int start = std::get<0>(highlights[i]);
+		int len = std::get<1>(highlights[i]);
+		std::string id = std::get<2>(highlights[i]);
 		setFormat(start, len, getStyle(id));
-	});
-	/*[=](const QString &text, const Highlighter *highlighter,
-		const QRegularExpression &whole, const QRegularExpression &begin, const QRegularExpression &end,
-		const std::string &name, const std::vector<std::string> &names,
-		const std::vector<std::string> &beginNames, const std::vector<std::string> &endNames, bool single)
-	{
-		QString expression;
-		std::string id;
-		blog(LOG_INFO, "NAME\n%s", name.c_str());
-		if (single) {
-			QRegularExpressionMatchIterator matchIterator = whole.globalMatch(text);
-			while (matchIterator.hasNext()) {
-				QRegularExpressionMatch match = matchIterator.next();
-				int captures = match.lastCapturedIndex();
-				blog(LOG_INFO, "%d", captures);
-
-				setFormat(match.capturedStart(),
-					match.capturedLength(), getStyle(name));
-				for (int i = 1; i < captures; i++) {
-					expression.fromStdString(names[i]);
-					id = getId(expression, match);
-					setFormat(match.capturedStart(i),
-						match.capturedLength(i), getStyle(id));
-				}
-			}
-		} else {
-			QRegularExpressionMatchIterator startIterator = begin.globalMatch(text);
-			while (startIterator.hasNext()) {
-				QRegularExpressionMatch match = startIterator.next();
-				QRegularExpressionMatch endmatch = end.match(text, match.capturedStart());
-				int captures = match.lastCapturedIndex();
-				blog(LOG_INFO, "%d", captures);
-				//match.lastCapturedIndex
-				int index = match.capturedStart();
-				setFormat(index, match.capturedLength() - index,
-						getStyle(name));
-				for (int i = 1; i < captures; i++) {
-					expression.fromStdString(beginNames[i]);
-					id = getId(expression, match);
-					setFormat(match.capturedStart(i),
-						match.capturedLength(i), getStyle(id));
-				}
-				captures = endmatch.lastCapturedIndex();
-				blog(LOG_INFO, "%d", captures);
-
-				for (int i = 1; i < captures; i++) {
-					expression.fromStdString(endNames[i]);
-					id = getId(expression, match);
-					setFormat(endmatch.capturedStart(i),
-						endmatch.capturedLength(i), getStyle(id));
-				}
-			}
-		}
-	});
-	*/
+	}
 }
 
 void OBSPropertiesView::ReloadProperties()
