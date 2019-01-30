@@ -185,10 +185,7 @@ static void prepFunctions(std::vector<te_variable> *vars, ShaderSource *filter)
 	{"mouse_wheel_delta_x", &filter->_mouseWheelDeltaX},
 	{"mouse_wheel_delta_y", &filter->_mouseWheelDeltaY}, {"mouse_wheel_x", &filter->_mouseWheelX},
 	{"mouse_wheel_y", &filter->_mouseWheelY}, {"mouse_leave", &filter->_mouseLeave},
-	{"primary_screen_height", &filter->_primaryScreenHeight}, {"primary_screen_width", &filter->_primaryScreenWidth},
 	{"radians", hlsl_rad, TE_FUNCTION1 | TE_FLAG_PURE}, {"random", random_double, TE_FUNCTION2},
-	{"whole_screen_height", &filter->_wholeScreenHeight},
-	{"whole_screen_width", &filter->_wholeScreenWidth},
 	{"mouse_pos_x", &filter->_screenMousePosX},
 	{"mouse_pos_y", &filter->_screenMousePosY},
 	{"screen_mouse_visible", &filter->_screenMouseVisible},
@@ -1205,14 +1202,14 @@ public:
 
 	void setData()
 	{
-		if (_param) {
-			if (_isFloat) {
-				float *data = (float *)_values.data();
-				_param->setValue<float>(data, _values.size() * sizeof(float));
-			} else {
-				int *data = (int *)_values.data();
-				_param->setValue<int>(data, _values.size() * sizeof(int));
-			}
+		if (!_param)
+			return;
+		if (_isFloat) {
+			float *data = (float *)_values.data();
+			_param->setValue<float>(data, _values.size() * sizeof(float));
+		} else {
+			int *data = (int *)_values.data();
+			_param->setValue<int>(data, _values.size() * sizeof(int));
 		}
 	}
 
@@ -2245,8 +2242,8 @@ public:
 					obs_enter_graphics();
 					if (_tex)
 						gs_texture_destroy(_tex);
-					obs_leave_graphics();
 					_tex = nullptr;
+					obs_leave_graphics();
 				}
 				if (!_tex)
 					_tex = gs_texture_create(gs_texture_get_width(texture), gs_texture_get_height(texture), gs_texture_get_color_format(texture), 1, (const uint8_t **)&_data, 0);
@@ -2630,19 +2627,25 @@ void ShaderSource::reload()
 	/* Enforce alphabetical order for binary search */
 	std::stable_sort(expression.begin(), expression.end(), orderVars);
 
-	if (paramMap.count("image")) {
-		ShaderParameter *p = paramMap.at("image");
-		image = p->getParameter()->getParam();
-	} else {
-		image = nullptr;
-	}
+	auto mapParam = [=](gs_eparam_t **gs, std::string param) {
+		if (!gs)
+			return false;
+		if (paramMap.count(param)) {
+			ShaderParameter *p = paramMap.at(param);
+			*gs = p->getParameter()->getParam();
+			return true;
+		} else {
+			*gs = nullptr;
+		}
+		return false;
+	};
 
-	if (paramMap.count("image_2")) {
-		ShaderParameter *p = paramMap.at("image_2");
-		image_2 = p->getParameter()->getParam();
-	} else {
-		image_2 = nullptr;
+	mapParam(&image, "image");
+
+	if (!mapParam(&image, "image")) {
+		mapParam(&image, "image_0");
 	}
+	mapParam(&image_1, "image_1");
 }
 
 void *ShaderSource::create(obs_data_t *settings, obs_source_t *source)
@@ -3051,8 +3054,8 @@ static void renderTransition(void *data, gs_texture_t *a, gs_texture_t *b,
 			const char *techName = "Draw";
 			if (filter->image)
 				gs_effect_set_texture(filter->image, a);
-			if (filter->image_2)
-				gs_effect_set_texture(filter->image_2, b);
+			if (filter->image_1)
+				gs_effect_set_texture(filter->image_1, b);
 			renderSprite(filter, filter->effect, texture, techName, cx, cy);
 		}
 	} else {

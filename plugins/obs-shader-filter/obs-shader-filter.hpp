@@ -330,12 +330,6 @@ public:
 	double _mouseWheelDeltaX;
 	double _mouseWheelDeltaY;
 
-	double _wholeScreenWidth;
-	double _wholeScreenHeight;
-
-	double _primaryScreenWidth;
-	double _primaryScreenHeight;
-
 	std::vector<double> _screenWidth;
 	std::vector<double> _screenHeight;
 
@@ -378,7 +372,7 @@ public:
 
 	matrix4 viewProj;
 	gs_eparam_t *image = nullptr;
-	gs_eparam_t *image_2 = nullptr;
+	gs_eparam_t *image_1 = nullptr;
 
 	obs_source_t *context = nullptr;
 
