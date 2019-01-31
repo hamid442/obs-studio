@@ -28,6 +28,8 @@ static const char *shader_filter_media_file_filter =
 "Video Files (*.mp4 *.ts *.mov *.wmv *.flv *.mkv *.avi *.gif *.webm);;";
 
 #define M_PI_D 3.141592653589793238462643383279502884197169399375
+static const double e  = 2.718281828459045235360287471352662497757247093699;
+static const double pi = M_PI_D;
 
 static double getScreenWidth(double index);
 
@@ -70,16 +72,6 @@ static double audio_mel_from_hz(double hz)
 static double audio_hz_from_mel(double mel)
 {
 	return 700 * (pow(10, mel / 2595) - 1);
-}
-
-static double pi(void)
-{
-	return 3.141592653589793238462643383279502884197169399375;
-}
-/*float precision 2.71828182845904523536*/
-static double e(void)
-{
-	return 2.718281828459045235360287471352662497757247093699;
 }
 
 static double dceil(double d)
@@ -155,10 +147,13 @@ static std::vector<double> screenHeights;
 static std::vector<double> screenWidths;
 static PThreadMutex *screenMutex = nullptr;
 
-const static double flt_max = FLT_MAX;
-const static double flt_min = FLT_MIN;
-const static double int_min = INT_MIN;
-const static double int_max = INT_MAX;
+
+/*float precision 2.71828182845904523536*/
+
+static const double flt_max = FLT_MAX;
+static const double flt_min = FLT_MIN;
+static const double int_min = INT_MIN;
+static const  double int_max = INT_MAX;
 static double       sample_rate;
 static double       frame_rate;
 static double       output_channels;
@@ -204,7 +199,8 @@ static void prepFunctions(std::vector<te_variable> *vars, ShaderSource *filter)
 	{"ceil", static_cast<double(*)(double)>(dceil),   TE_FUNCTION1 | TE_FLAG_PURE, 0},
 	{"cos", static_cast<double(*)(double)>(cos),      TE_FUNCTION1 | TE_FLAG_PURE, 0},
 	{"cosh", static_cast<double(*)(double)>(cosh),    TE_FUNCTION1 | TE_FLAG_PURE, 0},
-	{"e", static_cast<double(*)()>(e), TE_FUNCTION0 | TE_FLAG_PURE, 0},
+	{"e", &e},
+	//static_cast<double(*)()>(e), TE_FUNCTION0 | TE_FLAG_PURE, 0 },
 	{"exp", static_cast<double(*)(double)>(exp),      TE_FUNCTION1 | TE_FLAG_PURE, 0},
 	{"fac", static_cast<double(*)(double)>(fac),      TE_FUNCTION1 | TE_FLAG_PURE, 0},
 	{"floor", static_cast<double(*)(double)>(dfloor), TE_FUNCTION1 | TE_FLAG_PURE, 0},
@@ -217,7 +213,8 @@ static void prepFunctions(std::vector<te_variable> *vars, ShaderSource *filter)
 	{"log10", static_cast<double(*)(double)>(log10),  TE_FUNCTION1 | TE_FLAG_PURE, 0},
 	{"ncr", static_cast<double(*)(double, double)>(ncr),      TE_FUNCTION2 | TE_FLAG_PURE, 0},
 	{"npr", static_cast<double(*)(double, double)>(npr),      TE_FUNCTION2 | TE_FLAG_PURE, 0},
-	{"pi", static_cast<double(*)()>(pi),              TE_FUNCTION0 | TE_FLAG_PURE, 0},
+	{"pi", &pi},
+	//{"pi", static_cast<double(*)()>(pi),              TE_FUNCTION0 | TE_FLAG_PURE, 0},
 	{"pow", static_cast<double(*)(double, double)>(pow),      TE_FUNCTION2 | TE_FLAG_PURE, 0},
 	{"sin", static_cast<double(*)(double)>(sin),      TE_FUNCTION1 | TE_FLAG_PURE, 0},
 	{"sinh", static_cast<double(*)(double)>(sinh),    TE_FUNCTION1 | TE_FLAG_PURE, 0},
@@ -457,11 +454,9 @@ public:
 		std::string str = "";
 		char       *ptrChar = static_cast<char *>(data);
 
-		switch (type) {
-		case GS_SHADER_PARAM_STRING:
+		if (type == GS_SHADER_PARAM_STRING)
 			str = ptrChar;
-			break;
-		}
+
 		return str;
 	}
 
@@ -2561,11 +2556,11 @@ uint32_t ShaderSource::getHeight()
 void ShaderSource::updateCache(gs_eparam_t *param)
 {
 	ShaderParameter *p = new ShaderParameter(param, this);
-	if (p) {
-		paramList.push_back(p);
-		paramMap.insert(std::pair<std::string, ShaderParameter *>(p->getName(), p));
-		blog(LOG_INFO, "%s", p->getName().c_str());
-	}
+	if (!p)
+		return;
+	paramList.push_back(p);
+	paramMap.insert(std::pair<std::string, ShaderParameter *>(p->getName(), p));
+	blog(LOG_INFO, "%s", p->getName().c_str());
 }
 
 void ShaderSource::reload()
@@ -2640,11 +2635,9 @@ void ShaderSource::reload()
 		return false;
 	};
 
-	mapParam(&image, "image");
-
-	if (!mapParam(&image, "image")) {
+	if (!mapParam(&image, "image"))
 		mapParam(&image, "image_0");
-	}
+
 	mapParam(&image_1, "image_1");
 }
 
@@ -2882,6 +2875,24 @@ void ShaderSource::videoRender(void *data, gs_effect_t *effect)
 	}
 }
 
+static inline void renderNothing(ShaderSource *filter, const uint32_t &cx, const uint32_t &cy) {
+	gs_blend_state_push();
+	gs_blend_function(GS_BLEND_ONE, GS_BLEND_ZERO);
+
+	gs_texrender_reset(filter->filterTexrender);
+	if (gs_texrender_begin(filter->filterTexrender, cx, cy)) {
+		struct vec4 clearColor;
+
+		vec4_zero(&clearColor);
+		gs_clear(GS_CLEAR_COLOR, &clearColor, 0.0f, 0);
+		gs_ortho(0.0f, (float)cx, 0.0f, (float)cy, -100.0f, 100.0f);
+
+		gs_texrender_end(filter->filterTexrender);
+	}
+
+	gs_blend_state_pop();
+};
+
 void ShaderSource::videoRenderSource(void *data, gs_effect_t *effect)
 {
 	UNUSED_PARAMETER(effect);
@@ -2917,21 +2928,7 @@ void ShaderSource::videoRenderSource(void *data, gs_effect_t *effect)
 		const char *id = obs_source_get_id(source);
 		parentFlags = obs_get_source_output_flags(id);
 
-		gs_blend_state_push();
-		gs_blend_function(GS_BLEND_ONE, GS_BLEND_ZERO);
-
-		gs_texrender_reset(filter->filterTexrender);
-		if (gs_texrender_begin(filter->filterTexrender, cx, cy)) {
-			struct vec4 clearColor;
-
-			vec4_zero(&clearColor);
-			gs_clear(GS_CLEAR_COLOR, &clearColor, 0.0f, 0);
-			gs_ortho(0.0f, (float)cx, 0.0f, (float)cy, -100.0f, 100.0f);
-
-			gs_texrender_end(filter->filterTexrender);
-		}
-
-		gs_blend_state_pop();
+		renderNothing(filter, cx, cy);
 
 		texture = gs_texrender_get_texture(filter->filterTexrender);
 		if (texture) {
@@ -2941,21 +2938,7 @@ void ShaderSource::videoRenderSource(void *data, gs_effect_t *effect)
 			renderSprite(filter, filter->effect, texture, techName, filter->totalWidth, filter->totalHeight);
 		}
 	} else {
-		gs_blend_state_push();
-		gs_blend_function(GS_BLEND_ONE, GS_BLEND_ZERO);
-
-		gs_texrender_reset(filter->filterTexrender);
-		if (gs_texrender_begin(filter->filterTexrender, cx, cy)) {
-			struct vec4 clearColor;
-
-			vec4_zero(&clearColor);
-			gs_clear(GS_CLEAR_COLOR, &clearColor, 0.0f, 0);
-			gs_ortho(0.0f, (float)cx, 0.0f, (float)cy, -100.0f, 100.0f);
-
-			gs_texrender_end(filter->filterTexrender);
-		}
-
-		gs_blend_state_pop();
+		renderNothing(filter, cx, cy);
 		texture = gs_texrender_get_texture(filter->filterTexrender);
 		if (texture) {
 			const char  *techName = "Draw";
@@ -3032,21 +3015,7 @@ static void renderTransition(void *data, gs_texture_t *a, gs_texture_t *b,
 		const char *id = obs_source_get_id(source);
 		parentFlags = obs_get_source_output_flags(id);
 
-		gs_blend_state_push();
-		gs_blend_function(GS_BLEND_ONE, GS_BLEND_ZERO);
-
-		gs_texrender_reset(filter->filterTexrender);
-		if (gs_texrender_begin(filter->filterTexrender, cx, cy)) {
-			struct vec4 clearColor;
-
-			vec4_zero(&clearColor);
-			gs_clear(GS_CLEAR_COLOR, &clearColor, 0.0f, 0);
-			gs_ortho(0.0f, (float)cx, 0.0f, (float)cy, -100.0f, 100.0f);
-
-			gs_texrender_end(filter->filterTexrender);
-		}
-
-		gs_blend_state_pop();
+		renderNothing(filter, cx, cy);
 
 		texture = gs_texrender_get_texture(filter->filterTexrender);
 
@@ -3109,7 +3078,7 @@ static float mix_b(void *data, float t)
 {
 	ShaderSource *filter = static_cast<ShaderSource *>(data);
 	filter->mixPercent = t;
-	filter->compileExpression(filter->mixAExpression);
+	filter->compileExpression(filter->mixBExpression);
 	float vol = t;
 	if (filter->expressionCompiled())
 		vol = filter->evaluateExpression<float>(vol);
