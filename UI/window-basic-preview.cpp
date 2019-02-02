@@ -37,7 +37,7 @@ vec2 OBSBasicPreview::GetMouseEventPos(QMouseEvent *event)
 	vec2_set(&pos,
 		(float(event->x()) - main->previewX / pixelRatio) * scale,
 		(float(event->y()) - main->previewY / pixelRatio) * scale);
-
+	//blog(LOG_DEBUG, "<%f,%f>", pos.x, pos.y);
 	return pos;
 }
 
@@ -151,9 +151,19 @@ vec3 OBSBasicPreview::GetSnapOffset(const vec3 &tl, const vec3 &br)
 			"BasicWindow", "ScreenSnapping");
 	const bool centerSnap = config_get_bool(GetGlobalConfig(),
 			"BasicWindow", "CenterSnapping");
+	/*
+	const bool gridSnap = config_get_bool(GetGlobalConfig(),
+			"BasicWindow", "GridSnapping");
+			*/
+	const bool gridSnap = true;
 
-	const float clampDist = config_get_double(GetGlobalConfig(),
-			"BasicWindow", "SnapDistance") / main->previewScale;
+	const float clampF = config_get_double(GetGlobalConfig(),
+			"BasicWindow", "SnapDistance");
+	const float clampDist = clampF / main->previewScale;
+
+	int linesX = screenSize.x / (clampF * 5);
+	int linesY = screenSize.y / (clampF * 5);
+
 	const float centerX = br.x - (br.x - tl.x) / 2.0f;
 	const float centerY = br.y - (br.y - tl.y) / 2.0f;
 
@@ -186,6 +196,24 @@ vec3 OBSBasicPreview::GetSnapOffset(const vec3 &tl, const vec3 &br)
 	    fabsf(screenSize.y - (br.y - tl.y)) > clampDist &&
 	    fabsf(screenSize.y / 2.0f - centerY) < clampDist)
 		clampOffset.y = screenSize.y / 2.0f - centerY;
+
+	if (gridSnap) {
+		//0 1 2 3 4 5 6 7 8 9 0
+		int offset = fmodf(tl.x, clampF * 5);
+		int abs_offset = fabsf(offset);
+		if (abs_offset < clampDist) {
+			clampOffset.x = -offset;
+		} else if (abs_offset > (clampF * 5 - clampDist)) {
+			clampOffset.x = ((clampF * 5) - abs_offset);
+		}
+		offset = fmodf(tl.y, clampF * 5);
+		abs_offset = fabsf(offset);
+		if (abs_offset < clampDist) {
+			clampOffset.y = -offset;
+		} else if (abs_offset > (clampF * 5 - clampDist)) {
+			clampOffset.y = ((clampF * 5) - abs_offset);
+		}
+	}
 
 	return clampOffset;
 }
@@ -1310,6 +1338,66 @@ bool OBSBasicPreview::DrawSelectedItem(obs_scene_t *scene,
 	UNUSED_PARAMETER(scene);
 	UNUSED_PARAMETER(param);
 	return true;
+}
+
+void OBSBasicPreview::DrawGrid()
+{
+	int drawGrid = true;
+	if (!drawGrid)
+		return;
+	OBSBasic *main = reinterpret_cast<OBSBasic*>(App()->GetMainWindow());
+
+	gs_effect_t    *solid = obs_get_base_effect(OBS_EFFECT_SOLID);
+	gs_technique_t *tech = gs_effect_get_technique(solid, "Solid");
+
+	vec4 color;
+	vec4_set(&color, 1.0f, 0.0f, 0.0f, 1.0f);
+	gs_effect_set_vec4(gs_effect_get_param_by_name(solid, "color"), &color);
+
+	gs_technique_begin(tech);
+	gs_technique_begin_pass(tech, 0);
+
+	vec2 screenSize = GetOBSScreenSize();
+	int width = screenSize.x;
+	int height = screenSize.y;
+	int previewWidth = width * main->previewScale;
+	int previewHeight = height * main->previewScale;
+	
+	const float clampDist = config_get_double(GetGlobalConfig(),
+		"BasicWindow", "SnapDistance");
+	int pixelsPerBar = (int)clampDist * 5;
+	vec3 shift = { 0 };
+
+	for (int i = pixelsPerBar; i < width; i += pixelsPerBar) {
+		vec3_set(&shift, i, 0, 0);
+
+		gs_matrix_push();
+		gs_matrix_identity();
+		gs_matrix_translate(&shift);
+		gs_matrix_scale3f(1.0f, height, 1.0f);
+		
+		gs_load_vertexbuffer(main->boxLeft);
+		gs_draw(GS_LINESTRIP, 0, 0);
+		gs_matrix_pop();
+	}
+	
+	for (int i = pixelsPerBar; i < height; i += pixelsPerBar) {
+		vec3_set(&shift, 0, i, 0);
+
+		gs_matrix_push();
+		gs_matrix_identity();
+		gs_matrix_translate(&shift);
+		gs_matrix_scale3f(width, 1.0f, 1.0f);
+
+		gs_load_vertexbuffer(main->boxTop);
+		gs_draw(GS_LINESTRIP, 0, 0);
+		gs_matrix_pop();
+	}
+
+	gs_load_vertexbuffer(nullptr);
+
+	gs_technique_end_pass(tech);
+	gs_technique_end(tech);
 }
 
 void OBSBasicPreview::DrawSceneEditing()

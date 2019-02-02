@@ -3243,6 +3243,7 @@ void OBSBasic::RenderMain(void *data, uint32_t cx, uint32_t cy)
 			window->previewCX, window->previewCY);
 
 	window->DrawBackdrop(float(ovi.base_width), float(ovi.base_height));
+	window->ui->preview->DrawGrid();
 
 	if (window->IsPreviewProgramMode()) {
 		OBSScene scene = window->GetCurrentScene();
@@ -3263,6 +3264,7 @@ void OBSBasic::RenderMain(void *data, uint32_t cx, uint32_t cy)
 	gs_ortho(-window->previewX, right,
 	         -window->previewY, bottom,
 	         -100.0f, 100.0f);
+
 	gs_reset_viewport();
 
 	window->ui->preview->DrawSceneEditing();

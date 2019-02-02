@@ -94,6 +94,7 @@ public:
 	virtual void mouseReleaseEvent(QMouseEvent *event) override;
 	virtual void mouseMoveEvent(QMouseEvent *event) override;
 
+	void DrawGrid();
 	void DrawSceneEditing();
 
 	inline void SetLocked(bool newLockedVal) {locked = newLockedVal;}
