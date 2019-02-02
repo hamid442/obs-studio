@@ -151,68 +151,77 @@ vec3 OBSBasicPreview::GetSnapOffset(const vec3 &tl, const vec3 &br)
 			"BasicWindow", "ScreenSnapping");
 	const bool centerSnap = config_get_bool(GetGlobalConfig(),
 			"BasicWindow", "CenterSnapping");
-	/*
 	const bool gridSnap = config_get_bool(GetGlobalConfig(),
-			"BasicWindow", "GridSnapping");
-			*/
-	const bool gridSnap = true;
+			"BasicWindow", "EnableGridSnapping");
+	const int gridCountX = config_get_int(GetGlobalConfig(),
+			"BasicWindow", "GridCountX");
+	const int gridCountY = config_get_int(GetGlobalConfig(),
+			"BasicWindow", "GridCountY");
 
 	const float clampF = config_get_double(GetGlobalConfig(),
 			"BasicWindow", "SnapDistance");
 	const float clampDist = clampF / main->previewScale;
 
-	int linesX = screenSize.x / (clampF * 5);
-	int linesY = screenSize.y / (clampF * 5);
+	const float centerX = (br.x + tl.x) / 2.0f;
+	const float centerY = (br.y + tl.y) / 2.0f;
+	const float midX    = screenSize.x / 2.0f;
+	const float midY    = screenSize.y / 2.0f;
+	const float divX    = 1.0f / (float)(gridCountX);
+	const float divY    = 1.0f / (float)(gridCountY);
 
-	const float centerX = br.x - (br.x - tl.x) / 2.0f;
-	const float centerY = br.y - (br.y - tl.y) / 2.0f;
+	auto snapOn = [&](float *offset, float x, float spacing)
+	{
+		float m = fmodf(x, spacing);
+		if (m < clampDist)
+			*offset = -m;
+		else if (m > (spacing - clampDist))
+			*offset = (spacing - m);
+	};
 
-	// Left screen edge.
-	if (screenSnap &&
-	    fabsf(tl.x) < clampDist)
-		clampOffset.x = -tl.x;
-	// Right screen edge.
-	if (screenSnap &&
-	    fabsf(clampOffset.x) < EPSILON &&
-	    fabsf(screenSize.x - br.x) < clampDist)
-		clampOffset.x = screenSize.x - br.x;
-	// Horizontal center.
-	if (centerSnap &&
-	    fabsf(screenSize.x - (br.x - tl.x)) > clampDist &&
-	    fabsf(screenSize.x / 2.0f - centerX) < clampDist)
-		clampOffset.x = screenSize.x / 2.0f - centerX;
+	auto snapOnCoordinate = [&](float *offset, float x, float px)
+	{
+		float diff = px - x;
+		float m = fabsf(diff);
+		if (m < clampDist)
+			*offset = diff;
+	};
 
-	// Top screen edge.
-	if (screenSnap &&
-	    fabsf(tl.y) < clampDist)
-		clampOffset.y = -tl.y;
-	// Bottom screen edge.
-	if (screenSnap &&
-	    fabsf(clampOffset.y) < EPSILON &&
-	    fabsf(screenSize.y - br.y) < clampDist)
-		clampOffset.y = screenSize.y - br.y;
-	// Vertical center.
-	if (centerSnap &&
-	    fabsf(screenSize.y - (br.y - tl.y)) > clampDist &&
-	    fabsf(screenSize.y / 2.0f - centerY) < clampDist)
-		clampOffset.y = screenSize.y / 2.0f - centerY;
+	if (screenSnap) {
+		snapOnCoordinate(&clampOffset.x, tl.x, 0);
+		snapOnCoordinate(&clampOffset.x, br.x, 0);
+		snapOnCoordinate(&clampOffset.x, centerX, 0);
+		snapOnCoordinate(&clampOffset.x, tl.x, screenSize.x);
+		snapOnCoordinate(&clampOffset.x, br.x, screenSize.x);
+		snapOnCoordinate(&clampOffset.x, centerX, screenSize.x);
+	}
+	if (centerSnap) {
+		snapOnCoordinate(&clampOffset.x, tl.x, midX);
+		snapOnCoordinate(&clampOffset.x, centerX, midX);
+		snapOnCoordinate(&clampOffset.x, br.x, midX);
+	}
+	if (screenSnap) {
+		snapOnCoordinate(&clampOffset.y, tl.y, 0);
+		snapOnCoordinate(&clampOffset.y, br.y, 0);
+		snapOnCoordinate(&clampOffset.y, centerY, 0);
+		snapOnCoordinate(&clampOffset.y, tl.y, screenSize.y);
+		snapOnCoordinate(&clampOffset.y, br.y, screenSize.y);
+		snapOnCoordinate(&clampOffset.y, centerY, screenSize.y);
+	}
+	if (centerSnap) {
+		snapOnCoordinate(&clampOffset.y, tl.y, midY);
+		snapOnCoordinate(&clampOffset.y, centerY, midY);
+		snapOnCoordinate(&clampOffset.y, br.y, midY);
+	}
 
 	if (gridSnap) {
-		//0 1 2 3 4 5 6 7 8 9 0
-		int offset = fmodf(tl.x, clampF * 5);
-		int abs_offset = fabsf(offset);
-		if (abs_offset < clampDist) {
-			clampOffset.x = -offset;
-		} else if (abs_offset > (clampF * 5 - clampDist)) {
-			clampOffset.x = ((clampF * 5) - abs_offset);
-		}
-		offset = fmodf(tl.y, clampF * 5);
-		abs_offset = fabsf(offset);
-		if (abs_offset < clampDist) {
-			clampOffset.y = -offset;
-		} else if (abs_offset > (clampF * 5 - clampDist)) {
-			clampOffset.y = ((clampF * 5) - abs_offset);
-		}
+		float spaceX = screenSize.x * divX;
+		float spaceY = screenSize.y * divY;
+		snapOn(&clampOffset.x, tl.x, spaceX);
+		snapOn(&clampOffset.y, tl.y, spaceY);
+		snapOn(&clampOffset.x, centerX, spaceX);
+		snapOn(&clampOffset.y, centerY, spaceY);
+		snapOn(&clampOffset.x, br.x, spaceX);
+		snapOn(&clampOffset.y, br.y, spaceY);
 	}
 
 	return clampOffset;
@@ -1339,6 +1348,66 @@ bool OBSBasicPreview::DrawSelectedItem(obs_scene_t *scene,
 	UNUSED_PARAMETER(param);
 	return true;
 }
+/*
+static void DrawLine(float x1, float y1, float x2, float y2, float thickness)
+{
+	struct matrix4 matrix;
+	gs_matrix_get(&matrix);
+
+	float ySide = (y1 == y2) ? (y1 < 0.5f ? 1.0f : -1.0f) : 0.0f;
+	float xSide = (x1 == x2) ? (x1 < 0.5f ? 1.0f : -1.0f) : 0.0f;
+
+	gs_render_start(true);
+
+	gs_vertex2f(x1, y1);
+	gs_vertex2f(x1 + (xSide * (thickness / matrix.x.x)),
+		y1 + (ySide * (thickness / matrix.y.y)));
+	gs_vertex2f(x2 + (xSide * (thickness / matrix.x.x)),
+		y2 + (ySide * (thickness / matrix.y.y)));
+	gs_vertex2f(x2, y2);
+	gs_vertex2f(x1, y1);
+
+	gs_vertbuffer_t *line = gs_render_save();
+
+	gs_load_vertexbuffer(line);
+	gs_draw(GS_TRISTRIP, 0, 0);
+	gs_vertexbuffer_destroy(line);
+}
+*/
+static gs_vertbuffer_t *DrawLine(float x1, float y1, float x2, float y2, float thickness)
+{
+	struct matrix4 matrix;
+	gs_matrix_get(&matrix);
+
+	float diffX = fabsf(x1 - x2);
+	float diffY = fabsf(y1 - y2);
+
+	gs_render_start(true);
+
+	if (thickness < 0.001f) {
+		gs_vertex2f(x1, y1);
+		gs_vertex2f(x2, y2);
+	} else {
+		if (diffX > diffY) {
+			gs_vertex2f(x1, y1 + (thickness / 2.0));
+			gs_vertex2f(x2, y2 + (thickness / 2.0));
+			gs_vertex2f(x2, y2 - (thickness / 2.0));
+			gs_vertex2f(x1, y1 - (thickness / 2.0));
+			//back
+			gs_vertex2f(x1, y1 + (thickness / 2.0));
+		} else {
+			gs_vertex2f(x1 + (thickness / 2.0), y1);
+			gs_vertex2f(x2 + (thickness / 2.0), y2);
+			gs_vertex2f(x2 - (thickness / 2.0), y2);
+			gs_vertex2f(x1 - (thickness / 2.0), y1);
+			//back
+			gs_vertex2f(x1 + (thickness / 2.0), y1);
+
+		}
+	}
+
+	return gs_render_save();
+}
 
 void OBSBasicPreview::DrawGrid()
 {
@@ -1354,6 +1423,11 @@ void OBSBasicPreview::DrawGrid()
 	vec4_set(&color, 1.0f, 0.0f, 0.0f, 1.0f);
 	gs_effect_set_vec4(gs_effect_get_param_by_name(solid, "color"), &color);
 
+	const bool enabled = config_get_bool(GetGlobalConfig(),
+			"BasicWindow", "EnableGrid");
+	if (!enabled)
+		return;
+
 	gs_technique_begin(tech);
 	gs_technique_begin_pass(tech, 0);
 
@@ -1362,37 +1436,58 @@ void OBSBasicPreview::DrawGrid()
 	int height = screenSize.y;
 	int previewWidth = width * main->previewScale;
 	int previewHeight = height * main->previewScale;
-	
-	const float clampDist = config_get_double(GetGlobalConfig(),
-		"BasicWindow", "SnapDistance");
-	int pixelsPerBar = (int)clampDist * 5;
+
+	const int gridCountX = config_get_int(GetGlobalConfig(),
+			"BasicWindow", "GridCountX");
+	const int gridCountY = config_get_int(GetGlobalConfig(),
+			"BasicWindow", "GridCountY");
+
 	vec3 shift = { 0 };
 
-	for (int i = pixelsPerBar; i < width; i += pixelsPerBar) {
-		vec3_set(&shift, i, 0, 0);
+	float majorPercentageX = 1.0f / (float)(gridCountX);
+	float majorPercentageY = 1.0f / (float)(gridCountY);
+
+	int majorThickness = 3;
+
+	double maj_x = (double)majorThickness / (double)height;
+	double maj_y = (double)majorThickness / (double)width;
+
+	bool thin_major_x = close_float(maj_x, 0, 0.001);
+	bool thin_major_y = close_float(maj_y, 0, 0.001);
+
+	gs_vertbuffer_t *majorX = DrawLine(0, 0, 1, 0, (float)maj_x);
+	gs_vertbuffer_t *majorY = DrawLine(0, 0, 0, 1, (float)maj_y);
+
+	auto drawLineAt = [&](float x, float y, gs_vertbuffer_t *line, bool pixel) {
+		vec3_set(&shift, x * width, y * height, 0);
 
 		gs_matrix_push();
 		gs_matrix_identity();
 		gs_matrix_translate(&shift);
-		gs_matrix_scale3f(1.0f, height, 1.0f);
-		
-		gs_load_vertexbuffer(main->boxLeft);
-		gs_draw(GS_LINESTRIP, 0, 0);
-		gs_matrix_pop();
-	}
-	
-	for (int i = pixelsPerBar; i < height; i += pixelsPerBar) {
-		vec3_set(&shift, 0, i, 0);
+		gs_matrix_scale3f(width, height, 1.0f);
 
-		gs_matrix_push();
-		gs_matrix_identity();
-		gs_matrix_translate(&shift);
-		gs_matrix_scale3f(width, 1.0f, 1.0f);
-
-		gs_load_vertexbuffer(main->boxTop);
-		gs_draw(GS_LINESTRIP, 0, 0);
+		gs_load_vertexbuffer(line);
+		if (pixel)
+			gs_draw(GS_LINESTRIP, 0, 0);
+		else
+			gs_draw(GS_TRISTRIP, 0, 0);
 		gs_matrix_pop();
+	};
+
+	if (gridCountX > 1) {
+		for (float i = 0.0f; i <= 1.0f; i += majorPercentageX) {
+			drawLineAt(i, 0.0f, majorY, thin_major_y);
+		}
 	}
+
+	if (gridCountY > 1) {
+		for (float i = 0.0f; i <= 1.0f; i += majorPercentageY) {
+			drawLineAt(0.0f, i, majorX, thin_major_x);
+		}
+	}
+
+	gs_vertexbuffer_destroy(majorX);
+	gs_vertexbuffer_destroy(majorY);
 
 	gs_load_vertexbuffer(nullptr);
 

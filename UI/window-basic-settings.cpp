@@ -322,6 +322,10 @@ OBSBasicSettings::OBSBasicSettings(QWidget *parent)
 	HookWidget(ui->multiviewDrawNames,   CHECK_CHANGED,  GENERAL_CHANGED);
 	HookWidget(ui->multiviewDrawAreas,   CHECK_CHANGED,  GENERAL_CHANGED);
 	HookWidget(ui->multiviewLayout,      COMBO_CHANGED,  GENERAL_CHANGED);
+	HookWidget(ui->enableGrid,           CHECK_CHANGED,  GENERAL_CHANGED);
+	HookWidget(ui->enableGridSnapping,   CHECK_CHANGED,  GENERAL_CHANGED);
+	HookWidget(ui->gridCountX,           SCROLL_CHANGED, GENERAL_CHANGED);
+	HookWidget(ui->gridCountY,           SCROLL_CHANGED, GENERAL_CHANGED);
 	HookWidget(ui->outputMode,           COMBO_CHANGED,  OUTPUTS_CHANGED);
 	HookWidget(ui->streamType,           COMBO_CHANGED,  STREAM1_CHANGED);
 	HookWidget(ui->simpleOutputPath,     EDIT_CHANGED,   OUTPUTS_CHANGED);
@@ -1033,6 +1037,22 @@ void OBSBasicSettings::LoadGeneralSettings()
 	bool openStatsOnStartup = config_get_bool(main->Config(),
 			"General", "OpenStatsOnStartup");
 	ui->openStatsOnStartup->setChecked(openStatsOnStartup);
+
+	bool enableGridSnapping = config_get_bool(main->Config(),
+			"BasicWindow", "EnableGridSnapping");
+	ui->enableGridSnapping->setChecked(enableGridSnapping);
+
+	bool enableGrid = config_get_bool(main->Config(),
+			"BasicWindow", "EnableGrid");
+	ui->enableGrid->setChecked(enableGrid);
+
+	int gridX = config_get_int(main->Config(),
+			"BasicWindow", "GridCountX");
+	ui->gridCountX->setValue(gridX);
+
+	int gridY = config_get_int(main->Config(),
+			"BasicWindow", "GridCountY");
+	ui->gridCountY->setValue(gridY);
 
 	bool recordWhenStreaming = config_get_bool(GetGlobalConfig(),
 			"BasicWindow", "RecordWhenStreaming");
@@ -2715,6 +2735,22 @@ void OBSBasicSettings::SaveGeneralSettings()
 		config_set_bool(GetGlobalConfig(), "BasicWindow",
 				"TransitionOnDoubleClick",
 				ui->doubleClickSwitch->isChecked());
+	if (WidgetChanged(ui->enableGrid))
+		config_set_bool(GetGlobalConfig(), "BasicWindow",
+				"EnableGrid",
+				ui->enableGrid->isCheckable());
+	if (WidgetChanged(ui->enableGridSnapping))
+		config_set_bool(GetGlobalConfig(), "BasicWindow",
+				"EnableGridSnapping",
+				ui->enableGridSnapping->isCheckable());
+	if (WidgetChanged(ui->gridCountX))
+		config_set_int(GetGlobalConfig(), "BasicWindow",
+				"GridCountX",
+				ui->gridCountX->value());
+	if (WidgetChanged(ui->gridCountY))
+		config_set_int(GetGlobalConfig(), "BasicWindow",
+				"GridCountY",
+				ui->gridCountY->value());
 
 	config_set_bool(GetGlobalConfig(), "BasicWindow",
 			"WarnBeforeStartingStream",
