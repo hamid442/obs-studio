@@ -34,6 +34,7 @@
 #include <QScreen>
 #include <QStandardItemModel>
 #include <QSpacerItem>
+#include <QGroupBox>
 
 #include "audio-encoders.hpp"
 #include "hotkey-edit.hpp"
@@ -2351,6 +2352,72 @@ static QLabel *makeLabel(const OBSSource &source, Func &&)
 	return new OBSSourceLabel(source);
 }
 
+class GroupWidget : public QWidget {
+private:
+	std::string source;
+	QLabel *sourceLabel;
+
+	std::vector<QWidget *> widgets;
+	std::vector<QLabel *> labels;
+	QVBoxLayout *v;
+
+	QFrame *rootFrame;
+	QVBoxLayout *rootLayout;
+	QFormLayout *layout;
+	QCheckBox *checkBox;
+	QFormLayout *contentsLayout;
+	QFrame *contentsFrame;
+public:
+	inline GroupWidget(std::string sourceName, QLabel *l, QWidget *parent = nullptr)
+		: QWidget(parent)
+	{
+		v = new QVBoxLayout(this);
+		rootFrame = new QFrame();
+		rootFrame->setProperty("themeID", "propertyGroup");
+		v->addWidget(rootFrame);
+
+		rootLayout = new QVBoxLayout();
+		rootLayout->setSpacing(0);
+		rootLayout->setContentsMargins(0, 0, 0, 0);
+		rootFrame->setLayout(rootLayout);
+
+		checkBox = new QCheckBox(rootFrame);
+		/*TODO: Make label follow along w/ SourceLabel*/
+		checkBox->setText(QT_UTF8(sourceName.c_str()));
+		checkBox->setProperty("themeID", "propertyGroupTitle");
+		rootLayout->addWidget(checkBox);
+
+		contentsLayout = nullptr;
+
+		contentsFrame = new QFrame(rootFrame);
+		contentsFrame->setProperty("themeID", "propertyGroupContents");
+
+		contentsLayout = new QFormLayout();
+		contentsFrame->setLayout(contentsLayout);
+		rootLayout->addWidget(contentsFrame);
+
+		connect(checkBox, &QCheckBox::stateChanged, this, &GroupWidget::Toggled);
+	}
+
+	void push_back(QWidget *w, QLabel *l)
+	{
+		widgets.push_back(w);
+		labels.push_back(l);
+		l->setMaximumWidth(170);
+		l->setMinimumWidth(170);
+
+		contentsLayout->addRow(l, w);
+	}
+public slots:
+	void Toggled(int state)
+	{
+		if (state == Qt::Checked)
+			contentsFrame->hide();
+		else
+			contentsFrame->show();
+	}
+};
+
 template <typename Func, typename T>
 static inline void AddHotkeys(QFormLayout &layout,
 		Func &&getName, std::vector<
@@ -2382,20 +2449,20 @@ static inline void AddHotkeys(QFormLayout &layout,
 	});
 
 	string prevName;
+	GroupWidget *keyGroup = nullptr;
 	for (const auto &hotkey : hotkeys) {
 		const auto &o = get<0>(hotkey);
 		const char *name = getName(o);
 		if (prevName != name) {
 			prevName = name;
-			layout.setItem(layout.rowCount(),
-					QFormLayout::SpanningRole,
-					new QSpacerItem(0, 10));
-			layout.addRow(makeLabel(o, getName));
+			QLabel *l = makeLabel(o, getName);
+			keyGroup = new GroupWidget(name, l);
+			layout.addRow(keyGroup);
 		}
-
+		
 		auto hlabel = get<1>(hotkey);
 		auto widget = get<2>(hotkey);
-		layout.addRow(hlabel, widget);
+		keyGroup->push_back(widget, hlabel);
 	}
 }
 
