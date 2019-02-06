@@ -2823,6 +2823,7 @@ void OBSBasic::StackedMixerAreaContextMenuRequested()
 
 void OBSBasic::ToggleMixerLayout(bool vertical)
 {
+	/*
 	if (vertical) {
 		ui->stackedMixerArea->setMinimumSize(180, 220);
 		ui->stackedMixerArea->setCurrentIndex(1);
@@ -2830,6 +2831,7 @@ void OBSBasic::ToggleMixerLayout(bool vertical)
 		ui->stackedMixerArea->setMinimumSize(220, 0);
 		ui->stackedMixerArea->setCurrentIndex(0);
 	}
+	*/
 }
 
 void OBSBasic::ToggleVolControlLayout()
@@ -2891,13 +2893,14 @@ void OBSBasic::ActivateAudioSource(OBSSource source)
 			this, &OBSBasic::VolControlContextMenu);
 
 	InsertQObjectByName(volumes, vol);
-
+	/*
 	for (auto volume : volumes) {
 		if (vertical)
 			ui->vVolControlLayout->addWidget(volume);
 		else
 			ui->hVolControlLayout->addWidget(volume);
 	}
+	*/
 }
 
 void OBSBasic::DeactivateAudioSource(OBSSource source)
