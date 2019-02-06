@@ -89,9 +89,8 @@ public:
 	void SelectItem(obs_sceneitem_t *sceneitem, bool select);
 
 	bool MultipleBaseSelected() const;
-	/*
 	QSize sizeHintForIndex(const QModelIndex &index) const;
-	*/
+	
 public slots:
 	inline void ReorderItems() {GetStm()->ReorderItems();}
 	void Remove(OBSSceneItem item);
@@ -102,4 +101,5 @@ protected:
 	virtual void dropEvent(QDropEvent *event) override;
 
 	virtual void selectionChanged(const QItemSelection &selected, const QItemSelection &deselected) override;
+	virtual void resizeEvent(QResizeEvent *event) override;
 };

@@ -496,17 +496,22 @@ void OBSBasic::UpdateVolumeControlsPeakMeterType()
 		break;
 	}
 
+	/*
 	for (size_t i = 0; i < volumes.size(); i++) {
 		volumes[i]->setPeakMeterType(peakMeterType);
 	}
+	*/
 }
 
 void OBSBasic::ClearVolumeControls()
 {
+	/*
 	for (VolControl *vol : volumes)
 		delete vol;
 
 	volumes.clear();
+	*/
+	ui->mixers->Clear();
 }
 
 obs_data_array_t *OBSBasic::SaveSceneListOrder()

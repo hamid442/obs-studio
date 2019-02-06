@@ -260,6 +260,9 @@ MixerTree::MixerTree(QWidget *parent_) : QListView(parent_)
 {
 	MixerTreeModel *stm_ = new MixerTreeModel(this);
 	setModel(stm_);
+	setUniformItemSizes(false);
+	setResizeMode(QListView::Adjust);
+	setViewMode(QListView::ListMode);
 	setStyleSheet(QString(
 		"*[bgColor=\"1\"]{background-color:rgba(255,68,68,33%);}" \
 		"*[bgColor=\"2\"]{background-color:rgba(255,255,68,33%);}" \
@@ -322,6 +325,8 @@ void MixerTree::ResetWidgets()
 		OBSSource source = obs_sceneitem_get_source(item);
 		setIndexWidget(index, createVolControl(source));
 	}
+
+	doItemsLayout();
 }
 
 void MixerTree::UpdateWidget(const QModelIndex &idx, obs_sceneitem_t *item)
@@ -330,13 +335,13 @@ void MixerTree::UpdateWidget(const QModelIndex &idx, obs_sceneitem_t *item)
 	OBSSource source = obs_sceneitem_get_source(item);
 	setIndexWidget(idx, createVolControl(source));
 }
-/*
+
 QSize MixerTree::sizeHintForIndex(const QModelIndex &idx) const
 {
 	QWidget *w = indexWidget(idx);
 	return w->sizeHint();
 }
-*/
+
 void MixerTree::UpdateWidgets(bool force)
 {
 	MixerTreeModel *stm = GetStm();
@@ -348,6 +353,8 @@ void MixerTree::UpdateWidgets(bool force)
 		if (!widget)
 			UpdateWidget(stm->createIndex(i, 0), item);
 	}
+
+	doItemsLayout();
 }
 
 void MixerTree::SelectItem(obs_sceneitem_t *sceneitem, bool select)
@@ -552,4 +559,11 @@ void MixerTree::Remove(OBSSceneItem item)
 				obs_source_get_name(sceneSource));
 	}
 	*/
+}
+
+void MixerTree::resizeEvent(QResizeEvent *event)
+{
+	if (model() != Q_NULLPTR)
+		model()->layoutChanged();
+	QListView::resizeEvent(event);
 }
