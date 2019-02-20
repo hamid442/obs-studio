@@ -204,6 +204,68 @@ static void add_window(obs_property_t *p, HWND hwnd, add_window_cb callback)
 	dstr_free(&exe);
 }
 
+
+struct window_info {
+	char *desc;
+	char *encoded;
+};
+
+static void queue_window(HWND hwnd, add_window_cb callback, struct darray *list)
+{
+	struct dstr class = { 0 };
+	struct dstr title = { 0 };
+	struct dstr exe = { 0 };
+	struct dstr encoded = { 0 };
+	struct dstr desc = { 0 };
+
+	if (!get_window_exe(&exe, hwnd))
+		return;
+	if (is_microsoft_internal_window_exe(exe.array)) {
+		dstr_free(&exe);
+		return;
+	}
+
+	get_window_title(&title, hwnd);
+	if (dstr_cmp(&exe, "explorer.exe") == 0 && dstr_is_empty(&title)) {
+		dstr_free(&exe);
+		dstr_free(&title);
+		return;
+	}
+
+	get_window_class(&class, hwnd);
+
+	if (callback && !callback(title.array, class.array, exe.array)) {
+		dstr_free(&title);
+		dstr_free(&class);
+		dstr_free(&exe);
+		return;
+	}
+
+	dstr_printf(&desc, "[%s]: %s", exe.array, title.array);
+
+	encode_dstr(&title);
+	encode_dstr(&class);
+	encode_dstr(&exe);
+
+	dstr_cat_dstr(&encoded, &title);
+	dstr_cat(&encoded, ":");
+	dstr_cat_dstr(&encoded, &class);
+	dstr_cat(&encoded, ":");
+	dstr_cat_dstr(&encoded, &exe);
+
+	struct window_info w;
+	w.desc = bstrdup(desc.array);
+	w.encoded = bstrdup(encoded.array);
+
+	darray_push_back(sizeof(struct window_info), list, &w);
+
+	dstr_free(&encoded);
+	dstr_free(&desc);
+	dstr_free(&class);
+	dstr_free(&title);
+	dstr_free(&exe);
+}
+
 static bool check_window_valid(HWND window, enum window_search_mode mode)
 {
 	DWORD styles, ex_styles;
@@ -327,6 +389,19 @@ static HWND first_window(enum window_search_mode mode, HWND *parent,
 	return window;
 }
 
+static bool compare_window_info(const void *l, const void *r)
+{
+	struct window_info *w_l = (struct window_info*)l;
+	struct window_info *w_r = (struct window_info*)r;
+	char *str_l = "";
+	char *str_r = "";
+	if (w_l && w_l->desc)
+		str_l = w_l->desc;
+	if (w_r && w_r->desc)
+		str_r = w_r->desc;
+	return strcmp(str_l, str_r) < 0;
+}
+
 void fill_window_list(obs_property_t *p, enum window_search_mode mode,
 		add_window_cb callback)
 {
@@ -335,10 +410,25 @@ void fill_window_list(obs_property_t *p, enum window_search_mode mode,
 
 	HWND window = first_window(mode, &parent, &use_findwindowex);
 
+	DARRAY(struct window_info) windows;
+	darray_init(&windows.da);
+
 	while (window) {
-		add_window(p, window, callback);
+		queue_window(window, callback, &windows.da);
 		window = next_window(window, mode, &parent, use_findwindowex);
 	}
+
+	darray_tim_sort(sizeof(struct window_info), &windows.da,
+			compare_window_info, 0, windows.num);
+
+	for (size_t i = 0; i < windows.num; i++) {
+		struct window_info *w = darray_item(sizeof(struct window_info),
+				&windows.da, i);
+		obs_property_list_add_string(p, w->desc, w->encoded);
+		bfree(w->desc);
+		bfree(w->encoded);
+	}
+	darray_free(&windows.da);
 }
 
 static int window_rating(HWND window,
