@@ -434,6 +434,247 @@ static inline void darray_swap(const size_t element_size,
 	free(temp);
 }
 
+typedef bool(*compare_cb)(const void *item_0, const void *item_1);
+static inline size_t darray_lower_bound(const size_t element_size,
+		struct darray *da,compare_cb callback, const void *item,
+		const size_t idx)
+{
+	size_t i;
+
+	assert(idx <= da->num);
+	if (!callback)
+		return da->num;
+
+	for (i = idx; i < da->num; i++) {
+		void *compare = darray_item(element_size, da, i);
+		if (!callback(compare, item))
+			return i;
+	}
+
+	return i;
+}
+
+static inline size_t darray_upper_bound(const size_t element_size,
+		struct darray *da, compare_cb callback, const void *item, const size_t idx)
+{
+	size_t i;
+
+	assert(idx <= da->num);
+	if (!callback)
+		return da->num;
+
+	for (i = idx; i < da->num; i++) {
+		void *compare = darray_item(element_size, da, i);
+		if (callback(item, compare))
+			return i;
+	}
+
+	return i;
+}
+
+static inline size_t darray_binary_lower_bound(const size_t element_size,
+		struct darray *da, compare_cb callback, const void *item,
+		const size_t idx)
+{
+	size_t i;
+
+	assert(idx <= da->num);
+	if (!callback)
+		return da->num;
+
+	for (i = idx; i < da->num; i++) {
+		void *compare = darray_item(element_size, da, i);
+		if (!callback(compare, item))
+			return i;
+	}
+
+	return i;
+}
+
+static inline void darray_insertion_sort(const size_t element_size,
+		struct darray *da, compare_cb callback, size_t start, size_t end)
+{
+	struct darray temp;
+	darray_init(&temp);
+	if (!da || !da->num || !callback)
+		return;
+
+	size_t s = start < end ? start : end;
+	size_t e = start < end ? end : start;
+
+	e = (e > da->num) ? da->num : e;
+
+	size_t count = e - s;
+	if (!count)
+		return;
+
+	darray_reserve(element_size, &temp, count);
+	//insertion sort into temporary array
+	for (size_t i = s; i < e; i++) {
+		void *item = darray_item(element_size, da, i);
+		size_t insert_here = darray_lower_bound(element_size, &temp,
+			callback, item, 0);
+		darray_insert(element_size, &temp, insert_here, item);
+	}
+
+	//copy back sorted section
+	memcpy(darray_item(element_size, da, s), temp.array,
+		count * element_size);
+	darray_free(&temp);
+}
+
+static inline struct darray* darray_merge(const size_t element_size,
+		struct darray *da_0, struct darray *da_1, compare_cb callback)
+{
+	struct darray *out = (struct darray*)bzalloc(sizeof(*out));
+	if (!da_0 && !da_1 || !callback)
+		return out;
+	if (!da_0) {
+		darray_copy(element_size, out, da_1);
+		return out;
+	} else if (!da_1) {
+		darray_copy(element_size, out, da_0);
+		return out;
+	}
+
+	size_t count = da_0->num + da_1->num;
+	darray_reserve(element_size, out, count);
+	size_t i = 0;
+	size_t j = 0;
+	for (; i < da_0->num && j < da_1->num;) {
+		void *item_0 = darray_item(element_size, da_0, i);
+		void *item_1 = darray_item(element_size, da_1, j);
+		if (callback(item_0, item_1)) {
+			darray_push_back(element_size, out, item_0);
+			i++;
+		} else {
+			darray_push_back(element_size, out, item_1);
+			j++;
+		}
+	}
+
+	for (; i < da_0->num; i++) {
+		void *item_0 = darray_item(element_size, da_0, i);
+		darray_push_back(element_size, out, item_0);
+		i++;
+	}
+
+	for (; j < da_1->num; j++) {
+		void *item_1 = darray_item(element_size, da_1, j);
+		darray_push_back(element_size, out, item_1);
+		j++;
+	}
+	return out;
+}
+
+static inline void darray_merge_sort(const size_t element_size,
+		struct darray *da, compare_cb callback, size_t start, size_t end)
+{
+	if (!da || !da->num || !callback)
+		return;
+
+	size_t s = start < end ? start : end;
+	size_t e = start < end ? end : start;
+	e = (e > da->num) ? da->num : e;
+
+	size_t count = e - s;
+	if (!count)
+		return;
+
+	size_t i;
+	/* first pass order pairs of items */
+	for (i = s; (i + 1) < e; i += 2) {
+		size_t next = i + 1;
+		void *item_0 = darray_item(element_size, da, i);
+		void *item_1 = darray_item(element_size, da, next);
+		if (!callback(item_0, item_1))
+			darray_swap(element_size, da, i, next);
+	}
+
+	size_t step = 2;
+	do {
+		for (i = s; (i + step) < e; i += (step * 2)) {
+			size_t next = i + step;
+			void *item_0 = darray_item(element_size, da, i);
+			void *item_1 = darray_item(element_size, da, next);
+
+			struct darray t_0;
+			t_0.array = item_0;
+			t_0.capacity = step;
+			t_0.num = step;
+			size_t next_0 = next + step;
+			size_t t_count;
+			if (next_0 < e)
+				t_count = step;
+			else
+				t_count = (e - next);
+			struct darray t_1;
+			t_1.array = item_1;
+			t_1.capacity = t_count;
+			t_1.num = t_count;
+			struct darray *t_2 = darray_merge(element_size, &t_0,
+				&t_1, callback);
+			memcpy(item_0, t_2->array, (t_2->num * element_size));
+			darray_free(t_2);
+		}
+		step *= 2;
+	} while (step < count);
+}
+
+static inline void darray_tim_sort(const size_t element_size, struct darray *da,
+	compare_cb callback, size_t start, size_t end)
+{
+	if (!da || !da->num || !callback)
+		return;
+
+	size_t s = start < end ? start : end;
+	size_t e = start < end ? end : start;
+	e = (e > da->num) ? da->num : e;
+
+	size_t count = e - s;
+	if (!count)
+		return;
+
+	size_t i;
+	size_t step = 32;
+
+	/* first pass order sets of items */
+	for (i = s; i < e; i += step) {
+		size_t next = i + step;
+		if (next > da->num)
+			next = e;
+		darray_insertion_sort(element_size, da, callback, i, next);
+	}
+
+	do {
+		for (i = s; (i + step) < e; i += (step * 2)) {
+			size_t next = i + step;
+			void *item_0 = darray_item(element_size, da, i);
+			void *item_1 = darray_item(element_size, da, next);
+
+			struct darray t_0;
+			t_0.array = item_0;
+			t_0.capacity = step;
+			t_0.num = step;
+			size_t next_0 = next + step;
+			size_t t_count;
+			if (next_0 < e)
+				t_count = step;
+			else
+				t_count = (e - next);
+			struct darray t_1;
+			t_1.array = item_1;
+			t_1.capacity = t_count;
+			t_1.num = t_count;
+			struct darray *t_2 = darray_merge(element_size, &t_0,
+				&t_1, callback);
+			memcpy(item_0, t_2->array, (t_2->num * element_size));
+			darray_free(t_2);
+		}
+		step *= 2;
+	} while (step < count);
+}
+
 /*
  * Defines to make dynamic arrays more type-safe.
  * Note: Still not 100% type-safe but much better than using darray directly
