@@ -399,7 +399,7 @@ static bool compare_window_info(const void *l, const void *r)
 		str_l = w_l->desc;
 	if (w_r && w_r->desc)
 		str_r = w_r->desc;
-	return strcmp(str_l, str_r) < 0;
+	return astrcmpi(str_l, str_r) < 0;
 }
 
 void fill_window_list(obs_property_t *p, enum window_search_mode mode,
