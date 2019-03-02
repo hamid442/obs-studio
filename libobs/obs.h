@@ -435,9 +435,23 @@ EXPORT void obs_add_module_path(const char *bin, const char *data);
 /** Automatically loads all modules from module paths (convenience function) */
 EXPORT void obs_load_all_modules(void);
 
+/** Loads all modules from an array of struct obs_module_info */
+EXPORT void obs_darray_load_modules(const struct darray *modules);
+
 /** Notifies modules that all modules have been loaded.  This function should
  * be called after all modules have been loaded. */
 EXPORT void obs_post_load_modules(void);
+
+struct obs_plugin_paths {
+	char *bin_path;
+	char *data_path;
+};
+
+struct obs_plugin_info {
+	char *bin_path;
+	char *data_path;
+	bool enabled;
+};
 
 #ifndef SWIG
 struct obs_module_info {
@@ -453,6 +467,9 @@ EXPORT void obs_find_modules(obs_find_module_callback_t callback, void *param);
 #endif
 
 typedef void (*obs_enum_module_callback_t)(void *param, obs_module_t *module);
+
+EXPORT void obs_darray_find_modules(struct darray *modules,
+		obs_find_module_callback_t callback, void *param);
 
 /** Enumerates all loaded modules */
 EXPORT void obs_enum_modules(obs_enum_module_callback_t callback, void *param);

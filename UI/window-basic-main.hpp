@@ -146,6 +146,8 @@ private:
 
 	std::vector<OBSSignal> signalHandlers;
 
+	std::vector<obs_plugin_info> plugins;
+
 	QList<QPointer<QDockWidget>> extraDocks;
 
 	bool loaded = false;
@@ -407,11 +409,97 @@ private:
 	QByteArray startingDockLayout;
 
 	obs_data_array_t *SaveProjectors();
+	obs_data_array_t *SavePlugins();
 	void LoadSavedProjectors(obs_data_array_t *savedProjectors);
 
 	void ReceivedIntroJson(const QString &text);
 
 	bool NoSourcesConfirmation();
+
+	const std::vector<std::string> builtplugins = {
+#if defined(_WIN32) && defined(_WIN64)
+	"../../obs-plugins/64bit/coreaudio-encoder.dll",
+	"../../obs-plugins/64bit/decklink-ouput-ui.dll",
+	"../../obs-plugins/64bit/enc-amf.dll",
+	"../../obs-plugins/64bit/frontend-tools.dll",
+	"../../obs-plugins/64bit/image-source.dll",
+	"../../obs-plugins/64bit/obs-ffmpeg.dll",
+	"../../obs-plugins/64bit/obs-filters.dll",
+	"../../obs-plugins/64bit/obs-outputs.dll",
+	"../../obs-plugins/64bit/obs-qsv11.dll",
+	"../../obs-plugins/64bit/obs-text.dll",
+	"../../obs-plugins/64bit/obs-transitions.dll",
+	"../../obs-plugins/64bit/obs-vst.dll",
+	"../../obs-plugins/64bit/obs-x264.dll",
+	"../../obs-plugins/64bit/rtmp-services.dll",
+	"../../obs-plugins/64bit/text-freetype2.dll",
+	"../../obs-plugins/64bit/win-capture.dll",
+	"../../obs-plugins/64bit/win-decklink.dll",
+	"../../obs-plugins/64bit/win-dshow.dll",
+	"../../obs-plugins/64bit/win-mf.dll",
+	"../../obs-plugins/64bit/win-wasapi.dll",
+#elif defined(_WIN32)
+	"../../obs-plugins/32bit/coreaudio-encoder.dll",
+	"../../obs-plugins/32bit/decklink-ouput-ui.dll",
+	"../../obs-plugins/32bit/enc-amf.dll",
+	"../../obs-plugins/32bit/frontend-tools.dll",
+	"../../obs-plugins/32bit/image-source.dll",
+	"../../obs-plugins/32bit/obs-ffmpeg.dll",
+	"../../obs-plugins/32bit/obs-filters.dll",
+	"../../obs-plugins/32bit/obs-outputs.dll",
+	"../../obs-plugins/32bit/obs-qsv11.dll",
+	"../../obs-plugins/32bit/obs-text.dll",
+	"../../obs-plugins/32bit/obs-transitions.dll",
+	"../../obs-plugins/32bit/obs-vst.dll",
+	"../../obs-plugins/32bit/obs-x264.dll",
+	"../../obs-plugins/32bit/rtmp-services.dll",
+	"../../obs-plugins/32bit/text-freetype2.dll",
+	"../../obs-plugins/32bit/win-capture.dll",
+	"../../obs-plugins/32bit/win-decklink.dll",
+	"../../obs-plugins/32bit/win-dshow.dll",
+	"../../obs-plugins/32bit/win-mf.dll",
+	"../../obs-plugins/32bit/win-wasapi.dll",
+#elif defined(__APPLE__)
+	"../obs-plugins/coreaudio-encoder.so",
+	"../obs-plugins/decklink-ouput-ui.so",
+	"../obs-plugins/frontend-tools.so",
+	"../obs-plugins/image-source.so",
+	"../obs-plugins/linux-jack.so",
+	"../obs-plugins/mac-avcapture.so",
+	"../obs-plugins/mac-capture.so",
+	"../obs-plugins/mac-decklink.so",
+	"../obs-plugins/mac-syphon.so",
+	"../obs-plugins/mac-vth264.so",
+	"../obs-plugins/obs-browser.so",
+	"../obs-plugins/obs-ffmpeg.so",
+	"../obs-plugins/obs-filters.so",
+	"../obs-plugins/obs-outputs.so",
+	"../obs-plugins/obs-transitions.so",
+	"../obs-plugins/obs-vst.so",
+	"../obs-plugins/obs-x264.so",
+	"../obs-plugins/rtmp-services.so",
+	"../obs-plugins/text-freetype2.so",
+	"../obs-plugins/vlc-video.so",
+#elif defined(__linux__) || defined(__FreeBSD__)
+	"/usr//lib/obs-plugins/decklink-ouput-ui.so",
+	"/usr//lib/obs-plugins/frontend-tools.so",
+	"/usr//lib/obs-plugins/image-source.so",
+	"/usr//lib/obs-plugins/linux-capture.so",
+	"/usr//lib/obs-plugins/linux-decklink.so",
+	"/usr//lib/obs-plugins/linux-jack.so",
+	"/usr//lib/obs-plugins/linux-pulseaudio.so",
+	"/usr//lib/obs-plugins/linux-v4l2.so",
+	"/usr//lib/obs-plugins/obs-ffmpeg.so",
+	"/usr//lib/obs-plugins/obs-filters.so",
+	"/usr//lib/obs-plugins/obs-libfdk.so",
+	"/usr//lib/obs-plugins/obs-outputs.so",
+	"/usr//lib/obs-plugins/obs-transitions.so",
+	"/usr//lib/obs-plugins/obs-x264.so",
+	"/usr//lib/obs-plugins/rtmp-services.so",
+	"/usr//lib/obs-plugins/text-freetype2.so",
+	"/usr//lib/obs-plugins/vlc-video.so",
+#endif
+	};
 
 public slots:
 	void DeferSaveBegin();

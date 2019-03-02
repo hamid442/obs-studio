@@ -250,6 +250,7 @@ static void load_all_callback(void *param, const struct obs_module_info *info)
 }
 
 static const char *obs_load_all_modules_name = "obs_load_all_modules";
+static const char *obs_darray_load_modules_name = "obs_darray_load_modules";
 #ifdef _WIN32
 static const char *reset_win32_symbol_paths_name = "reset_win32_symbol_paths";
 #endif
@@ -264,6 +265,24 @@ void obs_load_all_modules(void)
 	profile_end(reset_win32_symbol_paths_name);
 #endif
 	profile_end(obs_load_all_modules_name);
+}
+
+void obs_darray_load_modules(const struct darray *modules)
+{
+	profile_start(obs_darray_load_modules_name);
+	DARRAY(struct obs_module_info) info;
+	if (modules) {
+		info.da = *modules;
+		for (size_t i = 0; i < info.num; i++) {
+			load_all_callback(NULL, &info.array[i]);
+		}
+	}
+#ifdef _WIN32
+	profile_start(reset_win32_symbol_paths_name);
+	reset_win32_symbol_paths();
+	profile_end(reset_win32_symbol_paths_name);
+#endif
+	profile_end(obs_darray_load_modules_name);
 }
 
 void obs_post_load_modules(void)
@@ -417,6 +436,19 @@ void obs_find_modules(obs_find_module_callback_t callback, void *param)
 
 	for (size_t i = 0; i < obs->module_paths.num; i++) {
 		struct obs_module_path *omp = obs->module_paths.array + i;
+		find_modules_in_path(omp, callback, param);
+	}
+}
+
+void obs_darray_find_modules(struct darray *modules,
+		obs_find_module_callback_t callback, void *param)
+{
+	if (!obs || !modules)
+		return;
+	DARRAY(struct obs_module_path) paths;
+	paths.da = *modules;
+	for (size_t i = 0; i < modules->num; i++) {
+		struct obs_module_path *omp = paths.array + i;
 		find_modules_in_path(omp, callback, param);
 	}
 }

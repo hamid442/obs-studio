@@ -394,7 +394,8 @@ static obs_data_t *GenerateSaveData(obs_data_array_t *sceneOrder,
 		obs_data_array_t *quickTransitionData, int transitionDuration,
 		obs_data_array_t *transitions,
 		OBSScene &scene, OBSSource &curProgramScene,
-		obs_data_array_t *savedProjectorList)
+		obs_data_array_t *savedProjectorList,
+		obs_data_array_t *savedPluginsList)
 {
 	obs_data_t *saveData = obs_data_create();
 
@@ -456,6 +457,7 @@ static obs_data_t *GenerateSaveData(obs_data_array_t *sceneOrder,
 	obs_data_set_array(saveData, "quick_transitions", quickTransitionData);
 	obs_data_set_array(saveData, "transitions", transitions);
 	obs_data_set_array(saveData, "saved_projectors", savedProjectorList);
+	obs_data_set_array(saveData, "plugins", savedPluginsList);
 	obs_data_array_release(sourcesArray);
 	obs_data_array_release(groupsArray);
 
@@ -582,6 +584,25 @@ obs_data_array_t *OBSBasic::SaveProjectors()
 	return savedProjectors;
 }
 
+obs_data_array_t *OBSBasic::SavePlugins()
+{
+	obs_data_array_t *savedPlugins = obs_data_array_create();
+
+	auto savePlugin = [savedPlugins](obs_plugin_info *item) {
+		obs_data_t *data = obs_data_create();
+		obs_data_set_string(data, "bin", item->bin_path);
+		obs_data_set_string(data, "data", item->data_path);
+		obs_data_set_bool(data, "enabled", item->enabled);
+		obs_data_array_push_back(savedPlugins, data);
+		obs_data_release(data);
+	};
+
+	for (obs_plugin_info &item : plugins)
+		savePlugin(&item);
+
+	return savedPlugins;
+}
+
 void OBSBasic::Save(const char *file)
 {
 	OBSScene scene = GetCurrentScene();
@@ -593,9 +614,11 @@ void OBSBasic::Save(const char *file)
 	obs_data_array_t *transitions = SaveTransitions();
 	obs_data_array_t *quickTrData = SaveQuickTransitions();
 	obs_data_array_t *savedProjectorList = SaveProjectors();
+	obs_data_array_t *pluginsList = SavePlugins();
 	obs_data_t *saveData = GenerateSaveData(sceneOrder, quickTrData,
 			ui->transitionDuration->value(), transitions,
-			scene, curProgramScene, savedProjectorList);
+			scene, curProgramScene, savedProjectorList,
+			pluginsList);
 
 	obs_data_set_bool(saveData, "preview_locked", ui->preview->Locked());
 	obs_data_set_bool(saveData, "scaling_enabled",
@@ -622,6 +645,7 @@ void OBSBasic::Save(const char *file)
 	obs_data_array_release(quickTrData);
 	obs_data_array_release(transitions);
 	obs_data_array_release(savedProjectorList);
+	obs_data_array_release(pluginsList);
 }
 
 void OBSBasic::DeferSaveBegin()
@@ -839,6 +863,7 @@ void OBSBasic::Load(const char *file)
 	obs_data_array_t *sources    = obs_data_get_array(data, "sources");
 	obs_data_array_t *groups     = obs_data_get_array(data, "groups");
 	obs_data_array_t *transitions= obs_data_get_array(data, "transitions");
+	
 	const char       *sceneName = obs_data_get_string(data,
 			"current_scene");
 	const char       *programSceneName = obs_data_get_string(data,
@@ -1500,6 +1525,19 @@ static void AddProjectorMenuMonitors(QMenu *parent, QObject *target,
 	"Failed to initialize video.  Your GPU may not be supported, " \
 	"or your graphics drivers may need to be updated."
 
+static void getModules(void *param, const struct obs_module_info *info)
+{
+	std::vector<struct obs_plugin_paths> *list =
+		static_cast<std::vector<struct obs_plugin_paths> *>(param);
+	if (info && list) {
+		struct obs_plugin_paths item;
+		item.bin_path = (char*)bstrdup(info->bin_path);
+		item.data_path = (char*)bstrdup(info->data_path);
+		blog(LOG_DEBUG, "%s\n%s", info->bin_path, info->data_path);
+		list->push_back(item);
+	}
+}
+
 void OBSBasic::OBSInit()
 {
 	ProfileScope("OBSBasic::OBSInit");
@@ -1558,12 +1596,103 @@ void OBSBasic::OBSInit()
 	InitHotkeys();
 
 	AddExtraModulePaths();
+	blog(LOG_DEBUG, "---------------------------------");
+	/* Disable / Enable Plugins */
+	std::vector<obs_plugin_paths> modulepaths;
+	obs_find_modules(getModules, &modulepaths);
+
+	auto addPlugin = [=](obs_plugin_info info) {
+		auto it = std::find_if(plugins.begin(), plugins.end(), [info](
+				obs_plugin_info &inf) {
+			return strcmp(inf.bin_path, info.bin_path) == 0;
+		});
+		if (it != plugins.end()) {
+			bfree(info.bin_path);
+			bfree(info.data_path);
+		} else {
+			plugins.push_back(info);
+		}
+	};
+
+	auto enableBuiltinPlugins = [=](const std::vector<std::string> *paths) {
+		if (!paths || !paths->size())
+			return;
+		for (size_t i = 0; i < paths->size(); i++) {
+			std::string path = (*paths)[i];
+			auto it = std::find_if(plugins.begin(), plugins.end(),
+					[path](obs_plugin_info &inf) {
+				std::string bin = inf.bin_path;
+				return path == bin;
+			});
+			if (it != plugins.end()) {
+				it->enabled = true;
+			}
+		}
+	};
+
+	auto removeDisabledPlugins = [=](std::vector<obs_plugin_paths> *modules) {
+		if (!modules || !modules->size())
+			return;
+		for (size_t i = 0; i < modules->size(); i++) {
+			obs_plugin_paths paths = (*modules)[i];
+			auto it = std::find_if(plugins.begin(), plugins.end(),
+					[paths](obs_plugin_info &inf) {
+				return strcmp(inf.bin_path, paths.bin_path) == 0;
+			});
+			if (it != plugins.end()) {
+				if (!it->enabled) {
+					bfree(paths.bin_path);
+					bfree(paths.data_path);
+					modules->erase(modules->begin()+i);
+					i--;
+				}
+			}
+		}
+	};
+
+	/* Merge plugins from previous settings */
+	obs_data_t *data = obs_data_create_from_json_file_safe(savePath, "bak");
+	obs_data_array_t *plugins_array = obs_data_get_array(data, "plugins");
+	size_t count = obs_data_array_count(plugins_array);
+	plugins.reserve(count);
+	for (size_t i = 0; i < count; i++) {
+		obs_data_t *item = obs_data_array_item(plugins_array, i);
+		obs_plugin_info plugin;
+		plugin.bin_path = bstrdup(obs_data_get_string(item, "bin"));
+		plugin.data_path = bstrdup(obs_data_get_string(item, "data"));
+		plugin.enabled = obs_data_get_bool(item, "enabled");
+		addPlugin(plugin);
+		obs_data_release(item);
+	}
+	obs_data_array_release(plugins_array);
+	obs_data_release(data);
+
+	/* Add new plugins as disabled by default */
+	for (size_t i = 0; i < modulepaths.size(); i++) {
+		obs_plugin_info plugin;
+		plugin.bin_path = bstrdup(modulepaths[i].bin_path);
+		plugin.data_path = bstrdup(modulepaths[i].data_path);
+		plugin.enabled = false;
+		addPlugin(plugin);
+	}
+
+	enableBuiltinPlugins(&builtplugins);
+	removeDisabledPlugins(&modulepaths);
+
+	DARRAY(struct obs_plugin_paths) dmodule;
+	dmodule.array = modulepaths.data();
+	dmodule.num = modulepaths.size();
+	dmodule.capacity = modulepaths.capacity();
 	blog(LOG_INFO, "---------------------------------");
-	obs_load_all_modules();
+	obs_darray_load_modules(&dmodule.da);
 	blog(LOG_INFO, "---------------------------------");
 	obs_log_loaded_modules();
 	blog(LOG_INFO, "---------------------------------");
 	obs_post_load_modules();
+	for (size_t i = 0; i < modulepaths.size(); i++) {
+		bfree(modulepaths[i].bin_path);
+		bfree(modulepaths[i].data_path);
+	}
 
 #ifdef BROWSER_AVAILABLE
 	cef = obs_browser_init_panel();
@@ -2252,6 +2381,11 @@ OBSBasic::~OBSBasic()
 
 	if (about)
 		delete about;
+
+	for (obs_plugin_info &info : plugins) {
+		bfree(info.bin_path);
+		bfree(info.data_path);
+	}
 
 	obs_display_remove_draw_callback(ui->preview->GetDisplay(),
 			OBSBasic::RenderMain, this);
