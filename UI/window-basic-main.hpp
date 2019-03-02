@@ -547,6 +547,7 @@ public slots:
 			const QString &name = QString());
 
 private slots:
+	void EnablePlugin(bool checked);
 	void AddSceneItem(OBSSceneItem item);
 	void AddScene(OBSSource source);
 	void RemoveScene(OBSSource source);
@@ -599,6 +600,7 @@ private slots:
 
 	void on_actionCopyFilters_triggered();
 	void on_actionPasteFilters_triggered();
+	void on_actionPlugins_triggered();
 
 	void ColorChange();
 

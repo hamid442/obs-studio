@@ -116,6 +116,8 @@
     <addaction name="actionShow_Recordings"/>
     <addaction name="actionRemux"/>
     <addaction name="separator"/>
+    <addaction name="actionPlugins"/>
+    <addaction name="separator"/>
     <addaction name="action_Settings"/>
     <addaction name="actionShowSettingsFolder"/>
     <addaction name="actionShowProfileFolder"/>
@@ -1673,6 +1675,11 @@
   <action name="actionShowAbout">
    <property name="text">
     <string>Basic.MainMenu.Help.About</string>
+   </property>
+  </action>
+  <action name="actionPlugins">
+   <property name="text">
+    <string>Basic.MainMenu.Plugins</string>
    </property>
   </action>
  </widget>

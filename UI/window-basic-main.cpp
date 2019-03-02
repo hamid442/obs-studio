@@ -1596,8 +1596,8 @@ void OBSBasic::OBSInit()
 	InitHotkeys();
 
 	AddExtraModulePaths();
-	blog(LOG_DEBUG, "---------------------------------");
 	/* Disable / Enable Plugins */
+	blog(LOG_DEBUG, "---------------------------------");
 	std::vector<obs_plugin_paths> modulepaths;
 	obs_find_modules(getModules, &modulepaths);
 
@@ -1622,29 +1622,30 @@ void OBSBasic::OBSInit()
 			auto it = std::find_if(plugins.begin(), plugins.end(),
 					[path](obs_plugin_info &inf) {
 				std::string bin = inf.bin_path;
-				return path == bin;
+				return bin == path;
 			});
-			if (it != plugins.end()) {
+			if (it != plugins.end())
 				it->enabled = true;
-			}
 		}
 	};
 
-	auto removeDisabledPlugins = [=](std::vector<obs_plugin_paths> *modules) {
+	auto removeDisabledPlugins = [=](std::vector<obs_plugin_paths> *modules)
+	{
 		if (!modules || !modules->size())
 			return;
 		for (size_t i = 0; i < modules->size(); i++) {
 			obs_plugin_paths paths = (*modules)[i];
+			std::string path = paths.bin_path;
 			auto it = std::find_if(plugins.begin(), plugins.end(),
-					[paths](obs_plugin_info &inf) {
-				return strcmp(inf.bin_path, paths.bin_path) == 0;
+					[path](obs_plugin_info &inf) {
+				std::string bin = inf.bin_path;
+				return bin == path;
 			});
 			if (it != plugins.end()) {
 				if (!it->enabled) {
 					bfree(paths.bin_path);
 					bfree(paths.data_path);
-					modules->erase(modules->begin()+i);
-					i--;
+					modules->erase(modules->begin() + i--);
 				}
 			}
 		}
@@ -1676,15 +1677,16 @@ void OBSBasic::OBSInit()
 		addPlugin(plugin);
 	}
 
+	/* Enable builtin plugins */
 	enableBuiltinPlugins(&builtplugins);
 	removeDisabledPlugins(&modulepaths);
 
-	DARRAY(struct obs_plugin_paths) dmodule;
-	dmodule.array = modulepaths.data();
-	dmodule.num = modulepaths.size();
-	dmodule.capacity = modulepaths.capacity();
 	blog(LOG_INFO, "---------------------------------");
-	obs_darray_load_modules(&dmodule.da);
+	DARRAY(struct obs_plugin_paths) modules;
+	modules.array = modulepaths.data();
+	modules.num = modulepaths.size();
+	modules.capacity = modulepaths.capacity();
+	obs_darray_load_modules(&modules.da);
 	blog(LOG_INFO, "---------------------------------");
 	obs_log_loaded_modules();
 	blog(LOG_INFO, "---------------------------------");
@@ -6893,6 +6895,60 @@ void OBSBasic::on_actionPasteFilters_triggered()
 		return;
 
 	obs_source_copy_filters(dstSource, source);
+}
+
+void OBSBasic::EnablePlugin(bool checked) {
+	std::string bin = sender()->property("bin").toString().toStdString();
+	for (size_t i = 0; i < plugins.size(); i++) {
+		std::string plugin_bin = plugins[i].bin_path;
+		if (bin == plugin_bin) {
+			plugins[i].enabled = checked;
+			return;
+		}
+	}
+}
+
+void OBSBasic::on_actionPlugins_triggered()
+{
+	QDialog dialog(this);
+	dialog.setWindowTitle(QTStr("Plugins"));
+	dialog.setWindowFlags(Qt::Dialog | Qt::MSWindowsFixedSizeDialogHint);
+	QVBoxLayout layout(&dialog);
+	QFormLayout form;
+	layout.addLayout(&form);
+
+	auto isBuiltinPlugin = [=](const char *bin_path) {
+		std::string bin = bin_path;
+		for (size_t i = 0; i < builtplugins.size(); i++) {
+			if (builtplugins[i] == bin)
+				return true;
+		}
+		return false;
+	};
+
+	for (size_t i = 0; i < plugins.size(); i++) {
+		bool builtin = isBuiltinPlugin(plugins[i].bin_path);
+		if (builtin)
+			continue;
+		QCheckBox *enabled = new QCheckBox();
+		QLabel *label = new QLabel();
+		label->setText(plugins[i].bin_path);
+		enabled->setEnabled(!builtin);
+		enabled->setProperty("bin", plugins[i].bin_path);
+		enabled->setChecked(plugins[i].enabled);
+
+		connect(enabled, SIGNAL(toggled(bool)), this,
+				SLOT(EnablePlugin(bool)));
+
+		form.addRow(label, enabled);
+	}
+	
+	QDialogButtonBox buttonBox(QDialogButtonBox::Close, &dialog);
+	QObject::connect(&buttonBox, SIGNAL(rejected()), &dialog,
+			SLOT(reject()));
+	layout.addStretch();
+	layout.addWidget(&buttonBox);
+	dialog.exec();
 }
 
 static void ConfirmColor(SourceTree *sources, const QColor &color,
