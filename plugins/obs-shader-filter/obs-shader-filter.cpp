@@ -3308,13 +3308,19 @@ bool loadModuleEffect(gs_effect_t **effect, std::string name)
 		return false;
 	char *errors = NULL;
 	char *cpath = obs_module_file(name.c_str());
-	std::string path = cpath;
+	std::string path = cpath ? cpath : "";
 	/* Load default effect text if no file is selected */
 	char *effect_string = nullptr;
 	if (!path.empty()) {
-		effect_string = os_quick_read_utf8_file(path.c_str());
+		if (os_file_exists(path.c_str())) {
+			effect_string = os_quick_read_utf8_file(path.c_str());
+		} else {
+			blog(LOG_ERROR, "module effect file %s missing",
+					name.c_str());
+			bfree(cpath);
+			return false;
+		}
 	} else {
-		bfree(effect_string);
 		bfree(cpath);
 		return false;
 	}
@@ -3398,8 +3404,8 @@ bool obs_module_load(void)
 	output_channels = (double)get_audio_channels(aoi.speakers);
 
 	if (!loadModuleEffect(&default_effect, "default.effect")) {
-		blog(LOG_ERROR, "Failed to load default effect");
-		return false;
+		blog(LOG_ERROR, "Failed to load custom default effect");
+		default_effect = obs_get_base_effect(OBS_EFFECT_DEFAULT);
 	}
 
 	return true;
@@ -3409,7 +3415,8 @@ void obs_module_unload(void)
 {
 	obs_enter_graphics();
 
-	if (default_effect)
+	if (default_effect &&
+		default_effect != obs_get_base_effect(OBS_EFFECT_DEFAULT))
 		gs_effect_destroy(default_effect);
 
 	obs_leave_graphics();
