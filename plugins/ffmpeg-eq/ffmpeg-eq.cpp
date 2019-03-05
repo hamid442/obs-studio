@@ -28,10 +28,21 @@ DataType clamp(DataType x, DataType min, DataType max)
 template<class DataType>
 inline void complexify(DataType *x, int n)
 {
+	return;
 	int hn = n / 2;
 	int i2 = 0;
+	/*
 	for (size_t i = n - 1; i >= hn; i--)
 		x[i] = x[i2++];
+		*/
+	/*
+	for (size_t i = n - 1; i >= hn; i--)
+		x[i] = 0;
+		*/
+	/*
+	for (size_t i = 0; i < hn; i++)
+		x[2 * i + 1] = 0;
+		*/
 }
 
 class PThreadMutex {
@@ -55,22 +66,26 @@ public:
 		else
 			_mutexCreated = true;
 	}
+
 	~PThreadMutex()
 	{
 		if (_mutexCreated)
 			pthread_mutex_destroy(&_mutex);
 	}
+
 	int trylock()
 	{
 		if (_mutexCreated)
 			return pthread_mutex_trylock(&_mutex);
 		return -1;
 	}
+
 	void lock()
 	{
 		if (_mutexCreated)
 			pthread_mutex_lock(&_mutex);
 	}
+
 	void unlock()
 	{
 		if (_mutexCreated)
@@ -88,6 +103,8 @@ private:
 	size_t buffer_bytes;
 	size_t frames = 0;
 	size_t sample_rate;
+	RDFTContext *rdft = nullptr;
+	RDFTContext *irdft = nullptr;
 	PThreadMutex *audiomutex = nullptr;
 public:
 	std::vector<parametric> _bands;
@@ -110,20 +127,35 @@ public:
 		_bands.push_back(s);
 
 		/* Create buffers */
-		_mul.reserve(AUDIO_OUTPUT_FRAMES);
+		_mul.reserve(AUDIO_OUTPUT_FRAMES * 8);
 		buffer_size = AUDIO_OUTPUT_FRAMES;
 		buffer_bytes = buffer_size * sizeof(float);
 		for (size_t c = 0; c < MAX_AUDIO_CHANNELS; c++) {
 			buffer[c] = (float*)bzalloc(buffer_bytes);
-			out_buffer[c] = (float*)bzalloc(buffer_bytes);
+			out_buffer[c] = (float*)bzalloc(buffer_bytes * 8);
 		}
 
 		for (size_t i = 0; i < buffer_size; i++)
 			_mul.emplace_back(1.0f);
+
+		int l = (int)ceil(log2(AUDIO_OUTPUT_FRAMES * 8));
+		rdft = av_init_rdft(l, DFT_R2C);
+		irdft = av_init_rdft(l, IDFT_C2R);
+
+		updateMul();
 	}
 
 	void resize_mul(size_t samples)
 	{
+		if (samples != _mul.size()) {
+			if (rdft)
+				av_end_rdft(rdft);
+			if (irdft)
+				av_end_rdft(irdft);
+			int l = (int)ceil(log2(samples));
+			rdft = av_init_rdft(l, DFT_R2C);
+			irdft = av_init_rdft(l, IDFT_C2R);
+		}
 		_mul.reserve(samples);
 		for (size_t i = _mul.size(); i < samples; i++)
 			_mul.emplace_back(1.0f);
@@ -159,6 +191,8 @@ public:
 			bfree(buffer[c]);
 			bfree(out_buffer[c]);
 		}
+		av_end_rdft(rdft);
+		av_end_rdft(irdft);
 	}
 
 	static void *Create(obs_data_t *settings, obs_source_t *source)
@@ -295,9 +329,28 @@ public:
 				float *ib = (float*)buffer[c];
 
 				memcpy(ob, ib, _mul.size() * sizeof(float));
+				//av_calc_rdft(rdft, ob);
 				audio_fft_complex(ob, _mul.size());
-				for (size_t f = 0; f < _mul.size(); f++)
-					a[f] *= _mul[f];
+
+				/*
+				buf[0] *= kernel_buf[0];
+				buf[1] *= kernel_buf[s->rdft_len / 2];
+				for (k = 1; k < s->rdft_len / 2; k++) {
+					buf[2 * k] *= kernel_buf[k];
+					buf[2 * k + 1] *= kernel_buf[k];
+				}
+				*/
+				for (size_t f = 2; f < _mul.size(); f+=2) {
+					float re = ob[f] - ob[f + 1];
+					float im = ob[f] + ob[f + 1];
+					ob[f] = re;
+					ob[f + 1] = im;
+				}
+
+				//for (size_t f = 0; f < _mul.size(); f++)
+				//	ob[f] *= _mul[f];
+					
+				//av_calc_rdft(irdft, ob);
 				audio_ifft_complex(ob, _mul.size());
 				audio->data[c] = (uint8_t*)bmemdup(ob, _mul.size() * sizeof(float));
 			}
