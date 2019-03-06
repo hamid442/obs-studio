@@ -1,4 +1,5 @@
 #include "obs-shader-filter.hpp"
+#include "media-io/audio-math.h"
 #include <QScreen>
 #include <QGuiApplication>
 #include <QCursor>
@@ -1390,6 +1391,8 @@ private:
 
 		for (i = 0; i < _channels; i++)
 			audio_fft_complex(((float *)_data) + (i * samples), (uint32_t)samples);
+
+		//return samples;
 		/*
 		for (i = 1; i < _channels; i++)
 			memcpy(((float *)_data) + (i * hSamples), ((float *)_data) + (i * samples), hSamplesSize);
@@ -1399,8 +1402,13 @@ private:
 			_data[i] = _data[(2 * i) + 1];
 		
 		return (uint32_t)hSamples;
-		*/
 		return samples;
+		*/
+		size_t nsamples = hSamples * _channels;
+		float *data = (float*)&_data[0];
+		for (i = 0; i < nsamples; i++)
+			data[i] = mul_to_db(pow(data[(2 * i)], 2) + pow(data[(2 * i) + 1], 2));
+		return (uint32_t)hSamples;
 	}
 
 	void renderAudioSource(uint64_t samples)
