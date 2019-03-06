@@ -1384,15 +1384,23 @@ private:
 
 	uint32_t processAudio(size_t samples)
 	{
-		size_t i;
+		size_t i, j;
 		size_t hSamples = samples / 2;
 		size_t hSamplesSize = samples * 2;
 
 		for (i = 0; i < _channels; i++)
 			audio_fft_complex(((float *)_data) + (i * samples), (uint32_t)samples);
+		/*
 		for (i = 1; i < _channels; i++)
 			memcpy(((float *)_data) + (i * hSamples), ((float *)_data) + (i * samples), hSamplesSize);
+
+		size_t nsamples = hSamples * _channels;
+		for (i = 0; i < nsamples; i++)
+			_data[i] = _data[(2 * i) + 1];
+		
 		return (uint32_t)hSamples;
+		*/
+		return samples;
 	}
 
 	void renderAudioSource(uint64_t samples)
