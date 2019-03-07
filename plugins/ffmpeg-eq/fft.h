@@ -3,6 +3,9 @@
 #include "obs-module.h"
 
 #include <math.h>
+#ifdef __cplusplus
+extern "C" {
+#endif
 #include <libavcodec/avfft.h>
 #include <libavfilter/avfilter.h>
 #include <libavutil/channel_layout.h>
@@ -13,10 +16,6 @@
 #include <libavfilter/avfilter.h>
 #include <libavfilter/buffersink.h>
 #include <libavfilter/buffersrc.h>
-
-#ifdef __cplusplus
-extern "C" {
-#endif
 
 /*Should be alphabetically ordered*/
 enum fft_windowing_type {

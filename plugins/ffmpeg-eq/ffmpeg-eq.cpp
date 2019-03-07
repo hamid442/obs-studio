@@ -93,12 +93,30 @@ public:
 	}
 };
 
+static void fcmul_add_c(float *sum, const float *t, const float *c, ptrdiff_t len)
+{
+	int n;
+
+	for (n = 0; n < len; n++) {
+		const float cre = c[2 * n];
+		const float cim = c[2 * n + 1];
+		const float tre = t[2 * n];
+		const float tim = t[2 * n + 1];
+
+		sum[2 * n] += tre * cre - tim * cim;
+		sum[2 * n + 1] += tre * cim + tim * cre;
+	}
+
+	sum[2 * n] += t[2 * n] * c[2 * n];
+}
+
 class ParametricEq {
 private:
 	obs_source_t *_context = nullptr;
 	obs_data_t *_settings = nullptr;
 	float *buffer[MAX_AUDIO_CHANNELS];
 	float *out_buffer[MAX_AUDIO_CHANNELS];
+	float *sum_buffer[MAX_AUDIO_CHANNELS];
 	size_t buffer_size;
 	size_t buffer_bytes;
 	size_t frames = 0;
@@ -133,6 +151,7 @@ public:
 		for (size_t c = 0; c < MAX_AUDIO_CHANNELS; c++) {
 			buffer[c] = (float*)bzalloc(buffer_bytes);
 			out_buffer[c] = (float*)bzalloc(buffer_bytes * 8);
+			sum_buffer[c] = (float*)bzalloc(buffer_bytes * 8);
 		}
 
 		for (size_t i = 0; i < buffer_size; i++)
@@ -171,9 +190,8 @@ public:
 	{
 		buffer_size = samples;
 		buffer_bytes = buffer_size * sizeof(float);
-		for (size_t c = 0; c < MAX_AUDIO_CHANNELS; c++) {
+		for (size_t c = 0; c < MAX_AUDIO_CHANNELS; c++)
 			buffer[c] = (float*)brealloc(buffer[c], buffer_bytes);
-		}
 	}
 
 	void resize_output_buffer(size_t samples)
@@ -181,6 +199,8 @@ public:
 		resize_mul(samples);
 		for (size_t c = 0; c < MAX_AUDIO_CHANNELS; c++) {
 			out_buffer[c] = (float*)brealloc(out_buffer[c],
+				_mul.size() * sizeof(float));
+			sum_buffer[c] = (float*)brealloc(sum_buffer[c],
 				_mul.size() * sizeof(float));
 		}
 	}
@@ -318,20 +338,23 @@ public:
 	struct obs_audio_data *process_audio(struct obs_audio_data *audio)
 	{
 		append_audio(audio);
-		if (frames < _mul.size())
+		if (frames < (_mul.size() / 2))
 			return nullptr;
 
-		audio->frames = _mul.size();
+		audio->frames = _mul.size() / 2;
 		for (size_t c = 0; c < MAX_AUDIO_CHANNELS; c++) {
 			float *a = (float*)audio->data[c];
 			if (a) {
 				float *ob = (float*)out_buffer[c];
 				float *ib = (float*)buffer[c];
+				float *sb = (float*)sum_buffer[c];
 
 				memcpy(ob, ib, _mul.size() * sizeof(float));
 				//av_calc_rdft(rdft, ob);
+				//memset(sb, 0, _mul.size() * sizeof(float));
 				audio_fft_complex(ob, _mul.size());
 
+				//fcmul_add_c(sb, ob, ob, _mul.size());
 				/*
 				buf[0] *= kernel_buf[0];
 				buf[1] *= kernel_buf[s->rdft_len / 2];
@@ -340,23 +363,32 @@ public:
 					buf[2 * k + 1] *= kernel_buf[k];
 				}
 				*/
+				/*
 				for (size_t f = 2; f < _mul.size(); f+=2) {
 					float re = ob[f] - ob[f + 1];
 					float im = ob[f] + ob[f + 1];
 					ob[f] = re;
 					ob[f + 1] = im;
 				}
-
+				*/
+				/*
+				for (size_t f = 2; f < _mul.size(); f += 2) {
+					float re = ob[f] - ob[f + 1];
+					float im = ob[f] + ob[f + 1];
+					ob[f] = re;
+					ob[f + 1] = im;
+				}
+				*/
 				//for (size_t f = 0; f < _mul.size(); f++)
 				//	ob[f] *= _mul[f];
 					
-				//av_calc_rdft(irdft, ob);
+				//av_calc_rdft(irdft, sb);
 				audio_ifft_complex(ob, _mul.size());
 				audio->data[c] = (uint8_t*)bmemdup(ob, _mul.size() * sizeof(float));
 			}
 		}
-		frames -= _mul.size();
-		shift_buffer_left(_mul.size());
+		frames -= _mul.size() / 2;
+		shift_buffer_left(_mul.size() / 2);
 		return audio;
 	}
 
