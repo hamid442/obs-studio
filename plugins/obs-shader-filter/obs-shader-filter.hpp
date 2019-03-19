@@ -96,20 +96,6 @@ struct out_shader_data {
 	}
 };
 
-struct bind2 {
-	union {
-		in_shader_data x, y;
-		double         ptr[2];
-	};
-
-	bind2 &operator=(const vec2 &rhs)
-	{
-		x = rhs.x;
-		y = rhs.y;
-		return *this;
-	}
-};
-
 class TinyExpr : public std::vector<te_variable> {
 	std::string _expr;
 	mu::Parser *_compiledMu = nullptr;
@@ -152,7 +138,7 @@ public:
 	{
 		try {
 			return (DataType)_compiledMu->Eval();
-		} catch (mu::Parser::exception_type &e) {
+		} catch (mu::Parser::exception_type &) {
 			return default_value;
 		}
 	}
@@ -162,7 +148,7 @@ public:
 			if (_compiledMuMap.count(expression))
 				return (DataType)_compiledMu->Eval();
 			return default_value;
-		} catch (mu::Parser::exception_type &e) {
+		} catch (mu::Parser::exception_type &) {
 			return default_value;
 		}
 	}
@@ -497,10 +483,7 @@ public:
 	vec2 uvScale;
 	vec2 uvOffset;
 	vec2 uvPixelInterval;
-
-	bind2 uvScaleBinding;
-	bind2 uvOffsetBinding;
-	bind2 uvPixelIntervalBinding;
+	vec2 baseSize;
 
 	matrix4 viewProj;
 	gs_eparam_t *image = nullptr;

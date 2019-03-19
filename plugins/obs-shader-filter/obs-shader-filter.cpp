@@ -902,6 +902,9 @@ public:
 		} else if (n == "elapsed_time") {
 			bindType = floating_point;
 			_bind = &_filter->elapsedTime;
+		} else if (n == "texture_size") {
+			bindType = floating_point;
+			_bind = &_filter->baseSize;
 		}
 		if (_filter->getType() == OBS_SOURCE_TYPE_TRANSITION) {
 			if (n == "transition_percentage") {
@@ -1385,9 +1388,8 @@ private:
 
 	uint32_t processAudio(size_t samples)
 	{
-		size_t i, j;
+		size_t i;
 		size_t hSamples = samples / 2;
-		size_t hSamplesSize = samples * 2;
 
 		for (i = 0; i < _channels; i++)
 			audio_fft_complex(((float *)_data) + (i * samples), (uint32_t)samples);
@@ -1425,7 +1427,7 @@ private:
 			_tex = gs_texture_create(
 				(uint32_t)pxWidth, (uint32_t)_channels, GS_R32F, 1, (const uint8_t **)&_data, GS_DYNAMIC);
 		} else {
-			uint32_t linesize = pxWidth * sizeof(float);
+			uint32_t linesize = (uint32_t)(pxWidth * sizeof(float));
 			gs_texture_set_image(_tex, _data, linesize, 0);
 		}
 		obs_leave_graphics();
@@ -2245,11 +2247,12 @@ static void sidechain_capture(void *p, obs_source_t *source, const struct audio_
 	if (!audio_data->frames)
 		return;
 	size_t i;
+	size_t chs = data->getAudioChannels();
 	if (muted) {
-		for (i = 0; i < data->getAudioChannels(); i++)
+		for (i = 0; i < chs; i++)
 			data->insertAudio(nullptr, audio_data->frames, i);
 	} else {
-		for (i = 0; i < data->getAudioChannels(); i++)
+		for (i = 0; i < chs; i++)
 			data->insertAudio((float *)audio_data->data[i], audio_data->frames, i);
 	}
 }
@@ -2684,9 +2687,8 @@ void ShaderSource::videoTick(void *data, float seconds)
 	filter->uvOffset.y = (float)(-filter->resizeTop) / baseHeight;
 	filter->uvPixelInterval.x = 1.0f / baseWidth;
 	filter->uvPixelInterval.y = 1.0f / baseHeight;
-
-	filter->uvScaleBinding = filter->uvScale;
-	filter->uvOffsetBinding = filter->uvOffset;
+	filter->baseSize.x = baseWidth;
+	filter->baseSize.y = baseHeight;
 
 	if (!filter->filterTexrender)
 		filter->filterTexrender = gs_texrender_create(GS_RGBA, GS_ZS_NONE);
@@ -2734,9 +2736,8 @@ void ShaderSource::videoTickSource(void *data, float seconds)
 	filter->uvOffset.y = (float)(-filter->resizeTop) / baseHeight;
 	filter->uvPixelInterval.x = 1.0f / baseWidth;
 	filter->uvPixelInterval.y = 1.0f / baseHeight;
-
-	filter->uvScaleBinding = filter->uvScale;
-	filter->uvOffsetBinding = filter->uvOffset;
+	filter->baseSize.x = baseWidth;
+	filter->baseSize.y = baseHeight;
 
 	if (!filter->filterTexrender)
 		filter->filterTexrender = gs_texrender_create(GS_RGBA, GS_ZS_NONE);
@@ -2960,9 +2961,8 @@ static void renderTransition(void *data, gs_texture_t *a, gs_texture_t *b,
 	filter->uvOffset.y = (float)(-filter->resizeTop) / baseHeight;
 	filter->uvPixelInterval.x = 1.0f / baseWidth;
 	filter->uvPixelInterval.y = 1.0f / baseHeight;
-
-	filter->uvScaleBinding = filter->uvScale;
-	filter->uvOffsetBinding = filter->uvOffset;
+	filter->baseSize.x = baseWidth;
+	filter->baseSize.y = baseHeight;
 
 	if (filter->effect != nullptr) {
 		for (i = 0; i < filter->paramList.size(); i++) {
