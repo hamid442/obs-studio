@@ -409,8 +409,6 @@ static bool init_encoder(struct nvenc_data *enc, obs_data_t *settings)
 	params->encodeConfig = &enc->config;
 	params->maxEncodeWidth = voi->width;
 	params->maxEncodeHeight = voi->height;
-	config->rcParams.averageBitRate = bitrate * 1000;
-	config->rcParams.maxBitRate = vbr ? max_bitrate * 1000 : bitrate * 1000;
 	config->gopLength = gop_size;
 	config->frameIntervalP = 1 + bf;
 	h264_config->idrPeriod = gop_size;
@@ -445,28 +443,29 @@ static bool init_encoder(struct nvenc_data *enc, obs_data_t *settings)
 		? NV_ENC_PARAMS_RC_VBR_HQ
 		: NV_ENC_PARAMS_RC_VBR;
 
-	if (astrcmpi(rc, "cqp") == 0) {
-		config->rcParams.targetQuality = cqp;
-		config->rcParams.averageBitRate = 0;
-		config->rcParams.maxBitRate = 0;
+	if (astrcmpi(rc, "cqp") == 0 || astrcmpi(rc, "lossless") == 0) {
+		if (astrcmpi(rc, "lossless") == 0)
+			cqp = 0;
+
+		config->rcParams.rateControlMode = NV_ENC_PARAMS_RC_CONSTQP;
+		config->rcParams.constQP.qpInterP = cqp;
+		config->rcParams.constQP.qpInterB = cqp;
+		config->rcParams.constQP.qpIntra = cqp;
 		enc->can_change_bitrate = false;
 
-	} else if (astrcmpi(rc, "lossless") == 0) {
-		config->rcParams.rateControlMode = NV_ENC_PARAMS_RC_CONSTQP;
-		config->rcParams.constQP.qpInterP = 0;
-		config->rcParams.constQP.qpInterB = 0;
-		config->rcParams.constQP.qpIntra = 0;
-		config->rcParams.averageBitRate = 0;
-		config->rcParams.maxBitRate = 0;
-		enc->can_change_bitrate = false;
+		bitrate = 0;
+		max_bitrate = 0;
 
 	} else if (astrcmpi(rc, "vbr") != 0) { /* CBR by default */
 		h264_config->outputBufferingPeriodSEI = 1;
-		h264_config->outputPictureTimingSEI = 1;
 		config->rcParams.rateControlMode = twopass
 			? NV_ENC_PARAMS_RC_2_PASS_QUALITY
 			: NV_ENC_PARAMS_RC_CBR;
 	}
+
+	h264_config->outputPictureTimingSEI = 1;
+	config->rcParams.averageBitRate = bitrate * 1000;
+	config->rcParams.maxBitRate = vbr ? max_bitrate * 1000 : bitrate * 1000;
 
 	/* -------------------------- */
 	/* profile                    */
@@ -598,9 +597,6 @@ static void nvenc_destroy(void *data)
 {
 	struct nvenc_data *enc = data;
 
-	for (size_t i = 0; i < enc->textures.num; i++) {
-		nv_texture_free(enc, &enc->textures.array[i]);
-	}
 	if (enc->encode_started) {
 		size_t next_bitstream = enc->next_bitstream;
 		HANDLE next_event = enc->bitstreams.array[next_bitstream].event;
@@ -610,6 +606,9 @@ static void nvenc_destroy(void *data)
 		params.completionEvent = next_event;
 		nv.nvEncEncodePicture(enc->session, &params);
 		get_encoded_packet(enc, true);
+	}
+	for (size_t i = 0; i < enc->textures.num; i++) {
+		nv_texture_free(enc, &enc->textures.array[i]);
 	}
 	for (size_t i = 0; i < enc->bitstreams.num; i++) {
 		nv_bitstream_free(enc, &enc->bitstreams.array[i]);
@@ -903,7 +902,7 @@ static bool nvenc_sei_data(void *data, uint8_t **sei, size_t *size)
 	}
 
 	*sei  = enc->sei;
-	*size = enc->header_size;
+	*size = enc->sei_size;
 	return true;
 }
 

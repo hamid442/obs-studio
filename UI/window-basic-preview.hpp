@@ -31,6 +31,8 @@ enum class ItemHandle : uint32_t {
 class OBSBasicPreview : public OBSQTDisplay {
 	Q_OBJECT
 
+	friend class SourceTree;
+
 private:
 	obs_sceneitem_crop startCrop;
 	vec2         startItemPos;
@@ -56,9 +58,11 @@ private:
 	bool         locked         = false;
 	bool         scrollMode     = false;
 	bool         fixedScaling   = false;
-	OBSSceneItem hovered        = nullptr;
 	int32_t      scalingLevel   = 0;
 	float        scalingAmount  = 1.0f;
+
+	obs_sceneitem_t *hoveredPreviewItem = nullptr;
+	obs_sceneitem_t *hoveredListItem    = nullptr;
 
 	static vec2 GetMouseEventPos(QMouseEvent *event);
 	static bool DrawSelectedOverflow(obs_scene_t *scene,
@@ -90,6 +94,8 @@ private:
 public:
 	OBSBasicPreview(QWidget *parent, Qt::WindowFlags flags = 0);
 	~OBSBasicPreview();
+
+	static OBSBasicPreview *Get();
 
 	virtual void keyPressEvent(QKeyEvent *event) override;
 	virtual void keyReleaseEvent(QKeyEvent *event) override;

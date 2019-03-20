@@ -463,6 +463,7 @@ void AutoConfigStreamPage::on_disconnectAccount_clicked()
 	ui->streamKeyLabel->setVisible(true);
 	ui->connectAccount2->setVisible(true);
 	ui->disconnectAccount->setVisible(false);
+	ui->key->setText("");
 }
 
 void AutoConfigStreamPage::on_useStreamKey_clicked()
@@ -548,7 +549,6 @@ void AutoConfigStreamPage::ServiceChanged()
 
 #ifdef BROWSER_AVAILABLE
 	OBSBasic *main = OBSBasic::Get();
-	auth.reset();
 
 	if (!!main->auth &&
 	    service.find(main->auth->service()) != std::string::npos) {
@@ -709,6 +709,8 @@ void AutoConfigStreamPage::UpdateCompleted()
 AutoConfig::AutoConfig(QWidget *parent)
 	: QWizard(parent)
 {
+	EnableThreadedMessageBoxes(true);
+
 	calldata_t cd = {0};
 	calldata_set_int(&cd, "seconds", 5);
 
@@ -733,6 +735,7 @@ AutoConfig::AutoConfig(QWidget *parent)
 	setPage(StreamPage, streamPage);
 	setPage(TestPage, new AutoConfigTestPage());
 	setWindowTitle(QTStr("Basic.AutoConfig"));
+	setWindowFlags(windowFlags() & ~Qt::WindowContextHelpButtonHint);
 
 	obs_video_info ovi;
 	obs_get_video_info(&ovi);
@@ -813,12 +816,17 @@ AutoConfig::AutoConfig(QWidget *parent)
 	streamPage->ui->bitrate->setValue(bitrate);
 	streamPage->ServiceChanged();
 
-	streamPage->ui->preferHardware->setChecked(os_get_physical_cores() <= 4);
-
 	TestHardwareEncoding();
 	if (!hardwareEncodingAvailable) {
 		delete streamPage->ui->preferHardware;
 		streamPage->ui->preferHardware = nullptr;
+	} else {
+		/* Newer generations of NVENC have a high enough quality to
+		 * bitrate ratio that if NVENC is available, it makes sense to
+		 * just always prefer hardware encoding by default */
+		bool preferHardware = nvencAvailable ||
+		                      os_get_physical_cores() <= 4;
+		streamPage->ui->preferHardware->setChecked(preferHardware);
 	}
 
 	setOptions(0);
@@ -833,6 +841,7 @@ AutoConfig::~AutoConfig()
 {
 	OBSBasic *main = reinterpret_cast<OBSBasic*>(App()->GetMainWindow());
 	main->EnableOutputs(true);
+	EnableThreadedMessageBoxes(false);
 }
 
 void AutoConfig::TestHardwareEncoding()

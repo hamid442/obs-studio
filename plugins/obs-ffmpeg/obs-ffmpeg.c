@@ -142,12 +142,40 @@ static const char *nvenc_check_name = "nvenc_check";
 
 #ifdef _WIN32
 static const wchar_t *blacklisted_adapters[] = {
-	L"920M",
-	L"940M",
+	L"720M",
+	L"730M",
+	L"740M",
+	L"745M",
 	L"820M",
+	L"830M",
 	L"840M",
+	L"845M",
+	L"920M",
+	L"930M",
+	L"940M",
+	L"945M",
+	L"720A",
+	L"730A",
+	L"740A",
+	L"745A",
+	L"820A",
+	L"830A",
+	L"840A",
+	L"845A",
+	L"920A",
+	L"930A",
+	L"940A",
+	L"945A",
 	L"1030",
-	L"MX130"
+	L"MX110",
+	L"MX130",
+	L"MX150",
+	L"MX230",
+	L"MX250",
+	L"M520",
+	L"M500",
+	L"P500",
+	L"K620M"
 };
 
 static const size_t num_blacklisted =
@@ -157,7 +185,7 @@ static bool is_blacklisted(const wchar_t *name)
 {
 	for (size_t i = 0; i < num_blacklisted; i++) {
 		const wchar_t *blacklisted_adapter = blacklisted_adapters[i];
-		if (wstrstri(blacklisted_adapter, name)) {
+		if (wstrstri(name, blacklisted_adapter)) {
 			return true;
 		}
 	}
@@ -165,7 +193,7 @@ static bool is_blacklisted(const wchar_t *name)
 	return false;
 }
 
-typedef HRESULT (*create_dxgi_proc)(const IID *, IDXGIFactory1 **);
+typedef HRESULT (WINAPI *create_dxgi_proc)(const IID *, IDXGIFactory1 **);
 
 static bool nvenc_device_available(void)
 {

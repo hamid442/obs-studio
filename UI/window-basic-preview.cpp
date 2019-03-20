@@ -29,7 +29,9 @@ OBSBasicPreview::OBSBasicPreview(QWidget *parent, Qt::WindowFlags flags)
 OBSBasicPreview::~OBSBasicPreview()
 {
 	if (overflow) {
+		obs_enter_graphics();
 		gs_texture_destroy(overflow);
+		obs_leave_graphics();
 	}
 }
 
@@ -614,7 +616,7 @@ void OBSBasicPreview::mouseReleaseEvent(QMouseEvent *event)
 		cropping     = false;
 
 		OBSSceneItem item = GetItemAtPos(pos, true);
-		hovered = item;
+		hoveredPreviewItem = item;
 	}
 }
 
@@ -1161,7 +1163,7 @@ void OBSBasicPreview::mouseMoveEvent(QMouseEvent *event)
 		return;
 
 	if (mouseDown) {
-		hovered = nullptr;
+		hoveredPreviewItem = nullptr;
 
 		vec2 pos = GetMouseEventPos(event);
 
@@ -1203,13 +1205,13 @@ void OBSBasicPreview::mouseMoveEvent(QMouseEvent *event)
 		vec2 pos = GetMouseEventPos(event);
 		OBSSceneItem item = GetItemAtPos(pos, true);
 
-		hovered = item;
+		hoveredPreviewItem = item;
 	}
 }
 
 void OBSBasicPreview::leaveEvent(QEvent *event)
 {
-	hovered = nullptr;
+	hoveredPreviewItem = nullptr;
 
 	UNUSED_PARAMETER(event);
 }
@@ -1406,16 +1408,14 @@ bool OBSBasicPreview::DrawSelectedItem(obs_scene_t *scene,
 		gs_matrix_pop();
 	}
 
-	OBSBasic *main = reinterpret_cast<OBSBasic*>(App()->GetMainWindow());
 	OBSBasicPreview *prev = reinterpret_cast<OBSBasicPreview*>(param);
+	OBSBasic *main = OBSBasic::Get();
 
-	SourceTreeItem *hovItem = main->ui->sources->GetHoveredItem();
-	SourceTreeItem *curItem = main->GetItemWidgetFromSceneItem(item);
-
-	bool hover = (curItem && hovItem == curItem) || prev->hovered == item;
+	bool hovered = prev->hoveredPreviewItem == item ||
+	               prev->hoveredListItem == item;
 	bool selected = obs_sceneitem_selected(item);
 
-	if (!selected && !hover)
+	if (!selected && !hovered)
 		return true;
 
 	matrix4 boxTransform;
@@ -1464,7 +1464,7 @@ bool OBSBasicPreview::DrawSelectedItem(obs_scene_t *scene,
 
 	if (info.bounds_type == OBS_BOUNDS_NONE && crop_enabled(&crop)) {
 #define DRAW_SIDE(side, x1, y1, x2, y2) \
-		if (hover && !selected) \
+		if (hovered && !selected) \
 			gs_effect_set_vec4(colParam, &blue); \
 		else if (crop.side > 0) \
 			gs_effect_set_vec4(colParam, &green); \
@@ -1584,4 +1584,9 @@ void OBSBasicPreview::SetScalingAmount(float newScalingAmountVal) {
 	scrollingOffset.x *= newScalingAmountVal / scalingAmount;
 	scrollingOffset.y *= newScalingAmountVal / scalingAmount;
 	scalingAmount = newScalingAmountVal;
+}
+
+OBSBasicPreview *OBSBasicPreview::Get()
+{
+	return OBSBasic::Get()->ui->preview;
 }

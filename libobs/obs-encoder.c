@@ -271,11 +271,13 @@ void obs_encoder_destroy(obs_encoder_t *encoder)
 
 		obs_context_data_remove(&encoder->context);
 
+		pthread_mutex_lock(&encoder->init_mutex);
 		pthread_mutex_lock(&encoder->callbacks_mutex);
 		destroy = encoder->callbacks.num == 0;
 		if (!destroy)
 			encoder->destroy_on_stop = true;
 		pthread_mutex_unlock(&encoder->callbacks_mutex);
+		pthread_mutex_unlock(&encoder->init_mutex);
 
 		if (destroy)
 			obs_encoder_actually_destroy(encoder);
@@ -1266,4 +1268,10 @@ uint32_t obs_get_encoder_caps(const char *encoder_id)
 {
 	struct obs_encoder_info *info = find_encoder(encoder_id);
 	return info ? info->caps : 0;
+}
+
+uint32_t obs_encoder_get_caps(const obs_encoder_t *encoder)
+{
+	return obs_encoder_valid(encoder, "obs_encoder_get_caps")
+		? encoder->orig_info.caps : 0;
 }

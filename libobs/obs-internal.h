@@ -259,6 +259,7 @@ struct obs_core_video {
 	gs_effect_t                     *conversion_effect;
 	gs_effect_t                     *bicubic_effect;
 	gs_effect_t                     *lanczos_effect;
+	gs_effect_t                     *area_effect;
 	gs_effect_t                     *bilinear_lowres_effect;
 	gs_effect_t                     *premultiplied_alpha_effect;
 	gs_samplerstate_t               *point_sampler;
@@ -271,6 +272,7 @@ struct obs_core_video {
 	struct circlebuf                gpu_encoder_avail_queue;
 	DARRAY(obs_encoder_t *)         gpu_encoders;
 	os_sem_t                        *gpu_encode_semaphore;
+	os_event_t                      *gpu_encode_inactive;
 	pthread_t                       gpu_encode_thread;
 	bool                            gpu_encode_thread_initialized;
 	volatile bool                   gpu_encode_stop;

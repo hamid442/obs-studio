@@ -26,10 +26,19 @@ OAuthLogin::OAuthLogin(QWidget *parent, const std::string &url, bool token)
 	: QDialog   (parent),
 	  get_token (token)
 {
+	if (!cef) {
+		return;
+	}
+
 	setWindowTitle("Auth");
+	setMinimumSize(400, 400);
 	resize(700, 700);
 
-	OBSBasic::InitBrowserPanelSafeBlock(true);
+	Qt::WindowFlags flags = windowFlags();
+	Qt::WindowFlags helpFlag = Qt::WindowContextHelpButtonHint;
+	setWindowFlags(flags & (~helpFlag));
+
+	OBSBasic::InitBrowserPanelSafeBlock();
 
 	cefWidget = cef->create_widget(nullptr, url, panel_cookies);
 	if (!cefWidget) {
@@ -59,6 +68,15 @@ OAuthLogin::OAuthLogin(QWidget *parent, const std::string &url, bool token)
 OAuthLogin::~OAuthLogin()
 {
 	delete cefWidget;
+}
+
+int OAuthLogin::exec()
+{
+	if (cefWidget) {
+		return QDialog::exec();
+	}
+
+	return QDialog::Rejected;
 }
 
 void OAuthLogin::urlChanged(const QString &url)
@@ -211,7 +229,7 @@ try {
 				5);
 	};
 
-	ExecuteFuncSafeBlockMsgBox(
+	ExecThreadedWithoutBlocking(
 			func,
 			QTStr("Auth.Authing.Title"),
 			QTStr("Auth.Authing.Text").arg(service()));
@@ -271,12 +289,22 @@ try {
 
 void OAuthStreamKey::OnStreamConfig()
 {
+	if (key_.empty())
+		return;
+
 	OBSBasic *main = OBSBasic::Get();
 	obs_service_t *service = main->GetService();
 
 	obs_data_t *settings = obs_service_get_settings(service);
 
-	obs_data_set_string(settings, "key", key_.c_str());
+	bool bwtest = obs_data_get_bool(settings, "bwtest");
+
+	if (bwtest && strcmp(this->service(), "Twitch") == 0)
+		obs_data_set_string(settings, "key",
+				key_.append("?bandwidthtest=true").c_str());
+	else
+		obs_data_set_string(settings, "key", key_.c_str());
+
 	obs_service_update(service, settings);
 
 	obs_data_release(settings);

@@ -44,6 +44,8 @@ static void *gpu_encode_thread(void *unused)
 			continue;
 		}
 
+		os_event_reset(video->gpu_encode_inactive);
+
 		/* -------------- */
 
 		pthread_mutex_lock(&video->gpu_encoder_mutex);
@@ -104,11 +106,6 @@ static void *gpu_encode_thread(void *unused)
 			encoder->cur_pts += encoder->timebase_num;
 		}
 
-		for (size_t i = 0; i < encoders.num; i++)
-			obs_encoder_release(encoders.array[i]);
-
-		da_resize(encoders, 0);
-
 		/* -------------- */
 
 		pthread_mutex_lock(&video->gpu_encoder_mutex);
@@ -128,6 +125,15 @@ static void *gpu_encode_thread(void *unused)
 		}
 
 		pthread_mutex_unlock(&video->gpu_encoder_mutex);
+
+		/* -------------- */
+
+		os_event_signal(video->gpu_encode_inactive);
+
+		for (size_t i = 0; i < encoders.num; i++)
+			obs_encoder_release(encoders.array[i]);
+
+		da_resize(encoders, 0);
 	}
 
 	da_free(encoders);
@@ -168,9 +174,13 @@ bool init_gpu_encoding(struct obs_core_video *video)
 
 	if (os_sem_init(&video->gpu_encode_semaphore, 0) != 0)
 		return false;
+	if (os_event_init(&video->gpu_encode_inactive, OS_EVENT_TYPE_MANUAL) != 0)
+		return false;
 	if (pthread_create(&video->gpu_encode_thread, NULL,
 				gpu_encode_thread, NULL) != 0)
 		return false;
+
+	os_event_signal(video->gpu_encode_inactive);
 
 	video->gpu_encode_thread_initialized = true;
 	return true;
@@ -195,6 +205,10 @@ void free_gpu_encoding(struct obs_core_video *video)
 	if (video->gpu_encode_semaphore) {
 		os_sem_destroy(video->gpu_encode_semaphore);
 		video->gpu_encode_semaphore = NULL;
+	}
+	if (video->gpu_encode_inactive) {
+		os_event_destroy(video->gpu_encode_inactive);
+		video->gpu_encode_inactive = NULL;
 	}
 
 #define free_circlebuf(x) \

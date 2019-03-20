@@ -9,6 +9,7 @@
 
 #include "window-basic-main.hpp"
 #include "remote-text.hpp"
+#include "window-dock.hpp"
 
 #include <json11.hpp>
 
@@ -44,7 +45,7 @@ MixerAuth::MixerAuth(const Def &d)
 {
 }
 
-bool MixerAuth::GetChannelInfo()
+bool MixerAuth::GetChannelInfo(bool allow_retry)
 try {
 	std::string client_id = MIXER_CLIENTID;
 	deobfuscate_str(&client_id[0], MIXER_HASH);
@@ -83,7 +84,7 @@ try {
 					5);
 		};
 
-		ExecuteFuncSafeBlockMsgBox(
+		ExecThreadedWithoutBlocking(
 				func,
 				QTStr("Auth.LoadingChannel.Title"),
 				QTStr("Auth.LoadingChannel.Text").arg(service()));
@@ -126,7 +127,7 @@ try {
 				5);
 	};
 
-	ExecuteFuncSafeBlockMsgBox(
+	ExecThreadedWithoutBlocking(
 			func,
 			QTStr("Auth.LoadingChannel.Title"),
 			QTStr("Auth.LoadingChannel.Text").arg(service()));
@@ -141,7 +142,20 @@ try {
 	if (!error.empty())
 		throw ErrorInfo(error, json["error_description"].string_value());
 
-	key_ = id + "-" + json["streamKey"].string_value();
+	std::string key_suffix = json["streamKey"].string_value();
+
+	/* Mixer does not throw an error; instead it gives you the channel data
+	 * json without the data you normally have privileges for, which means
+	 * it'll be an empty stream key usually.  So treat empty stream key as
+	 * an error. */
+	if (key_suffix.empty()) {
+		if (allow_retry && RetryLogin()) {
+			return GetChannelInfo(false);
+		}
+		throw ErrorInfo("Auth Failure", "Could not get channel data");
+	}
+
+	key_ = id + "-" + key_suffix;
 
 	return true;
 } catch (ErrorInfo info) {
@@ -181,6 +195,9 @@ static inline std::string get_config_str(
 
 bool MixerAuth::LoadInternal()
 {
+	if (!cef)
+		return false;
+
 	OBSBasic *main = OBSBasic::Get();
 	name = get_config_str(main, service(), "Name");
 	id = get_config_str(main, service(), "Id");
@@ -188,21 +205,23 @@ bool MixerAuth::LoadInternal()
 	return OAuthStreamKey::LoadInternal();
 }
 
-class MixerChat : public QDockWidget {
+class MixerChat : public OBSDock {
 public:
-	inline MixerChat() : QDockWidget() {}
+	inline MixerChat() : OBSDock() {}
 
 	QScopedPointer<QCefWidget> widget;
 };
 
 void MixerAuth::LoadUI()
 {
+	if (!cef)
+		return;
 	if (uiLoaded)
 		return;
 	if (!GetChannelInfo())
 		return;
 
-	OBSBasic::InitBrowserPanelSafeBlock(true);
+	OBSBasic::InitBrowserPanelSafeBlock();
 	OBSBasic *main = OBSBasic::Get();
 
 	std::string url;
@@ -245,6 +264,9 @@ void MixerAuth::LoadUI()
 
 bool MixerAuth::RetryLogin()
 {
+	if (!cef)
+		return false;
+
 	OAuthLogin login(OBSBasic::Get(), MIXER_AUTH_URL, false);
 	cef->add_popup_whitelist_url("about:blank", &login);
 
@@ -262,6 +284,10 @@ bool MixerAuth::RetryLogin()
 
 std::shared_ptr<Auth> MixerAuth::Login(QWidget *parent)
 {
+	if (!cef) {
+		return nullptr;
+	}
+
 	OAuthLogin login(parent, MIXER_AUTH_URL, false);
 	cef->add_popup_whitelist_url("about:blank", &login);
 
@@ -271,8 +297,8 @@ std::shared_ptr<Auth> MixerAuth::Login(QWidget *parent)
 
 	std::shared_ptr<MixerAuth> auth = std::make_shared<MixerAuth>(mixerDef);
 
-	std::string client_id = TWITCH_CLIENTID;
-	deobfuscate_str(&client_id[0], TWITCH_HASH);
+	std::string client_id = MIXER_CLIENTID;
+	deobfuscate_str(&client_id[0], MIXER_HASH);
 
 	if (!auth->GetToken(MIXER_TOKEN_URL, client_id, MIXER_SCOPE_VERSION,
 				QT_TO_UTF8(login.GetCode()))) {
@@ -280,7 +306,7 @@ std::shared_ptr<Auth> MixerAuth::Login(QWidget *parent)
 	}
 
 	std::string error;
-	if (auth->GetChannelInfo()) {
+	if (auth->GetChannelInfo(false)) {
 		return auth;
 	}
 

@@ -280,7 +280,11 @@ OBSBasicSettings::OBSBasicSettings(QWidget *parent)
 {
 	string path;
 
+	EnableThreadedMessageBoxes(true);
+
 	ui->setupUi(this);
+
+	setWindowFlags(windowFlags() & ~Qt::WindowContextHelpButtonHint);
 
 	main->EnableOutputs(false);
 
@@ -321,6 +325,7 @@ OBSBasicSettings::OBSBasicSettings(QWidget *parent)
 	HookWidget(ui->overflowSelectionHide,CHECK_CHANGED,  GENERAL_CHANGED);
 	HookWidget(ui->doubleClickSwitch,    CHECK_CHANGED,  GENERAL_CHANGED);
 	HookWidget(ui->studioPortraitLayout, CHECK_CHANGED,  GENERAL_CHANGED);
+	HookWidget(ui->prevProgLabelToggle,  CHECK_CHANGED,  GENERAL_CHANGED);
 	HookWidget(ui->multiviewMouseSwitch, CHECK_CHANGED,  GENERAL_CHANGED);
 	HookWidget(ui->multiviewDrawNames,   CHECK_CHANGED,  GENERAL_CHANGED);
 	HookWidget(ui->multiviewDrawAreas,   CHECK_CHANGED,  GENERAL_CHANGED);
@@ -329,6 +334,10 @@ OBSBasicSettings::OBSBasicSettings(QWidget *parent)
 	HookWidget(ui->server,               COMBO_CHANGED,  STREAM1_CHANGED);
 	HookWidget(ui->customServer,         EDIT_CHANGED,   STREAM1_CHANGED);
 	HookWidget(ui->key,                  EDIT_CHANGED,   STREAM1_CHANGED);
+	HookWidget(ui->bandwidthTestEnable,  CHECK_CHANGED,  STREAM1_CHANGED);
+	HookWidget(ui->useAuth,              CHECK_CHANGED,  STREAM1_CHANGED);
+	HookWidget(ui->authUsername,         EDIT_CHANGED,   STREAM1_CHANGED);
+	HookWidget(ui->authPw,               EDIT_CHANGED,   STREAM1_CHANGED);
 	HookWidget(ui->outputMode,           COMBO_CHANGED,  OUTPUTS_CHANGED);
 	HookWidget(ui->simpleOutputPath,     EDIT_CHANGED,   OUTPUTS_CHANGED);
 	HookWidget(ui->simpleNoSpace,        CHECK_CHANGED,  OUTPUTS_CHANGED);
@@ -730,6 +739,8 @@ OBSBasicSettings::~OBSBasicSettings()
 	delete ui->filenameFormatting->completer();
 	main->EnableOutputs(true);
 	App()->EnableInFocusHotkeys(!disableHotkeysInFocus);
+
+	EnableThreadedMessageBoxes(false);
 }
 
 void OBSBasicSettings::SaveCombo(QComboBox *widget, const char *section,
@@ -1110,6 +1121,10 @@ void OBSBasicSettings::LoadGeneralSettings()
 	bool studioPortraitLayout = config_get_bool(GetGlobalConfig(),
 			"BasicWindow", "StudioPortraitLayout");
 	ui->studioPortraitLayout->setChecked(studioPortraitLayout);
+
+	bool prevProgLabels = config_get_bool(GetGlobalConfig(),
+			"BasicWindow", "StudioModeLabels");
+	ui->prevProgLabelToggle->setChecked(prevProgLabels);
 
 	bool multiviewMouseSwitch = config_get_bool(GetGlobalConfig(),
 			"BasicWindow", "MultiviewMouseSwitch");
@@ -1932,7 +1947,7 @@ void OBSBasicSettings::LoadListValues(QComboBox *widget, obs_property_t *prop,
 			deviceId = obs_data_get_string(settings, "device_id");
 	}
 
-	widget->addItem(QTStr("Disabled"), "disabled");
+	widget->addItem(QTStr("Basic.Settings.Audio.Disabled"), "disabled");
 
 	for (size_t i = 0; i < count; i++) {
 		const char *name = obs_property_list_item_name(prop, i);
@@ -2758,6 +2773,14 @@ void OBSBasicSettings::SaveGeneralSettings()
 		main->ResetUI();
 	}
 
+	if (WidgetChanged(ui->prevProgLabelToggle)) {
+		config_set_bool(GetGlobalConfig(), "BasicWindow",
+				"StudioModeLabels",
+				ui->prevProgLabelToggle->isChecked());
+
+		main->ResetUI();
+	}
+
 	bool multiviewChanged = false;
 	if (WidgetChanged(ui->multiviewMouseSwitch)) {
 		config_set_bool(GetGlobalConfig(), "BasicWindow",
@@ -3464,11 +3487,11 @@ void OBSBasicSettings::on_advOutEncoder_currentIndexChanged(int idx)
 
 	if (caps & OBS_ENCODER_CAP_PASS_TEXTURE) {
 		ui->advOutUseRescale->setChecked(false);
-		ui->advOutUseRescale->setEnabled(false);
-		ui->advOutRescale->setEnabled(false);
+		ui->advOutUseRescale->setVisible(false);
+		ui->advOutRescale->setVisible(false);
 	} else {
-		ui->advOutUseRescale->setEnabled(true);
-		ui->advOutRescale->setEnabled(true);
+		ui->advOutUseRescale->setVisible(true);
+		ui->advOutRescale->setVisible(true);
 	}
 
 	UNUSED_PARAMETER(idx);
@@ -3477,14 +3500,14 @@ void OBSBasicSettings::on_advOutEncoder_currentIndexChanged(int idx)
 void OBSBasicSettings::on_advOutRecEncoder_currentIndexChanged(int idx)
 {
 	if (!loading) {
-		ui->advOutRecUseRescale->setEnabled(idx > 0);
-		ui->advOutRecRescaleContainer->setEnabled(idx > 0);
-
 		delete recordEncoderProps;
 		recordEncoderProps = nullptr;
 	}
 
 	if (idx <= 0) {
+		ui->advOutRecUseRescale->setChecked(false);
+		ui->advOutRecUseRescale->setVisible(false);
+		ui->advOutRecRescaleContainer->setVisible(false);
 		return;
 	}
 
@@ -3505,11 +3528,11 @@ void OBSBasicSettings::on_advOutRecEncoder_currentIndexChanged(int idx)
 
 	if (caps & OBS_ENCODER_CAP_PASS_TEXTURE) {
 		ui->advOutRecUseRescale->setChecked(false);
-		ui->advOutRecUseRescale->setEnabled(false);
-		ui->advOutRecRescale->setEnabled(false);
+		ui->advOutRecUseRescale->setVisible(false);
+		ui->advOutRecRescaleContainer->setVisible(false);
 	} else {
-		ui->advOutRecUseRescale->setEnabled(true);
-		ui->advOutRecRescale->setEnabled(true);
+		ui->advOutRecUseRescale->setVisible(true);
+		ui->advOutRecRescaleContainer->setVisible(true);
 	}
 }
 
@@ -3879,7 +3902,8 @@ void OBSBasicSettings::AdvOutRecCheckWarnings()
 		warningMsg = QTStr("OutputWarnings.MultiTrackRecording");
 	}
 
-	if (ui->advOutRecFormat->currentText().compare("mp4") == 0) {
+	if (ui->advOutRecFormat->currentText().compare("mp4") == 0 ||
+	    ui->advOutRecFormat->currentText().compare("mov") == 0) {
 		if (!warningMsg.isEmpty())
 			warningMsg += "\n\n";
 		warningMsg += QTStr("OutputWarnings.MP4Recording");
@@ -4338,7 +4362,8 @@ void OBSBasicSettings::SimpleRecordingEncoderChanged()
 		}
 	}
 
-	if (ui->simpleOutRecFormat->currentText().compare("mp4") == 0) {
+	if (ui->simpleOutRecFormat->currentText().compare("mp4") == 0 ||
+	    ui->simpleOutRecFormat->currentText().compare("mov") == 0) {
 		if (!warning.isEmpty())
 			warning += "\n\n";
 		warning += QTStr("OutputWarnings.MP4Recording");
@@ -4444,4 +4469,39 @@ void OBSBasicSettings::on_disableOSXVSync_clicked()
 		ui->resetOSXVSync->setEnabled(disable);
 	}
 #endif
+}
+
+void OBSBasicSettings::SetGeneralIcon(const QIcon &icon)
+{
+	ui->listWidget->item(0)->setIcon(icon);
+}
+
+void OBSBasicSettings::SetStreamIcon(const QIcon &icon)
+{
+	ui->listWidget->item(1)->setIcon(icon);
+}
+
+void OBSBasicSettings::SetOutputIcon(const QIcon &icon)
+{
+	ui->listWidget->item(2)->setIcon(icon);
+}
+
+void OBSBasicSettings::SetAudioIcon(const QIcon &icon)
+{
+	ui->listWidget->item(3)->setIcon(icon);
+}
+
+void OBSBasicSettings::SetVideoIcon(const QIcon &icon)
+{
+	ui->listWidget->item(4)->setIcon(icon);
+}
+
+void OBSBasicSettings::SetHotkeysIcon(const QIcon &icon)
+{
+	ui->listWidget->item(5)->setIcon(icon);
+}
+
+void OBSBasicSettings::SetAdvancedIcon(const QIcon &icon)
+{
+	ui->listWidget->item(6)->setIcon(icon);
 }

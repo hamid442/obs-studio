@@ -155,7 +155,7 @@ private:
 	bool fullscreenInterface = false;
 
 	const char *copyString;
-	const char *copyFiltersString;
+	const char *copyFiltersString = nullptr;
 	bool copyVisible = true;
 
 	QScopedPointer<QThread> updateCheckThread;
@@ -228,6 +228,10 @@ private:
 	QPointer<QMenu>           deinterlaceMenu;
 	QPointer<QMenu>           perSceneTransitionMenu;
 	QPointer<QObject>         shortcutFilter;
+
+	QPointer<QWidget> programWidget;
+	QPointer<QVBoxLayout> programLayout;
+	QPointer<QLabel> programLabel;
 
 	void          UpdateMultiviewProjectorMenu();
 
@@ -518,6 +522,9 @@ private slots:
 
 	void on_actionShowAbout_triggered();
 
+	void AudioMixerCopyFilters();
+	void AudioMixerPasteFilters();
+
 private:
 	/* OBS Callbacks */
 	static void SceneReordered(void *data, calldata_t *params);
@@ -789,6 +796,10 @@ private slots:
 public slots:
 	void on_actionResetTransform_triggered();
 
+	bool StreamingActive();
+	bool RecordingActive();
+	bool ReplayBufferActive();
+
 public:
 	explicit OBSBasic(QWidget *parent = 0);
 	virtual ~OBSBasic();
@@ -800,7 +811,7 @@ public:
 	virtual int GetProfilePath(char *path, size_t size, const char *file)
 		const override;
 
-	static void InitBrowserPanelSafeBlock(bool showDialog);
+	static void InitBrowserPanelSafeBlock();
 
 private:
 	std::unique_ptr<Ui::OBSBasic> ui;

@@ -216,7 +216,7 @@ OBSBasic::OBSBasic(QWidget *parent)
 
 	startingDockLayout = saveState();
 
-	statsDock = new QDockWidget();
+	statsDock = new OBSDock();
 	statsDock->setObjectName(QStringLiteral("statsDock"));
 	statsDock->setFeatures(QDockWidget::AllDockWidgetFeatures);
 	statsDock->setWindowTitle(QTStr("Basic.Stats"));
@@ -371,6 +371,17 @@ OBSBasic::OBSBasic(QWidget *parent)
 	QPoint statsDockPos = curSize / 2 - statsDockSize / 2;
 	QPoint newPos = curPos + statsDockPos;
 	statsDock->move(newPos);
+
+	ui->previewLabel->setAlignment(Qt::AlignHCenter | Qt::AlignVCenter);
+	ui->previewLabel->setProperty("themeID", "previewProgramLabels");
+
+	bool labels = config_get_bool(GetGlobalConfig(),
+			"BasicWindow", "StudioModeLabels");
+
+	if (!previewProgramMode)
+		ui->previewLabel->setHidden(true);
+	else
+		ui->previewLabel->setHidden(!labels);
 }
 
 static void SaveAudioDevice(const char *name, int channel, obs_data_t *parent,
@@ -1192,6 +1203,8 @@ bool OBSBasic::InitBasicConfigDefaults()
 			true);
 	config_set_default_string(basicConfig, "SimpleOutput", "Preset",
 			"veryfast");
+	config_set_default_string(basicConfig, "SimpleOutput", "NVENCPreset",
+			"hq");
 	config_set_default_string(basicConfig, "SimpleOutput", "RecQuality",
 			"Stream");
 	config_set_default_bool(basicConfig, "SimpleOutput", "RecRB", false);
@@ -1736,7 +1749,9 @@ void OBSBasic::OBSInit()
 					msg);
 
 		if (button == QMessageBox::Yes) {
-			on_autoConfigure_triggered();
+			QMetaObject::invokeMethod(this,
+					"on_autoConfigure_triggered",
+					Qt::QueuedConnection);
 		} else {
 			msg = QTStr("Basic.FirstStartup.RunWizard.NoClicked");
 			OBSMessageBox::information(this,
@@ -1901,7 +1916,7 @@ void OBSBasic::ReceivedIntroJson(const QString &text)
 #if OBS_RELEASE_CANDIDATE > 0
 	if (lastVersion < OBS_RELEASE_CANDIDATE_VER) {
 #else
-	if (lastVersion < LIBOBS_API_VER) {
+	if ((lastVersion & ~0xFFFF) < (LIBOBS_API_VER & ~0xFFFF)) {
 #endif
 		config_set_int(App()->GlobalConfig(), "General",
 				"InfoIncrement", -1);
@@ -1918,9 +1933,23 @@ void OBSBasic::ReceivedIntroJson(const QString &text)
 	config_set_int(App()->GlobalConfig(), "General",
 			"InfoIncrement", info_increment);
 
-	QDialog dlg(this);
-	dlg.setWindowTitle("What's New");
-	dlg.resize(700, 600);
+	/* Don't show What's New dialog for new users */
+#if !defined(OBS_RELEASE_CANDIDATE) || OBS_RELEASE_CANDIDATE == 0
+	if (!lastVersion) {
+		return;
+	}
+#endif
+	cef->init_browser();
+	ExecuteFuncSafeBlock([] {cef->wait_for_browser_init();});
+
+	QDialog *dlg = new QDialog(this);
+	dlg->setAttribute(Qt::WA_DeleteOnClose, true);
+	dlg->setWindowTitle("What's New");
+	dlg->resize(700, 600);
+
+	Qt::WindowFlags flags = dlg->windowFlags();
+	Qt::WindowFlags helpFlag = Qt::WindowContextHelpButtonHint;
+	dlg->setWindowFlags(flags & (~helpFlag));
 
 	QCefWidget *cefWidget = cef->create_widget(nullptr, info_url);
 	if (!cefWidget) {
@@ -1928,22 +1957,22 @@ void OBSBasic::ReceivedIntroJson(const QString &text)
 	}
 
 	connect(cefWidget, SIGNAL(titleChanged(const QString &)),
-			&dlg, SLOT(setWindowTitle(const QString &)));
+			dlg, SLOT(setWindowTitle(const QString &)));
 
 	QPushButton *close = new QPushButton(QTStr("Close"));
 	connect(close, &QAbstractButton::clicked,
-			&dlg, &QDialog::accept);
+			dlg, &QDialog::accept);
 
 	QHBoxLayout *bottomLayout = new QHBoxLayout();
 	bottomLayout->addStretch();
 	bottomLayout->addWidget(close);
 	bottomLayout->addStretch();
 
-	QVBoxLayout *topLayout = new QVBoxLayout(&dlg);
+	QVBoxLayout *topLayout = new QVBoxLayout(dlg);
 	topLayout->addWidget(cefWidget);
 	topLayout->addLayout(bottomLayout);
 
-	dlg.exec();
+	dlg->show();
 #else
 	UNUSED_PARAMETER(text);
 #endif
@@ -2763,6 +2792,9 @@ void OBSBasic::VolControlContextMenu()
 	QAction unhideAllAction(QTStr("UnhideAll"), this);
 	QAction mixerRenameAction(QTStr("Rename"), this);
 
+	QAction copyFiltersAction(QTStr("Copy.Filters"), this);
+	QAction pasteFiltersAction(QTStr("Paste.Filters"), this);
+
 	QAction filtersAction(QTStr("Filters"), this);
 	QAction propertiesAction(QTStr("Properties"), this);
 	QAction advPropAction(QTStr("Basic.MainMenu.Edit.AdvAudio"), this);
@@ -2782,6 +2814,13 @@ void OBSBasic::VolControlContextMenu()
 			Qt::DirectConnection);
 	connect(&mixerRenameAction, &QAction::triggered,
 			this, &OBSBasic::MixerRenameSource,
+			Qt::DirectConnection);
+
+	connect(&copyFiltersAction, &QAction::triggered,
+			this, &OBSBasic::AudioMixerCopyFilters,
+			Qt::DirectConnection);
+	connect(&pasteFiltersAction, &QAction::triggered,
+			this, &OBSBasic::AudioMixerPasteFilters,
 			Qt::DirectConnection);
 
 	connect(&filtersAction, &QAction::triggered,
@@ -2807,6 +2846,11 @@ void OBSBasic::VolControlContextMenu()
 	mixerRenameAction.setProperty("volControl",
 			QVariant::fromValue<VolControl*>(vol));
 
+	copyFiltersAction.setProperty("volControl",
+			QVariant::fromValue<VolControl*>(vol));
+	pasteFiltersAction.setProperty("volControl",
+			QVariant::fromValue<VolControl*>(vol));
+
 	filtersAction.setProperty("volControl",
 			QVariant::fromValue<VolControl*>(vol));
 	propertiesAction.setProperty("volControl",
@@ -2814,10 +2858,18 @@ void OBSBasic::VolControlContextMenu()
 
 	/* ------------------- */
 
+	if (copyFiltersString == nullptr)
+		pasteFiltersAction.setEnabled(false);
+	else
+		pasteFiltersAction.setEnabled(true);
+
 	QMenu popup;
 	popup.addAction(&unhideAllAction);
 	popup.addAction(&hideAction);
 	popup.addAction(&mixerRenameAction);
+	popup.addSeparator();
+	popup.addAction(&copyFiltersAction);
+	popup.addAction(&pasteFiltersAction);
 	popup.addSeparator();
 	popup.addAction(&toggleControlLayoutAction);
 	popup.addSeparator();
@@ -3419,10 +3471,19 @@ void OBSBasic::ResetUI()
 	bool studioPortraitLayout = config_get_bool(GetGlobalConfig(),
 			"BasicWindow", "StudioPortraitLayout");
 
+	bool labels = config_get_bool(GetGlobalConfig(),
+			"BasicWindow", "StudioModeLabels");
+
 	if (studioPortraitLayout)
 		ui->previewLayout->setDirection(QBoxLayout::TopToBottom);
 	else
 		ui->previewLayout->setDirection(QBoxLayout::LeftToRight);
+
+	if (previewProgramMode)
+		ui->previewLabel->setHidden(!labels);
+
+	if (programLabel)
+		programLabel->setHidden(!labels);
 }
 
 int OBSBasic::ResetVideo()
@@ -4157,6 +4218,7 @@ QMenu *OBSBasic::AddScaleFilteringMenu(QMenu *menu, obs_sceneitem_t *item)
 	ADD_MODE("ScaleFiltering.Bilinear", OBS_SCALE_BILINEAR);
 	ADD_MODE("ScaleFiltering.Bicubic",  OBS_SCALE_BICUBIC);
 	ADD_MODE("ScaleFiltering.Lanczos",  OBS_SCALE_LANCZOS);
+	ADD_MODE("ScaleFiltering.Area",     OBS_SCALE_AREA);
 #undef ADD_MODE
 
 	return menu;
@@ -4351,10 +4413,7 @@ void OBSBasic::CreateSourcePopupMenu(int idx, bool preview)
 		int width = obs_source_get_width(source);
 		int height = obs_source_get_height(source);
 
-		resizeOutput->setEnabled(!(ui->streamButton->isChecked() ||
-				ui->recordButton->isChecked() ||
-				(replayBufferButton &&
-				replayBufferButton->isChecked())));
+		resizeOutput->setEnabled(!obs_video_active());
 
 		if (width == 0 || height == 0)
 			resizeOutput->setEnabled(false);
@@ -4916,7 +4975,8 @@ inline void OBSBasic::OnActivate()
 		UpdateProcessPriority();
 
 		if (trayIcon)
-			trayIcon->setIcon(QIcon(":/res/images/tray_active.png"));
+			trayIcon->setIcon(QIcon::fromTheme("obs-tray-active",
+					QIcon(":/res/images/tray_active.png")));
 	}
 }
 
@@ -4929,7 +4989,8 @@ inline void OBSBasic::OnDeactivate()
 		ClearProcessPriority();
 
 		if (trayIcon)
-			trayIcon->setIcon(QIcon(":/res/images/obs.png"));
+			trayIcon->setIcon(QIcon::fromTheme("obs-tray",
+					QIcon(":/res/images/obs.png")));
 	}
 }
 
@@ -5142,18 +5203,42 @@ void OBSBasic::StreamingStop(int code, QString last_error)
 void OBSBasic::AutoRemux()
 {
 	const char *mode = config_get_string(basicConfig, "Output", "Mode");
-	const char *path = strcmp(mode, "Advanced") ?
-	config_get_string(basicConfig, "SimpleOutput", "FilePath") :
-	config_get_string(basicConfig, "AdvOut", "RecFilePath");
-	std::string s(path);
-	s += "/";
-	s += remuxFilename;
-	const QString &str = QString::fromStdString(s);
-	QString file = str.section(".", 0, 0);
+	bool advanced = astrcmpi(mode, "Advanced") == 0;
+
+	const char *path = !advanced
+		? config_get_string(basicConfig, "SimpleOutput", "FilePath")
+		: config_get_string(basicConfig, "AdvOut", "RecFilePath");
+
+	/* do not save if using FFmpeg output in advanced output mode */
+	if (advanced) {
+		const char *type = config_get_string(basicConfig, "AdvOut",
+				"RecType");
+		if (astrcmpi(type, "FFmpeg") == 0) {
+			return;
+		}
+	}
+
+	QString input;
+	input += path;
+	input += "/";
+	input += remuxFilename.c_str();
+
+	QFileInfo fi(remuxFilename.c_str());
+
+	/* do not remux if lossless */
+	if (fi.suffix().compare("avi", Qt::CaseInsensitive) == 0) {
+		return;
+	}
+
+	QString output;
+	output += path;
+	output += "/";
+	output += fi.completeBaseName();
+	output += ".mp4";
 
 	OBSRemux *remux = new OBSRemux(path, this, true);
 	remux->show();
-	remux->AutoRemux(str, file + ".mp4");
+	remux->AutoRemux(input, output);
 }
 
 void OBSBasic::StartRecording()
@@ -5289,6 +5374,7 @@ void OBSBasic::StartReplayBuffer()
 		OBSMessageBox::information(this,
 				RP_NO_HOTKEY_TITLE,
 				RP_NO_HOTKEY_TEXT);
+		replayBufferButton->setChecked(false);
 		return;
 	}
 
@@ -5334,6 +5420,7 @@ void OBSBasic::ReplayBufferStart()
 		return;
 
 	replayBufferButton->setText(QTStr("Basic.Main.StopReplayBuffer"));
+	replayBufferButton->setChecked(true);
 
 	if (sysTrayReplayBuffer)
 		sysTrayReplayBuffer->setText(replayBufferButton->text());
@@ -5367,6 +5454,7 @@ void OBSBasic::ReplayBufferStop(int code)
 		return;
 
 	replayBufferButton->setText(QTStr("Basic.Main.StartReplayBuffer"));
+	replayBufferButton->setChecked(false);
 
 	if (sysTrayReplayBuffer)
 		sysTrayReplayBuffer->setText(replayBufferButton->text());
@@ -5415,14 +5503,16 @@ bool OBSBasic::NoSourcesConfirmation()
 		msg += "\n\n";
 		msg += QTStr("NoSources.Text.AddSource");
 
-		QMessageBox messageBox(QMessageBox::Question,
-				QTStr("NoSources.title"),
-				msg,
-				QMessageBox::Yes | QMessageBox::No,
-				this);
-		messageBox.setDefaultButton(QMessageBox::No);
+		QMessageBox messageBox(this);
+		messageBox.setWindowTitle(QTStr("NoSources.Title"));
+		messageBox.setText(msg);
+		QAbstractButton *Yes = messageBox.addButton(QTStr("Yes"),
+			QMessageBox::YesRole);
+		messageBox.addButton(QTStr("No"), QMessageBox::NoRole);
+		messageBox.setIcon(QMessageBox::Question);
+		messageBox.exec();
 
-		if (QMessageBox::No == messageBox.exec())
+		if (messageBox.clickedButton() != Yes)
 			return false;
 	}
 
@@ -5457,7 +5547,21 @@ void OBSBasic::on_streamButton_clicked()
 		bool confirm = config_get_bool(GetGlobalConfig(), "BasicWindow",
 				"WarnBeforeStartingStream");
 
-		if (confirm && isVisible()) {
+		obs_data_t *settings = obs_service_get_settings(service);
+		bool bwtest = obs_data_get_bool(settings, "bwtest");
+		obs_data_release(settings);
+
+		if (bwtest && isVisible()) {
+			QMessageBox::StandardButton button =
+				OBSMessageBox::question(this,
+						QTStr("ConfirmBWTest.Title"),
+						QTStr("ConfirmBWTest.Text"));
+
+			if (button == QMessageBox::No) {
+				ui->streamButton->setChecked(false);
+				return;
+			}
+		} else if (confirm && isVisible()) {
 			QMessageBox::StandardButton button =
 				OBSMessageBox::question(this,
 						QTStr("ConfirmStart.Title"),
@@ -5629,7 +5733,7 @@ void OBSBasic::GetFPSCommon(uint32_t &num, uint32_t &den) const
 	} else if (strcmp(val, "24 NTSC") == 0) {
 		num = 24000;
 		den = 1001;
-	} else if (strcmp(val, "25") == 0) {
+	} else if (strcmp(val, "25 PAL") == 0) {
 		num = 25;
 		den = 1;
 	} else if (strcmp(val, "29.97") == 0) {
@@ -5637,6 +5741,9 @@ void OBSBasic::GetFPSCommon(uint32_t &num, uint32_t &den) const
 		den = 1001;
 	} else if (strcmp(val, "48") == 0) {
 		num = 48;
+		den = 1;
+	} else if (strcmp(val, "50 PAL") == 0) {
+		num = 50;
 		den = 1;
 	} else if (strcmp(val, "59.94") == 0) {
 		num = 60000;
@@ -6532,8 +6639,8 @@ void OBSBasic::ToggleShowHide()
 
 void OBSBasic::SystemTrayInit()
 {
-	trayIcon.reset(new QSystemTrayIcon(QIcon(":/res/images/obs.png"),
-			this));
+	trayIcon.reset(new QSystemTrayIcon(QIcon::fromTheme("obs-tray",
+			QIcon(":/res/images/obs.png")), this));
 	trayIcon->setToolTip("OBS Studio");
 
 	showHide = new QAction(QTStr("Basic.SystemTray.Show"),
@@ -6690,6 +6797,30 @@ void OBSBasic::on_actionPasteDup_triggered()
 {
 	OBSBasicSourceSelect::SourcePaste(copyString, copyVisible, true);
 	on_actionPasteTransform_triggered();
+}
+
+void OBSBasic::AudioMixerCopyFilters()
+{
+	QAction *action = reinterpret_cast<QAction*>(sender());
+	VolControl *vol = action->property("volControl").value<VolControl*>();
+	obs_source_t *source = vol->GetSource();
+
+	copyFiltersString = obs_source_get_name(source);
+}
+
+void OBSBasic::AudioMixerPasteFilters()
+{
+	QAction *action = reinterpret_cast<QAction*>(sender());
+	VolControl *vol = action->property("volControl").value<VolControl*>();
+	obs_source_t *dstSource = vol->GetSource();
+
+	OBSSource source = obs_get_source_by_name(copyFiltersString);
+	obs_source_release(source);
+
+	if (source == dstSource)
+		return;
+
+	obs_source_copy_filters(dstSource, source);
 }
 
 void OBSBasic::on_actionCopyFilters_triggered()
@@ -6987,4 +7118,25 @@ QAction *OBSBasic::AddDockWidget(QDockWidget *dock)
 OBSBasic *OBSBasic::Get()
 {
 	return reinterpret_cast<OBSBasic*>(App()->GetMainWindow());
+}
+
+bool OBSBasic::StreamingActive()
+{
+	if (!outputHandler)
+		return false;
+	return outputHandler->StreamingActive();
+}
+
+bool OBSBasic::RecordingActive()
+{
+	if (!outputHandler)
+		return false;
+	return outputHandler->RecordingActive();
+}
+
+bool OBSBasic::ReplayBufferActive()
+{
+	if (!outputHandler)
+		return false;
+	return outputHandler->ReplayBufferActive();
 }

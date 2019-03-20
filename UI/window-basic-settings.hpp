@@ -87,6 +87,20 @@ using OBSFFFormatDesc = std::unique_ptr<const ff_format_desc,
 
 class OBSBasicSettings : public QDialog {
 	Q_OBJECT
+	Q_PROPERTY(QIcon generalIcon WRITE SetGeneralIcon
+			NOTIFY SetGeneralIcon)
+	Q_PROPERTY(QIcon streamIcon WRITE SetStreamIcon
+			NOTIFY SetStreamIcon)
+	Q_PROPERTY(QIcon outputIcon WRITE SetOutputIcon
+			NOTIFY SetOutputIcon)
+	Q_PROPERTY(QIcon audioIcon WRITE SetAudioIcon
+			NOTIFY SetAudioIcon)
+	Q_PROPERTY(QIcon videoIcon WRITE SetVideoIcon
+			NOTIFY SetVideoIcon)
+	Q_PROPERTY(QIcon hotkeysIcon WRITE SetHotkeysIcon
+			NOTIFY SetHotkeysIcon)
+	Q_PROPERTY(QIcon advancedIcon WRITE SetAdvancedIcon
+			NOTIFY SetAdvancedIcon)
 
 private:
 	OBSBasic *main;
@@ -222,9 +236,11 @@ private slots:
 	void UpdateServerList();
 	void UpdateKeyLink();
 	void on_show_clicked();
+	void on_authPwShow_clicked();
 	void on_connectAccount_clicked();
 	void on_disconnectAccount_clicked();
 	void on_useStreamKey_clicked();
+	void on_useAuth_toggled();
 private:
 
 	/* output */
@@ -327,6 +343,14 @@ private slots:
 	void SimpleStreamingEncoderChanged();
 
 	OBSService SpawnTempService();
+
+	void SetGeneralIcon(const QIcon &icon);
+	void SetStreamIcon(const QIcon &icon);
+	void SetOutputIcon(const QIcon &icon);
+	void SetAudioIcon(const QIcon &icon);
+	void SetVideoIcon(const QIcon &icon);
+	void SetHotkeysIcon(const QIcon &icon);
+	void SetAdvancedIcon(const QIcon &icon);
 
 protected:
 	virtual void closeEvent(QCloseEvent *event);

@@ -18,6 +18,8 @@
 #include <cinttypes>
 #include <util/base.h>
 #include <util/platform.h>
+#include <util/dstr.h>
+#include <util/util.hpp>
 #include <graphics/matrix3.h>
 #include "d3d11-subsystem.hpp"
 
@@ -227,6 +229,120 @@ const static D3D_FEATURE_LEVEL featureLevels[] =
 	D3D_FEATURE_LEVEL_9_3,
 };
 
+/* ------------------------------------------------------------------------- */
+
+#define VERT_IN_OUT "\
+struct VertInOut { \
+	float4 pos : POSITION; \
+}; "
+
+#define NV12_Y_PS VERT_IN_OUT "\
+float main(VertInOut vert_in) : TARGET \
+{ \
+	return 1.0; \
+}"
+
+#define NV12_UV_PS VERT_IN_OUT "\
+float2 main(VertInOut vert_in) : TARGET \
+{ \
+	return float2(1.0, 1.0); \
+}"
+
+#define NV12_VS VERT_IN_OUT "\
+VertInOut main(VertInOut vert_in) \
+{ \
+	VertInOut vert_out; \
+	vert_out.pos = float4(vert_in.pos.xyz, 1.0); \
+	return vert_out; \
+} "
+
+/* ------------------------------------------------------------------------- */
+
+#define NV12_CX 128
+#define NV12_CY 128
+
+bool gs_device::HasBadNV12Output()
+try {
+	vec3 points[4];
+	vec3_set(&points[0], -1.0f, -1.0f, 0.0f);
+	vec3_set(&points[1], -1.0f,  1.0f, 0.0f);
+	vec3_set(&points[2],  1.0f, -1.0f, 0.0f);
+	vec3_set(&points[3],  1.0f,  1.0f, 0.0f);
+
+	gs_texture_2d nv12_y(this, NV12_CX, NV12_CY, GS_R8, 1, nullptr,
+			GS_RENDER_TARGET | GS_SHARED_KM_TEX, GS_TEXTURE_2D,
+			false, true);
+	gs_texture_2d nv12_uv(this, nv12_y.texture,
+			GS_RENDER_TARGET | GS_SHARED_KM_TEX);
+	gs_vertex_shader nv12_vs(this, "", NV12_VS);
+	gs_pixel_shader nv12_y_ps(this, "", NV12_Y_PS);
+	gs_pixel_shader nv12_uv_ps(this, "", NV12_UV_PS);
+	gs_stage_surface nv12_stage(this, NV12_CX, NV12_CY);
+
+	gs_vb_data *vbd = gs_vbdata_create();
+	vbd->num        = 4;
+	vbd->points     = (vec3*)bmemdup(&points, sizeof(points));
+
+	gs_vertex_buffer buf(this, vbd, 0);
+
+	device_load_vertexbuffer(this, &buf);
+	device_load_vertexshader(this, &nv12_vs);
+
+	context->IASetPrimitiveTopology(D3D11_PRIMITIVE_TOPOLOGY_TRIANGLESTRIP);
+
+	device_set_viewport(this, 0, 0, NV12_CX, NV12_CY);
+	device_set_cull_mode(this, GS_NEITHER);
+	device_enable_depth_test(this, false);
+	device_enable_blending(this, false);
+	LoadVertexBufferData();
+
+	device_set_render_target(this, &nv12_y, nullptr);
+	device_load_pixelshader(this, &nv12_y_ps);
+	UpdateBlendState();
+	UpdateRasterState();
+	UpdateZStencilState();
+	context->Draw(4, 0);
+
+	device_set_viewport(this, 0, 0, NV12_CX/2, NV12_CY/2);
+	device_set_render_target(this, &nv12_uv, nullptr);
+	device_load_pixelshader(this, &nv12_uv_ps);
+	UpdateBlendState();
+	UpdateRasterState();
+	UpdateZStencilState();
+	context->Draw(4, 0);
+
+	device_load_pixelshader(this, nullptr);
+	device_load_vertexshader(this, nullptr);
+	device_set_render_target(this, nullptr, nullptr);
+
+	device_stage_texture(this, &nv12_stage, &nv12_y);
+
+	uint8_t *data;
+	uint32_t linesize;
+	bool bad_driver = false;
+
+	if (gs_stagesurface_map(&nv12_stage, &data, &linesize)) {
+		bad_driver = data[linesize * NV12_CY] == 0;
+		gs_stagesurface_unmap(&nv12_stage);
+	} else {
+		throw "Could not map surface";
+	}
+
+	if (bad_driver) {
+		blog(LOG_WARNING, "Bad NV12 texture handling detected!  "
+				  "Disabling NV12 texture support.");
+	}
+	return bad_driver;
+
+} catch (HRError error) {
+	blog(LOG_WARNING, "HasBadNV12Output failed: %s (%08lX)",
+			error.str, error.hr);
+	return false;
+} catch (const char *error) {
+	blog(LOG_WARNING, "HasBadNV12Output failed: %s", error);
+	return false;
+}
+
 void gs_device::InitDevice(uint32_t adapterIdx)
 {
 	wstring adapterName;
@@ -244,11 +360,10 @@ void gs_device::InitDevice(uint32_t adapterIdx)
 	adapterName = (adapter->GetDesc(&desc) == S_OK) ? desc.Description :
 		L"<unknown>";
 
-	char *adapterNameUTF8;
+	BPtr<char> adapterNameUTF8;
 	os_wcs_to_utf8_ptr(adapterName.c_str(), 0, &adapterNameUTF8);
 	blog(LOG_INFO, "Loading up D3D11 on adapter %s (%" PRIu32 ")",
-			adapterNameUTF8, adapterIdx);
-	bfree(adapterNameUTF8);
+			adapterNameUTF8.Get(), adapterIdx);
 
 	hr = D3D11CreateDevice(adapter, D3D_DRIVER_TYPE_UNKNOWN,
 			NULL, createFlags, featureLevels,
@@ -258,19 +373,51 @@ void gs_device::InitDevice(uint32_t adapterIdx)
 	if (FAILED(hr))
 		throw UnsupportedHWError("Failed to create device", hr);
 
-	ComQIPtr<ID3D11Device1> d3d11_1(device);
-	if (!!d3d11_1) {
-		D3D11_FEATURE_DATA_D3D11_OPTIONS opts = {};
-		hr = d3d11_1->CheckFeatureSupport(
-				D3D11_FEATURE_D3D11_OPTIONS,
-				&opts, sizeof(opts));
-		if (SUCCEEDED(hr)) {
-			nv12Supported = !!opts.ExtendedResourceSharing;
-		}
-	}
-
 	blog(LOG_INFO, "D3D11 loaded successfully, feature level used: %u",
 			(unsigned int)levelUsed);
+
+	/* ---------------------------------------- */
+	/* check for nv12 texture output support    */
+
+	nv12Supported = false;
+
+	ComQIPtr<ID3D11Device1> d3d11_1(device);
+	if (!d3d11_1) {
+		return;
+	}
+
+	/* needs to support extended resource sharing */
+	D3D11_FEATURE_DATA_D3D11_OPTIONS opts = {};
+	hr = d3d11_1->CheckFeatureSupport(
+			D3D11_FEATURE_D3D11_OPTIONS,
+			&opts, sizeof(opts));
+	if (FAILED(hr) || !opts.ExtendedResourceSharing) {
+		return;
+	}
+
+	/* needs to support the actual format */
+	UINT support = 0;
+	hr = device->CheckFormatSupport(
+			DXGI_FORMAT_NV12,
+			&support);
+	if (FAILED(hr)) {
+		return;
+	}
+
+	if ((support & D3D11_FORMAT_SUPPORT_TEXTURE2D) == 0) {
+		return;
+	}
+
+	/* must be usable as a render target */
+	if ((support & D3D11_FORMAT_SUPPORT_RENDER_TARGET) == 0) {
+		return;
+	}
+
+	if (HasBadNV12Output()) {
+		return;
+	}
+
+	nv12Supported = true;
 }
 
 static inline void ConvertStencilSide(D3D11_DEPTH_STENCILOP_DESC &desc,
@@ -2160,22 +2307,26 @@ extern "C" EXPORT uint32_t device_texture_get_shared_handle(gs_texture_t *tex)
 	return tex2d->isShared ? tex2d->sharedHandle : GS_INVALID_HANDLE;
 }
 
-extern "C" EXPORT int device_texture_acquire_sync(gs_texture_t *tex,
-		uint64_t key, uint32_t ms)
+int device_texture_acquire_sync(gs_texture_t *tex, uint64_t key, uint32_t ms)
 {
 	gs_texture_2d *tex2d = reinterpret_cast<gs_texture_2d *>(tex);
 	if (tex->type != GS_TEXTURE_2D)
 		return -1;
+
+	if (tex2d->acquired)
+		return 0;
 
 	ComQIPtr<IDXGIKeyedMutex> keyedMutex(tex2d->texture);
 	if (!keyedMutex)
 		return -1;
 
 	HRESULT hr = keyedMutex->AcquireSync(key, ms);
-	if (hr == S_OK)
+	if (hr == S_OK) {
+		tex2d->acquired = true;
 		return 0;
-	else if (hr == WAIT_TIMEOUT)
+	} else if (hr == WAIT_TIMEOUT) {
 		return ETIMEDOUT;
+	}
 
 	return -1;
 }
@@ -2187,12 +2338,20 @@ extern "C" EXPORT int device_texture_release_sync(gs_texture_t *tex,
 	if (tex->type != GS_TEXTURE_2D)
 		return -1;
 
+	if (!tex2d->acquired)
+		return 0;
+
 	ComQIPtr<IDXGIKeyedMutex> keyedMutex(tex2d->texture);
 	if (!keyedMutex)
 		return -1;
 
 	HRESULT hr = keyedMutex->ReleaseSync(key);
-	return hr == S_OK ? 0 : -1;
+	if (hr == S_OK) {
+		tex2d->acquired = false;
+		return 0;
+	}
+
+	return -1;
 }
 
 extern "C" EXPORT bool device_texture_create_nv12(gs_device_t *device,
@@ -2223,6 +2382,9 @@ extern "C" EXPORT bool device_texture_create_nv12(gs_device_t *device,
 		blog(LOG_ERROR, "gs_texture_create_nv12 (D3D11): %s", error);
 		return false;
 	}
+
+	tex_y->pairedNV12texture = tex_uv;
+	tex_uv->pairedNV12texture = tex_y;
 
 	*p_tex_y = tex_y;
 	*p_tex_uv = tex_uv;
