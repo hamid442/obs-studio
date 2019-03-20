@@ -902,7 +902,8 @@ public:
 		} else if (n == "elapsed_time") {
 			bindType = floating_point;
 			_bind = &_filter->elapsedTime;
-		} else if (n == "texture_size") {
+		} else if (n == "texture_size" ||
+			n == "uv_pixel_interval_inverse") {
 			bindType = floating_point;
 			_bind = &_filter->baseSize;
 		}
