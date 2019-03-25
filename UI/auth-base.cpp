@@ -39,6 +39,17 @@ Auth::Type Auth::AuthType(const std::string &service)
 	return Type::None;
 }
 
+bool Auth::RequiredAuth(const std::string &service)
+{
+	for (auto &a : authDefs) {
+		if (service.find(a.def.service) != std::string::npos) {
+			return a.def.required_auth;
+		}
+	}
+
+	return false;
+}
+
 void Auth::Load()
 {
 	OBSBasic *main = OBSBasic::Get();
