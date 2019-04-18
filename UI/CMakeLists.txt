@@ -39,6 +39,13 @@ else()
 	set(MIXER_ENABLED TRUE)
 endif()
 
+find_package(Libcaffeine)
+if(LIBCAFFEINE_FOUND)
+	set(CAFFEINE_ENABLED TRUE)
+else()
+	set(CAFFEINE_ENABLED FALSE)
+endif()
+
 if(NOT DEFINED RESTREAM_CLIENTID OR "${RESTREAM_CLIENTID}" STREQUAL "" OR
    NOT DEFINED RESTREAM_HASH     OR "${RESTREAM_HASH}"     STREQUAL "" OR
    NOT BROWSER_AVAILABLE_INTERNAL)
@@ -168,6 +175,40 @@ if(BROWSER_AVAILABLE_INTERNAL)
 		list(APPEND obs_PLATFORM_HEADERS
 			auth-mixer.hpp
 			)
+	endif()
+
+	if(CAFFEINE_ENABLED)
+		find_package(Threads REQUIRED)
+		add_definitions(${THREADS_DEFINITIONS})
+		find_package(FFmpeg REQUIRED
+			COMPONENTS avfilter avutil avformat avcodec avdevice swscale swresample)
+
+		if(WIN32)
+			set(caffeine_PLATFORM_DEPS
+				shlwapi.lib
+				w32-pthreads)
+		endif()
+
+		include_directories(
+			${LIBCAFFEINE_INCLUDE_DIR}
+			)
+		set(caffeine_HEADERS
+			auth-caffeine.hpp
+			)
+		set(caffeine_SOURCES
+			auth-caffeine.cpp
+			)
+		list(APPEND obs_PLATFORM_SOURCES
+			${caffeine_SOURCES}
+			)
+		list(APPEND obs_PLATFORM_HEADERS
+			${caffeine_HEADERS}
+			)
+		set(obs_PLATFORM_LIBRARIES
+			${obs_PLATFORM_LIBRARIES}
+			${caffeine_PLATFORM_DEPS}
+			${LIBCAFFEINE_LIBRARY}
+			${THREADS_LIBRARIES})
 	endif()
 
 	if(RESTREAM_ENABLED)
