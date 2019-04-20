@@ -292,7 +292,7 @@ void OBSBasicSettings::on_service_currentIndexChanged(int)
 				? (int)Section::Connect
 				: (int)Section::StreamKey;
 			if (hidden_auth)
-				page = (int)Section::Connect;
+				page = (int)Section::StreamKey;
 			ui->useStreamKey->setVisible(!hidden_auth);
 			ui->streamStackWidget->setCurrentIndex(page);
 			ui->streamKeyWidget->setVisible(!hidden_auth);
