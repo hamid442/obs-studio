@@ -46,6 +46,8 @@ bool Auth::HiddenAuth(const std::string &service)
 			return a.def.key_hidden;
 		}
 	}
+
+	return false;
 }
 
 void Auth::Load()

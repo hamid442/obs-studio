@@ -287,9 +287,7 @@ void OBSBasicSettings::on_service_currentIndexChanged(int)
 		if (lastService != service.c_str()) {
 			QString key = ui->key->text();
 			bool can_auth = is_auth_service(service);
-			bool hidden_auth = false;
-			if (can_auth)
-				hidden_auth = is_auth_hidden(service);
+			bool hidden_auth = is_auth_hidden(service);
 			int page = can_auth && (!loading || key.isEmpty())
 				? (int)Section::Connect
 				: (int)Section::StreamKey;
@@ -303,7 +301,7 @@ void OBSBasicSettings::on_service_currentIndexChanged(int)
 				hidden_auth ? QTStr("Required") : QTStr("Optional")
 			);
 			ui->connectAccount->setText(connectString);
-			//ui->connectAccount->setVisible(can_auth);
+			ui->connectAccount->setVisible(can_auth);
 			ui->connectAccount2->setText(connectString);
 			ui->connectAccount2->setVisible(can_auth);
 		}
