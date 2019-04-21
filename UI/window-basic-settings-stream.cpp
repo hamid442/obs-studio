@@ -288,6 +288,7 @@ void OBSBasicSettings::on_service_currentIndexChanged(int)
 			QString key = ui->key->text();
 			bool can_auth = is_auth_service(service);
 			bool hidden_auth = is_auth_hidden(service);
+			bool authenticated = !key.isEmpty();
 			int page = can_auth && (!loading || key.isEmpty())
 				? (int)Section::Connect
 				: (int)Section::StreamKey;
@@ -301,9 +302,10 @@ void OBSBasicSettings::on_service_currentIndexChanged(int)
 				hidden_auth ? QTStr("Required") : QTStr("Optional")
 			);
 			ui->connectAccount->setText(connectString);
-			ui->connectAccount->setVisible(can_auth);
+			ui->connectAccount->setVisible(can_auth && !authenticated);
+			ui->disconnectAccount->setVisible(can_auth && authenticated);
 			ui->connectAccount2->setText(connectString);
-			ui->connectAccount2->setVisible(can_auth);
+			ui->connectAccount2->setVisible(can_auth && !authenticated);
 		}
 	} else {
 		ui->connectAccount2->setVisible(false);
@@ -329,6 +331,8 @@ void OBSBasicSettings::on_service_currentIndexChanged(int)
 	} else {
 		ui->serverStackedWidget->setCurrentIndex(0);
 	}
+
+	update();
 }
 
 void OBSBasicSettings::UpdateServerList()
@@ -429,6 +433,7 @@ void OBSBasicSettings::OnOAuthStreamKeyConnected()
 
 		ui->streamKeyWidget->setVisible(false);
 		ui->streamKeyLabel->setVisible(false);
+		ui->connectAccount->setVisible(false);
 		ui->connectAccount2->setVisible(false);
 		ui->disconnectAccount->setVisible(true);
 
@@ -437,6 +442,7 @@ void OBSBasicSettings::OnOAuthStreamKeyConnected()
 	}
 
 	ui->streamStackWidget->setCurrentIndex((int)Section::StreamKey);
+	update();
 #endif
 }
 
@@ -493,10 +499,11 @@ void OBSBasicSettings::on_disconnectAccount_clicked()
 	OAuth::DeleteCookies(service);
 	hidden_auth = is_auth_hidden(service);
 #endif
-
+	ui->useStreamKey->setVisible(!hidden_auth);
 	ui->streamKeyWidget->setVisible(!hidden_auth);
 	ui->streamKeyLabel->setVisible(!hidden_auth);
 	ui->connectAccount2->setVisible(true);
+	ui->connectAccount->setVisible(true);
 	ui->disconnectAccount->setVisible(false);
 	ui->bandwidthTestEnable->setVisible(false);
 	ui->key->setText("");
