@@ -26,9 +26,6 @@
 
 using namespace json11;
 
-#include <browser-panel.hpp>
-extern QCef *cef;
-extern QCefCookieManager *panel_cookies;
 /* ------------------------------------------------------------------------- */
 
 #define CAFFEINE_AUTH_URL \
@@ -120,8 +117,6 @@ bool CaffeineAuth::LoadInternal()
 class CaffeineChat : public OBSDock {
 public:
 	inline CaffeineChat() : OBSDock() {}
-
-	QScopedPointer<QCefWidget> widget;
 };
 
 void CaffeineAuth::LoadUI()
