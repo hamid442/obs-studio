@@ -414,7 +414,8 @@ static float caffeine_get_congestion(void * data)
 
 struct obs_output_info caffeine_output_info = {
 	.id             = "caffeine_output",
-	.flags          = OBS_OUTPUT_AV | OBS_OUTPUT_SERVICE,
+	.flags          = OBS_OUTPUT_AV | OBS_OUTPUT_SERVICE |
+		OBS_OUTPUT_BANDWIDTH_TEST_DISABLED,
 	.get_name       = caffeine_get_name,
 	.create         = caffeine_create,
 	.start          = caffeine_start,
