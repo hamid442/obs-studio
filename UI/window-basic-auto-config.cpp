@@ -477,6 +477,11 @@ static inline bool is_auth_service(const std::string &service)
 	return Auth::AuthType(service) != Auth::Type::None;
 }
 
+static inline bool is_auth_hidden(const std::string &service)
+{
+	return Auth::HiddenAuth(service);
+}
+
 void AutoConfigStreamPage::ServiceChanged()
 {
 	bool showMore =
@@ -493,12 +498,21 @@ void AutoConfigStreamPage::ServiceChanged()
 	ui->disconnectAccount->setVisible(false);
 
 #ifdef BROWSER_AVAILABLE
+	bool hidden_auth = is_auth_hidden(service);
+	QString connectString =
+		QTStr("Basic.AutoConfig.StreamPage.ConnectAccount").arg(
+			hidden_auth ? QTStr("Required") : QTStr("Optional"));
+	ui->connectAccount->setText(connectString);
+	ui->connectAccount2->setText(connectString);
 	if (cef) {
 		if (lastService != service.c_str()) {
 			bool can_auth = is_auth_service(service);
 			int page = can_auth
 				? (int)Section::Connect
 				: (int)Section::StreamKey;
+			if (hidden_auth)
+				page = (int)Section::Connect;
+			ui->useStreamKey->setVisible(!hidden_auth);
 
 			ui->stackedWidget->setCurrentIndex(page);
 			ui->streamKeyWidget->setVisible(true);
