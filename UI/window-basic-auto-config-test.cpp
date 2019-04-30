@@ -227,6 +227,7 @@ void AutoConfigTestPage::TestBandwidthThread()
 	obs_data_set_string(service_settings, "service",
 			wiz->serviceName.c_str());
 	obs_data_set_string(service_settings, "key", key.c_str());
+	obs_data_set_bool(service_settings, "bwtest", true);
 
 	obs_data_set_int(vencoder_settings, "bitrate", wiz->startingBitrate);
 	obs_data_set_string(vencoder_settings, "rate_control", "CBR");
@@ -280,6 +281,10 @@ void AutoConfigTestPage::TestBandwidthThread()
 	OBSOutput output = obs_output_create(output_type,
 			"test_stream", nullptr, nullptr);
 	obs_output_release(output);
+	if (obs_output_get_flags(output) & OBS_OUTPUT_BANDWIDTH_TEST_DISABLED) {
+		QMetaObject::invokeMethod(this, "NextStage");
+		return;
+	}
 	obs_output_update(output, output_settings);
 
 	const char *audio_codec =
