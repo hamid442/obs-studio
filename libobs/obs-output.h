@@ -28,6 +28,7 @@ extern "C" {
 #define OBS_OUTPUT_SERVICE     (1<<3)
 #define OBS_OUTPUT_MULTI_TRACK (1<<4)
 #define OBS_OUTPUT_BANDWIDTH_TEST_DISABLED (1<<5)
+#define OBS_OUTPUT_HARDWARE_ENCODING_DISABLED (1<<6)
 
 struct encoder_packet;
 
@@ -75,6 +76,9 @@ struct obs_output_info {
 
 	/* raw audio callback for multi track outputs */
 	void (*raw_audio2)(void *data, size_t idx, struct audio_data *frames);
+
+	/* callback to get recommended resolutions given a base resolution */
+	struct darray* (*get_scaled_resolutions)(uint32_t cx, uint32_t cy);
 };
 
 EXPORT void obs_register_output_s(const struct obs_output_info *info,

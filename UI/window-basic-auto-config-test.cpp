@@ -281,7 +281,10 @@ void AutoConfigTestPage::TestBandwidthThread()
 	OBSOutput output = obs_output_create(output_type,
 			"test_stream", nullptr, nullptr);
 	obs_output_release(output);
-	if (obs_output_get_flags(output) & OBS_OUTPUT_BANDWIDTH_TEST_DISABLED) {
+	uint32_t flags = obs_output_get_flags(output);
+	if (flags & OBS_OUTPUT_HARDWARE_ENCODING_DISABLED)
+		wiz->hardwareEncodingAvailable = false;
+	if (flags & OBS_OUTPUT_BANDWIDTH_TEST_DISABLED) {
 		QMetaObject::invokeMethod(this, "NextStage");
 		return;
 	}
@@ -602,6 +605,51 @@ bool AutoConfigTestPage::TestSoftwareEncoding()
 	int baseCX = wiz->baseResolutionCX;
 	int baseCY = wiz->baseResolutionCY;
 	CalcBaseRes(baseCX, baseCY);
+	struct resolution {
+		uint32_t cx;
+		uint32_t cy;
+	};
+
+	DARRAY(resolution) scaled_resolutions;
+
+	OBSData service_settings = obs_data_create();
+	obs_data_release(service_settings);
+	obs_service_t *tService = obs_service_create("rtmp_common",
+		"temp_service", nullptr, nullptr);
+	std::string key = wiz->key;
+	obs_data_set_string(service_settings, "service",
+		wiz->serviceName.c_str());
+	obs_data_set_string(service_settings, "key", key.c_str());
+	obs_data_set_bool(service_settings, "bwtest", true);
+	obs_service_update(tService, service_settings);
+
+	obs_output_t *tOutput = obs_output_create(
+		obs_service_get_output_type(tService),"temp_output", nullptr,
+		nullptr);
+
+	darray *output_resolutions = obs_output_get_scaled_resolutions(tOutput,
+			baseCX, baseCY);
+	/* Pick closest of service specified resolutions (if any) */
+	if (output_resolutions) {
+		int bestPixelDiff = 0x7FFFFFFF;
+		scaled_resolutions.da = *output_resolutions;
+		uint32_t out_cx = baseCX;
+		uint32_t out_cy = baseCY;
+		int ocount = int(out_cx * out_cy);
+		for (size_t i = 0; i < scaled_resolutions.num; i++) {
+			resolution sresolution = scaled_resolutions.array[i];
+			int ncount = int(sresolution.cx * sresolution.cy);
+			int diff = abs(ncount - ocount);
+
+			if (diff < bestPixelDiff) {
+				baseCX = (int)scaled_resolutions.array[i].cx;
+				baseCY = (int)scaled_resolutions.array[i].cy;
+				bestPixelDiff = diff;
+			}
+		}
+	}
+	obs_output_release(tOutput);
+	obs_service_release(tService);
 
 	/* -----------------------------------*/
 	/* calculate starting test rates      */
@@ -704,16 +752,94 @@ bool AutoConfigTestPage::TestSoftwareEncoding()
 
 		return !cancel;
 	};
+	auto testScaledRes = [&](int index, int fps_num, int fps_den,
+		bool force) {
+		int per = ++i * 100 / count;
+		QMetaObject::invokeMethod(this, "Progress", Q_ARG(int, per));
+
+		/* no need for more than 3 tests max */
+		if (results.size() >= 3)
+			return true;
+
+		if (!fps_num || !fps_den) {
+			fps_num = wiz->specificFPSNum;
+			fps_den = wiz->specificFPSDen;
+		}
+
+		long double fps = ((long double)fps_num / (long double)fps_den);
+
+		resolution sresolution = scaled_resolutions.array[index];
+		int cx = int(sresolution.cx);
+		int cy = int(sresolution.cy);
+
+		if (!force && wiz->type != AutoConfig::Type::Recording) {
+			int est = EstimateMinBitrate(cx, cy, fps_num, fps_den);
+			if (est > wiz->idealBitrate)
+				return true;
+		}
+
+		long double rate = (long double)cx * (long double)cy * fps;
+		if (!force && rate > maxDataRate)
+			return true;
+
+		testMode.SetVideo(cx, cy, fps_num, fps_den);
+
+		obs_encoder_set_video(vencoder, obs_get_video());
+		obs_encoder_set_audio(aencoder, obs_get_audio());
+		obs_encoder_update(vencoder, vencoder_settings);
+
+		obs_output_set_media(output, obs_get_video(), obs_get_audio());
+
+		QString cxStr = QString::number(cx);
+		QString cyStr = QString::number(cy);
+
+		QString fpsStr = (fps_den > 1)
+			? QString::number(fps, 'f', 2)
+			: QString::number(fps, 'g', 2);
+
+		QMetaObject::invokeMethod(this, "UpdateMessage",
+			Q_ARG(QString, QTStr(TEST_RES_VAL)
+				.arg(cxStr, cyStr, fpsStr)));
+
+		unique_lock<mutex> ul(m);
+		if (cancel)
+			return false;
+
+		if (!obs_output_start(output)) {
+			QMetaObject::invokeMethod(this, "Failure",
+				Q_ARG(QString, QTStr(TEST_RES_FAIL)));
+			return false;
+		}
+
+		cv.wait_for(ul, chrono::seconds(5));
+
+		obs_output_stop(output);
+		cv.wait(ul);
+
+		int skipped = (int)video_output_get_skipped_frames(
+			obs_get_video());
+		if (force || skipped <= 10)
+			results.emplace_back(cx, cy, fps_num, fps_den);
+
+		return !cancel;
+	};
 
 	if (wiz->specificFPSNum && wiz->specificFPSDen) {
-		count = 5;
+		count = 5 + scaled_resolutions.num;
 		if (!testRes(1.0, 0, 0, false)) return false;
 		if (!testRes(1.5, 0, 0, false)) return false;
 		if (!testRes(1.0 / 0.6, 0, 0, false)) return false;
 		if (!testRes(2.0, 0, 0, false)) return false;
-		if (!testRes(2.25, 0, 0, true)) return false;
+		if (!testRes(2.25, 0, 0, false)) return false;
+		int i = 0;
+		for (; i < (scaled_resolutions.num-1); i++) {
+			if (!testScaledRes(i, 0, 0, false))
+				return false;
+		}
+		if (!testScaledRes(i, 0, 0, true))
+			return false;
 	} else {
-		count = 10;
+		count = 10 + (scaled_resolutions.num * 2);
 		if (!testRes(1.0, 60, 1, false)) return false;
 		if (!testRes(1.0, 30, 1, false)) return false;
 		if (!testRes(1.5, 60, 1, false)) return false;
@@ -723,7 +849,18 @@ bool AutoConfigTestPage::TestSoftwareEncoding()
 		if (!testRes(2.0, 60, 1, false)) return false;
 		if (!testRes(2.0, 30, 1, false)) return false;
 		if (!testRes(2.25, 60, 1, false)) return false;
-		if (!testRes(2.25, 30, 1, true)) return false;
+		if (!testRes(2.25, 30, 1, false)) return false;
+		int i = 0;
+		for (; i < (scaled_resolutions.num - 1); i++) {
+			if (!testScaledRes(i, 60, 1, false))
+				return false;
+			if (!testScaledRes(i, 30, 1, false))
+				return false;
+		}
+		if (!testScaledRes(i, 60, 1, false))
+			return false;
+		if (!testScaledRes(i, 30, 1, true))
+			return false;
 	}
 
 	/* -----------------------------------*/

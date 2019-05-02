@@ -1735,7 +1735,8 @@ EXPORT const char *obs_output_get_supported_video_codecs(
 		const obs_output_t *output);
 EXPORT const char *obs_output_get_supported_audio_codecs(
 		const obs_output_t *output);
-
+EXPORT struct darray *obs_output_get_scaled_resolutions(
+		const obs_output_t *output, uint32_t cx, uint32_t cy);
 /* ------------------------------------------------------------------------- */
 /* Functions used by outputs */
 

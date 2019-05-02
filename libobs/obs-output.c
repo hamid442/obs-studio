@@ -2249,3 +2249,13 @@ const char *obs_output_get_supported_audio_codecs(const obs_output_t *output)
 	return obs_output_valid(output, __FUNCTION__) ?
 		output->info.encoded_audio_codecs : NULL;
 }
+
+struct darray *obs_output_get_scaled_resolutions(const obs_output_t *output,
+	uint32_t cx, uint32_t cy)
+{
+	if (!obs_output_valid(output, "obs_output_get_scaled_resolutions"))
+		return NULL;
+	if (output->info.get_scaled_resolutions)
+		return output->info.get_scaled_resolutions(cx, cy);
+	return NULL;
+}

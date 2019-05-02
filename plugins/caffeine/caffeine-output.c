@@ -412,10 +412,45 @@ static float caffeine_get_congestion(void * data)
 	}
 }
 
+static struct resolution {
+	uint32_t cx;
+	uint32_t cy;
+};
+
+static struct darray *caffeine_scaled_resolutions(uint32_t cx, uint32_t cy)
+{
+	struct darray *d = bmalloc(sizeof(struct darray));
+	darray_init(d);
+	double aspect = 1.0;
+	if (cy > 0)
+		aspect = (double)cx / (double)cy;
+
+	struct resolution res;
+	res.cy = cy;
+	res.cx = cx;
+	darray_push_back(sizeof(struct resolution), d, &res);
+	/* Upscales of 720 */
+	for (int i = 3; i > 0; i--) {
+		res.cy = (720 * i);
+		res.cx = aspect * (720 * i);
+		if (cy >= res.cy)
+			darray_push_back(sizeof(struct resolution), d, &res);
+	}
+	/* Downscales of 720 */
+	for (int i = 2; i < 5; i += 2) {
+		res.cy = (720 / i);
+		res.cx = aspect * (720 / i);
+		if (cy >= res.cy)
+			darray_push_back(sizeof(struct resolution), d, &res);
+	}
+	return d;
+}
+
 struct obs_output_info caffeine_output_info = {
 	.id             = "caffeine_output",
 	.flags          = OBS_OUTPUT_AV | OBS_OUTPUT_SERVICE |
-		OBS_OUTPUT_BANDWIDTH_TEST_DISABLED,
+		OBS_OUTPUT_BANDWIDTH_TEST_DISABLED |
+		OBS_OUTPUT_HARDWARE_ENCODING_DISABLED,
 	.get_name       = caffeine_get_name,
 	.create         = caffeine_create,
 	.start          = caffeine_start,
@@ -424,4 +459,5 @@ struct obs_output_info caffeine_output_info = {
 	.stop           = caffeine_stop,
 	.destroy        = caffeine_destroy,
 	.get_congestion = caffeine_get_congestion,
+	.get_scaled_resolutions = caffeine_scaled_resolutions,
 };
