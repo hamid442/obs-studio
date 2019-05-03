@@ -630,9 +630,9 @@ bool AutoConfigTestPage::TestSoftwareEncoding()
 	darray *output_resolutions = obs_output_get_scaled_resolutions(tOutput,
 			baseCX, baseCY);
 	std::vector<resolution> resolution_vector;
-	resolution_vector.reserve(output_resolutions->num);
 	/* Pick closest of service specified resolutions (if any) */
 	if (output_resolutions) {
+		resolution_vector.reserve(output_resolutions->num);
 		int bestPixelDiff = 0x7FFFFFFF;
 		scaled_resolutions.da = *output_resolutions;
 		uint32_t out_cx = baseCX;
@@ -757,7 +757,7 @@ bool AutoConfigTestPage::TestSoftwareEncoding()
 	};
 
 	std::vector<double> scales = {1.0, 1.5, 1.0 / 0.6, 2.0, 2.25};
-	if (!scales.size()) {
+	if (!resolution_vector.size()) {
 		for (size_t i = 0; i < scales.size(); i++) {
 			double div = scales[i];
 			int cx = int((long double)baseCX / div);
@@ -770,7 +770,7 @@ bool AutoConfigTestPage::TestSoftwareEncoding()
 				if (res.cx == cx && res.cy == cy)
 					found = true;
 			});
-			if (found)
+			if (!found)
 				resolution_vector.push_back(test);
 		}
 	}
@@ -779,6 +779,7 @@ bool AutoConfigTestPage::TestSoftwareEncoding()
 		[=](resolution &l, resolution &r) {
 		return (r.cx * r.cy) < (l.cx * l.cy);
 	});
+
 	if (wiz->specificFPSNum && wiz->specificFPSDen) {
 		count = resolution_vector.size();
 		int i = 0;
@@ -813,8 +814,9 @@ bool AutoConfigTestPage::TestSoftwareEncoding()
 	if (!wiz->specificFPSNum && wiz->preferHighFPS && results.size() > 1) {
 		Result &result1 = results[0];
 		Result &result2 = results[1];
-
-		if (result1.fps_num == 30 && result2.fps_num == 60) {
+		double f1 = (double)result1.fps_num / (double)result1.fps_den;
+		double f2 = (double)result2.fps_num / (double)result2.fps_den;
+		if (f1 < f2) {
 			int nextArea = result2.cx * result2.cy;
 			if (nextArea >= minArea)
 				results.erase(results.begin());
