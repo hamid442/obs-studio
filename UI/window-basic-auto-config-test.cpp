@@ -629,6 +629,8 @@ bool AutoConfigTestPage::TestSoftwareEncoding()
 
 	darray *output_resolutions = obs_output_get_scaled_resolutions(tOutput,
 			baseCX, baseCY);
+	std::vector<resolution> resolution_vector;
+	resolution_vector.reserve(output_resolutions->num);
 	/* Pick closest of service specified resolutions (if any) */
 	if (output_resolutions) {
 		int bestPixelDiff = 0x7FFFFFFF;
@@ -646,8 +648,10 @@ bool AutoConfigTestPage::TestSoftwareEncoding()
 				baseCY = (int)scaled_resolutions.array[i].cy;
 				bestPixelDiff = diff;
 			}
+			resolution_vector.push_back(sresolution);
 		}
 	}
+
 	obs_output_release(tOutput);
 	obs_service_release(tService);
 
@@ -681,78 +685,7 @@ bool AutoConfigTestPage::TestSoftwareEncoding()
 	int i = 0;
 	int count = 1;
 
-	auto testRes = [&] (long double div, int fps_num, int fps_den,
-			bool force)
-	{
-		int per = ++i * 100 / count;
-		QMetaObject::invokeMethod(this, "Progress", Q_ARG(int, per));
-
-		/* no need for more than 3 tests max */
-		if (results.size() >= 3)
-			return true;
-
-		if (!fps_num || !fps_den) {
-			fps_num = wiz->specificFPSNum;
-			fps_den = wiz->specificFPSDen;
-		}
-
-		long double fps = ((long double)fps_num / (long double)fps_den);
-
-		int cx = int((long double)baseCX / div);
-		int cy = int((long double)baseCY / div);
-
-		if (!force && wiz->type != AutoConfig::Type::Recording) {
-			int est = EstimateMinBitrate(cx, cy, fps_num, fps_den);
-			if (est > wiz->idealBitrate)
-				return true;
-		}
-
-		long double rate = (long double)cx * (long double)cy * fps;
-		if (!force && rate > maxDataRate)
-			return true;
-
-		testMode.SetVideo(cx, cy, fps_num, fps_den);
-
-		obs_encoder_set_video(vencoder, obs_get_video());
-		obs_encoder_set_audio(aencoder, obs_get_audio());
-		obs_encoder_update(vencoder, vencoder_settings);
-
-		obs_output_set_media(output, obs_get_video(), obs_get_audio());
-
-		QString cxStr = QString::number(cx);
-		QString cyStr = QString::number(cy);
-
-		QString fpsStr = (fps_den > 1)
-			? QString::number(fps, 'f', 2)
-			: QString::number(fps, 'g', 2);
-
-		QMetaObject::invokeMethod(this, "UpdateMessage",
-				Q_ARG(QString, QTStr(TEST_RES_VAL)
-					.arg(cxStr, cyStr, fpsStr)));
-
-		unique_lock<mutex> ul(m);
-		if (cancel)
-			return false;
-
-		if (!obs_output_start(output)) {
-			QMetaObject::invokeMethod(this, "Failure",
-					Q_ARG(QString, QTStr(TEST_RES_FAIL)));
-			return false;
-		}
-
-		cv.wait_for(ul, chrono::seconds(5));
-
-		obs_output_stop(output);
-		cv.wait(ul);
-
-		int skipped = (int)video_output_get_skipped_frames(
-				obs_get_video());
-		if (force || skipped <= 10)
-			results.emplace_back(cx, cy, fps_num, fps_den);
-
-		return !cancel;
-	};
-	auto testScaledRes = [&](int index, int fps_num, int fps_den,
+	auto testRes = [&](int index, int fps_num, int fps_den,
 		bool force) {
 		int per = ++i * 100 / count;
 		QMetaObject::invokeMethod(this, "Progress", Q_ARG(int, per));
@@ -768,9 +701,8 @@ bool AutoConfigTestPage::TestSoftwareEncoding()
 
 		long double fps = ((long double)fps_num / (long double)fps_den);
 
-		resolution sresolution = scaled_resolutions.array[index];
-		int cx = int(sresolution.cx);
-		int cy = int(sresolution.cy);
+		int cx = int(resolution_vector[index].cx);
+		int cy = int(resolution_vector[index].cy);
 
 		if (!force && wiz->type != AutoConfig::Type::Recording) {
 			int est = EstimateMinBitrate(cx, cy, fps_num, fps_den);
@@ -824,42 +756,52 @@ bool AutoConfigTestPage::TestSoftwareEncoding()
 		return !cancel;
 	};
 
+	std::vector<double> scales = {1.0, 1.5, 1.0 / 0.6, 2.0, 2.25};
+	if (!scales.size()) {
+		for (size_t i = 0; i < scales.size(); i++) {
+			double div = scales[i];
+			int cx = int((long double)baseCX / div);
+			int cy = int((long double)baseCY / div);
+			resolution test = { cx, cy };
+			bool found = false;
+			std::for_each(resolution_vector.begin(),
+				resolution_vector.end(),
+				[&found, &cx, &cy](resolution res) {
+				if (res.cx == cx && res.cy == cy)
+					found = true;
+			});
+			if (found)
+				resolution_vector.push_back(test);
+		}
+	}
+
+	std::sort(resolution_vector.begin(), resolution_vector.end(),
+		[=](resolution &l, resolution &r) {
+		return (r.cx * r.cy) < (l.cx * l.cy);
+	});
 	if (wiz->specificFPSNum && wiz->specificFPSDen) {
-		count = 5 + scaled_resolutions.num;
-		if (!testRes(1.0, 0, 0, false)) return false;
-		if (!testRes(1.5, 0, 0, false)) return false;
-		if (!testRes(1.0 / 0.6, 0, 0, false)) return false;
-		if (!testRes(2.0, 0, 0, false)) return false;
-		if (!testRes(2.25, 0, 0, false)) return false;
+		count = resolution_vector.size();
 		int i = 0;
-		for (; i < (scaled_resolutions.num-1); i++) {
-			if (!testScaledRes(i, 0, 0, false))
+		int end = resolution_vector.size() - 1;
+		for (; i < end; i++) {
+			if (!testRes(i, 0, 0, false))
 				return false;
 		}
-		if (!testScaledRes(i, 0, 0, true))
+		if (!testRes(i, 0, 0, true))
 			return false;
 	} else {
-		count = 10 + (scaled_resolutions.num * 2);
-		if (!testRes(1.0, 60, 1, false)) return false;
-		if (!testRes(1.0, 30, 1, false)) return false;
-		if (!testRes(1.5, 60, 1, false)) return false;
-		if (!testRes(1.5, 30, 1, false)) return false;
-		if (!testRes(1.0 / 0.6, 60, 1, false)) return false;
-		if (!testRes(1.0 / 0.6, 30, 1, false)) return false;
-		if (!testRes(2.0, 60, 1, false)) return false;
-		if (!testRes(2.0, 30, 1, false)) return false;
-		if (!testRes(2.25, 60, 1, false)) return false;
-		if (!testRes(2.25, 30, 1, false)) return false;
+		count = resolution_vector.size() * 2;
 		int i = 0;
-		for (; i < (scaled_resolutions.num - 1); i++) {
-			if (!testScaledRes(i, 60, 1, false))
+		int end = resolution_vector.size() - 1;
+		for (; i < end; i++) {
+			if (!testRes(i, 60, 1, false))
 				return false;
-			if (!testScaledRes(i, 30, 1, false))
+			if (!testRes(i, 30, 1, false))
 				return false;
 		}
-		if (!testScaledRes(i, 60, 1, false))
+		if (!testRes(i, 60, 1, false))
 			return false;
-		if (!testScaledRes(i, 30, 1, true))
+		if (!testRes(i, 30, 1, true))
 			return false;
 	}
 
