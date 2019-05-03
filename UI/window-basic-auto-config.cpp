@@ -78,7 +78,9 @@ AutoConfigStartPage::~AutoConfigStartPage()
 
 int AutoConfigStartPage::nextId() const
 {
-	return AutoConfig::VideoPage;
+	return wiz->type == AutoConfig::Type::Recording
+		? AutoConfig::VideoPage
+		: AutoConfig::StreamPage;
 }
 
 void AutoConfigStartPage::on_prioritizeStreaming_clicked()
@@ -173,9 +175,7 @@ AutoConfigVideoPage::~AutoConfigVideoPage()
 
 int AutoConfigVideoPage::nextId() const
 {
-	return wiz->type == AutoConfig::Type::Recording
-		? AutoConfig::TestPage
-		: AutoConfig::StreamPage;
+	return AutoConfig::TestPage;
 }
 
 bool AutoConfigVideoPage::validatePage()
@@ -214,6 +214,18 @@ bool AutoConfigVideoPage::validatePage()
 		wiz->specificFPSDen = 1;
 		wiz->preferHighFPS = false;
 		break;
+	}
+
+	if (wiz->service != AutoConfig::Service::Twitch && wiz->bandwidthTest) {
+		QMessageBox::StandardButton button;
+#define WARNING_TEXT(x) QTStr("Basic.AutoConfig.StreamPage.StreamWarning." x)
+		button = OBSMessageBox::question(this,
+			WARNING_TEXT("Title"),
+			WARNING_TEXT("Text"));
+#undef WARNING_TEXT
+
+		if (button == QMessageBox::No)
+			return false;
 	}
 
 	return true;
@@ -292,7 +304,7 @@ bool AutoConfigStreamPage::isComplete() const
 
 int AutoConfigStreamPage::nextId() const
 {
-	return AutoConfig::TestPage;
+	return AutoConfig::VideoPage;
 }
 
 inline bool AutoConfigStreamPage::IsCustom() const
@@ -360,18 +372,6 @@ bool AutoConfigStreamPage::validatePage()
 			wiz->service = AutoConfig::Service::Other;
 	} else {
 		wiz->service = AutoConfig::Service::Other;
-	}
-
-	if (wiz->service != AutoConfig::Service::Twitch && wiz->bandwidthTest) {
-		QMessageBox::StandardButton button;
-#define WARNING_TEXT(x) QTStr("Basic.AutoConfig.StreamPage.StreamWarning." x)
-		button = OBSMessageBox::question(this,
-				WARNING_TEXT("Title"),
-				WARNING_TEXT("Text"));
-#undef WARNING_TEXT
-
-		if (button == QMessageBox::No)
-			return false;
 	}
 
 	return true;
