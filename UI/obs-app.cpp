@@ -1219,11 +1219,19 @@ void OBSApp::AppInit()
 
 const char *OBSApp::GetRenderModule() const
 {
+	/*
 	const char *renderer = config_get_string(globalConfig, "Video",
 			"Renderer");
 
-	return (astrcmpi(renderer, "Direct3D 11") == 0) ?
-		DL_D3D11 : DL_OPENGL;
+	if (astrcmpi(renderer, "Direct3D 11") == 0) {
+		return DL_D3D11;
+	} else if (astrcmpi(renderer, "OpenGL") == 0) {
+		return DL_OPENGL;
+	} else {
+		return "libobs-vulkan.dll";
+	}
+	*/
+	return "libobs-vulkan.dll";
 }
 
 static bool StartupOBS(const char *locale, profiler_name_store_t *store)
