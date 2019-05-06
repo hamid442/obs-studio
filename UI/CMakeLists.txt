@@ -39,7 +39,7 @@ else()
 	set(MIXER_ENABLED TRUE)
 endif()
 
-find_package(Libcaffeine)
+find_package(libcaffeine)
 if(LIBCAFFEINE_FOUND)
 	set(CAFFEINE_ENABLED TRUE)
 else()
@@ -149,7 +149,42 @@ elseif(UNIX)
                 Qt5::X11Extras)
 endif()
 
-if(BROWSER_AVAILABLE_INTERNAL)
+if(CAFFEINE_ENABLED)
+	find_package(Threads REQUIRED)
+	add_definitions(${THREADS_DEFINITIONS})
+	find_package(FFmpeg REQUIRED
+		COMPONENTS avfilter avutil avformat avcodec avdevice swscale swresample)
+
+	if(WIN32)
+		set(caffeine_PLATFORM_DEPS
+			shlwapi.lib
+			w32-pthreads)
+	endif()
+
+	include_directories(
+		${LIBCAFFEINE_INCLUDE_DIR}
+		)
+	set(caffeine_HEADERS
+		auth-caffeine.hpp
+		)
+	set(caffeine_SOURCES
+		auth-caffeine.cpp
+		)
+	list(APPEND obs_PLATFORM_SOURCES
+		${caffeine_SOURCES}
+		)
+	list(APPEND obs_PLATFORM_HEADERS
+		${caffeine_HEADERS}
+		)
+	set(obs_PLATFORM_LIBRARIES
+		${obs_PLATFORM_LIBRARIES}
+		${caffeine_PLATFORM_DEPS}
+		libcaffeine
+		${THREADS_LIBRARIES})
+endif()
+
+if(CAFFEINE_ENABLED OR BROWSER_AVAILABLE_INTERNAL)
+	add_definitions(-DAUTH_ENABLED)
 	list(APPEND obs_PLATFORM_SOURCES
 		obf.c
 		auth-oauth.cpp
@@ -158,7 +193,9 @@ if(BROWSER_AVAILABLE_INTERNAL)
 		obf.h
 		auth-oauth.hpp
 		)
+endif()
 
+if(BROWSER_AVAILABLE_INTERNAL)
 	if(TWITCH_ENABLED)
 		list(APPEND obs_PLATFORM_SOURCES
 			auth-twitch.cpp
@@ -175,40 +212,6 @@ if(BROWSER_AVAILABLE_INTERNAL)
 		list(APPEND obs_PLATFORM_HEADERS
 			auth-mixer.hpp
 			)
-	endif()
-
-	if(CAFFEINE_ENABLED)
-		find_package(Threads REQUIRED)
-		add_definitions(${THREADS_DEFINITIONS})
-		find_package(FFmpeg REQUIRED
-			COMPONENTS avfilter avutil avformat avcodec avdevice swscale swresample)
-
-		if(WIN32)
-			set(caffeine_PLATFORM_DEPS
-				shlwapi.lib
-				w32-pthreads)
-		endif()
-
-		include_directories(
-			${LIBCAFFEINE_INCLUDE_DIR}
-			)
-		set(caffeine_HEADERS
-			auth-caffeine.hpp
-			)
-		set(caffeine_SOURCES
-			auth-caffeine.cpp
-			)
-		list(APPEND obs_PLATFORM_SOURCES
-			${caffeine_SOURCES}
-			)
-		list(APPEND obs_PLATFORM_HEADERS
-			${caffeine_HEADERS}
-			)
-		set(obs_PLATFORM_LIBRARIES
-			${obs_PLATFORM_LIBRARIES}
-			${caffeine_PLATFORM_DEPS}
-			${LIBCAFFEINE_LIBRARY}
-			${THREADS_LIBRARIES})
 	endif()
 
 	if(RESTREAM_ENABLED)

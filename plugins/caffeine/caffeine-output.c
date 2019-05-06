@@ -33,9 +33,6 @@ struct caffeine_output
 	char * game_id;
 };
 
-/* TODO: backend fix for switching between game and no-game */
-#define OBS_GAME_ID "79"
-
 static const char *caffeine_get_name(void *data)
 {
 	UNUSED_PARAMETER(data);
@@ -215,7 +212,7 @@ static bool caffeine_start(void *data)
 
 	caff_Result error =
 		caff_startBroadcast(context->instance, context,
-			title, rating, OBS_GAME_ID, /* TODO: fix backend switching between game & no-game */
+			title, rating, NULL,
 			caffeine_stream_started, caffeine_stream_failed);
 	if (error) {
 		set_error(context->output, "%s",
@@ -261,10 +258,7 @@ static void * game_detection_thread(void *data)
 			bfree(context->foreground_process);
 			context->foreground_process = NULL;
 		}
-		/* TODO: fix backend switching between game & no-game */
-		caff_setGameId(
-			context->instance,
-			context->game_id ? context->game_id : OBS_GAME_ID);
+		caff_setGameId(context->instance, context->game_id);
 		bfree(context->game_id);
 		context->game_id = NULL;
 	}
