@@ -1,18 +1,40 @@
 project(libobs-vulkan)
 
 cmake_minimum_required(VERSION 3.2)
+
 find_package(Vulkan REQUIRED)
+
+if(WIN32)
+	add_definitions(-DNOMINMAX -DVK_USE_PLATFORM_WIN32_KHR)
+endif()
+
+if(UNIX)
+	if (NOT APPLE)
+		find_package(X11_XCB REQUIRED)
+		find_package(XCB OPTIONAL_COMPONENTS XINPUT)
+		if (XCB_XINPUT_FOUND)
+			add_definitions(-DVK_USE_PLATFORM_XCB_KHR)
+		endif()
+	else()
+		add_definitions(-DVK_USE_PLATFORM_MACOS_MVK)
+	endif()
+endif()
 
 include_directories(SYSTEM "${CMAKE_SOURCE_DIR}/libobs")
 include_directories("${Vulkan_INCLUDE_DIRS}")
+#include_directories(/include)
+include_directories(/vulkan_utils)
 
 add_definitions(-DLIBOBS_EXPORTS)
 
 set(libobs-vulkan_SOURCES
+	vulkan_utils/utils.cpp
 	vulkan-shader.cpp
 	vulkan-subsystem.cpp)
 	
 set(libobs-vulkan_HEADERS
+	vulkan.hpp
+	vulkan_utils/utils.hpp
 	vulkan-subsystem.hpp)
 
 #[[

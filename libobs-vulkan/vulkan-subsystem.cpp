@@ -80,8 +80,10 @@ int device_create(gs_device_t **p_device, uint32_t adapter)
 
 	} catch (vk::SystemError err) {
 		blog(LOG_WARNING, "vk::SystemError: %s", err.what());
+		errorcode = err.code().value();
 	} catch (...) {
 		blog(LOG_WARNING, "vulkan: Unknown Error");
+		errorcode = -1;
 	}
 
 	*p_device = device;
@@ -1628,7 +1630,9 @@ bool vulkan_init()
 			EngineName.c_str(), 1, VK_API_VERSION_1_1);
 
 		// initialize the vk::InstanceCreateInfo
-		vk::InstanceCreateInfo instanceCreateInfo({}, &applicationInfo);
+		vk::InstanceCreateFlags flags = {};
+		vk::InstanceCreateInfo instanceCreateInfo(flags,
+			&applicationInfo);
 
 		// create a UniqueInstance
 		//vk::UniqueInstance instance = vk::createInstanceUnique(instanceCreateInfo);
