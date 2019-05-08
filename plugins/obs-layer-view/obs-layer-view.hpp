@@ -251,6 +251,7 @@ public:
 			obs_data_set_array(layerdata, "layer", itemarray);
 			obs_data_array_push_back(layerarray, layerdata);
 			obs_data_array_release(itemarray);
+			obs_data_release(layerdata);
 		}
 		obs_data_set_array(save_data, "layers", layerarray);
 		obs_data_array_release(layerarray);
