@@ -37,6 +37,13 @@ const char *sceneitem_get_name(obs_sceneitem_t *item)
 	return obs_source_get_name(source);
 }
 
+const char *sceneitem_get_scene_name(obs_sceneitem_t *item)
+{
+	obs_scene_t *scene = obs_sceneitem_get_scene(item);
+	obs_source_t *source = obs_scene_get_source(scene);
+	return obs_source_get_name(source);
+}
+
 class DraggableButton : public QPushButton {
 private:
 	QPoint pressCoord;
@@ -147,7 +154,7 @@ private:
 	QHBoxLayout *toplayout = nullptr;
 
 	obs_data_t *saved = nullptr;
-	std::vector<std::vector<std::string>> _layersinfo;
+	std::vector<std::vector<std::pair<std::string, std::string>>> _layersinfo;
 	bool loaded = false;
 protected:
 	void dragEnterEvent(QDragEnterEvent *e) override
@@ -185,18 +192,23 @@ public:
 	void CompleteLoad(std::vector<obs_sceneitem_t*> items)
 	{
 		for (obs_sceneitem_t *item : items) {
-			size_t index = ItemInLayer(item);
 			std::string name = sceneitem_get_name(item);
+			std::string sname = sceneitem_get_scene_name(item);
+			size_t index = ItemInLayer(item);
 			if (name.empty() || index < _layers.size())
 				continue;
 			for (size_t i = 0; i < _layersinfo.size(); i++) {
-				std::vector<std::string> names = _layersinfo[i];
-				for (size_t j = 0; j < names.size(); j++) {
-					if (name == names[j]) {
+				std::vector<std::pair<std::string,
+					std::string>> pairs = _layersinfo[i];
+				for (size_t j = 0; j < pairs.size(); j++) {
+					std::string n = pairs[j].first;
+					std::string s = pairs[j].second;
+					if (name == n && sname == s) {
 						_layers.reserve(i + 1);
 						while (_layers.size() < (i+1))
 							_layers.push_back({});
 						_layers[i].push_back(item);
+						break;
 					}
 				}
 			}
@@ -213,13 +225,20 @@ public:
 			obs_data_t *layeritem = obs_data_array_item(layers, i);
 			obs_data_array_t *layer = obs_data_get_array(layeritem, "layer");
 			size_t count2 = obs_data_array_count(layer);
-			std::vector<std::string> names;
+			std::vector<std::pair<std::string, std::string>> names;
 			names.reserve(count2);
 			for (size_t j = 0; j < count; j++) {
 				obs_data_t *itemdata = obs_data_array_item(layer, j);
 				std::string name = obs_data_get_string(itemdata, "name");
-				if (!name.empty())
-					names.push_back(name);
+				std::string sname = obs_data_get_string(itemdata, "scene");
+				if (!name.empty() && !sname.empty()) {
+					std::pair<std::string, std::string> element
+						= { name, sname };
+					auto it = std::find(names.begin(),
+						names.end(), element);
+					if (it == names.end())
+						names.push_back(element);
+				}
 				obs_data_release(itemdata);
 			}
 			_layersinfo.push_back(names);
@@ -238,12 +257,15 @@ public:
 				continue;
 			obs_data_t *layerdata = obs_data_create();
 			obs_data_array_t *itemarray = obs_data_array_create();
-
 			for (obs_sceneitem_t *item : layer) {
 				obs_data_t *iteminfo = obs_data_create();
 				obs_source_t *source = obs_sceneitem_get_source(item);
+				obs_scene_t *scene = obs_sceneitem_get_scene(item);
+				obs_source_t *scene_source = obs_scene_get_source(scene);
 				const char *name = obs_source_get_name(source);
+				const char *sname = obs_source_get_name(scene_source);
 				obs_data_set_string(iteminfo, "name", name);
+				obs_data_set_string(iteminfo, "scene", sname);
 				obs_data_array_push_back(itemarray, iteminfo);
 				obs_data_release(iteminfo);
 			}
@@ -463,10 +485,22 @@ public slots:
 		const char *n = obs_source_get_name(src);
 
 		size_t index = ItemInLayer(buttonitem);
-		QLayoutItem *layoutitem = _form->itemAt((int)index + free_rows);
-		if (!layoutitem)
-			return;
-		QHBoxLayout *layout = (QHBoxLayout *)layoutitem->layout();
+
+		QHBoxLayout *layout = nullptr;
+		for (int i = free_rows; i < _form->count(); i++) {
+			QLayoutItem *layoutitem = _form->itemAt(i);
+			if (!layoutitem)
+				continue;
+			QHBoxLayout *hbox = (QHBoxLayout*)layoutitem->layout();
+			if (!hbox)
+				continue;
+			QVariant val = hbox->property("layer");
+			if (val.toULongLong() == index) {
+				layout = hbox;
+				break;
+			}
+		}
+		
 		if (!layout)
 			return;
 		blog(LOG_DEBUG, "Layer %i: %s", (int)index, n);
