@@ -415,7 +415,7 @@ void AutoConfigStreamPage::OnAuthConnected()
 	std::string service = QT_TO_UTF8(ui->service->currentText());
 	Auth::Type type = Auth::AuthType(service);
 
-	if (type == Auth::Type::OAuth_StreamKey) {
+	if (type != Auth::Type::None) {
 		OnOAuthStreamKeyConnected();
 	}
 }
@@ -472,14 +472,23 @@ void AutoConfigStreamPage::on_useStreamKey_clicked()
 	UpdateCompleted();
 }
 
-static inline bool is_auth_service(const std::string &service)
+static inline bool can_auth_service(const std::string &service)
 {
-	return Auth::AuthType(service) != Auth::Type::None;
+	Auth::Type auth_type = Auth::AuthType(service);
+	switch (auth_type) {
+	case Auth::Type::Custom_StreamKey:
+		return true;
+	case Auth::Type::OAuth_StreamKey:
+		return !!cef;
+	case Auth::Type::None:
+	default:
+		return false;
+	}
 }
 
-static inline bool is_auth_hidden(const std::string &service)
+static inline bool should_hide_streamkey(const std::string &service)
 {
-	return Auth::HiddenAuth(service);
+	return Auth::KeyHidden(service);
 }
 
 void AutoConfigStreamPage::ServiceChanged()
@@ -498,33 +507,28 @@ void AutoConfigStreamPage::ServiceChanged()
 	ui->disconnectAccount->setVisible(false);
 
 #ifdef BROWSER_AVAILABLE
-	bool hidden_auth = is_auth_hidden(service);
+	bool can_auth = can_auth_service(service);
+	bool hidden_auth = should_hide_streamkey(service);
 	QString connectString =
 		QTStr("Basic.AutoConfig.StreamPage.ConnectAccount").arg(
 			hidden_auth ? QTStr("Required") : QTStr("Optional"));
 	ui->connectAccount->setText(connectString);
 	ui->connectAccount2->setText(connectString);
-	if (cef) {
-		if (lastService != service.c_str()) {
-			bool can_auth = is_auth_service(service);
-			int page = can_auth
-				? (int)Section::Connect
-				: (int)Section::StreamKey;
-			if (hidden_auth)
-				page = (int)Section::Connect;
-			ui->useStreamKey->setVisible(!hidden_auth);
 
-			ui->stackedWidget->setCurrentIndex(page);
-			ui->streamKeyWidget->setVisible(true);
-			ui->streamKeyLabel->setVisible(true);
-			ui->connectAccount2->setVisible(can_auth);
-			auth.reset();
+	if (lastService != service.c_str()) {
+		int page = can_auth || hidden_auth
+			? (int)Section::Connect
+			: (int)Section::StreamKey;
+		ui->useStreamKey->setVisible(!hidden_auth);
 
-			if (lastService.isEmpty())
-				lastService = service.c_str();
-		}
-	} else {
-		ui->connectAccount2->setVisible(false);
+		ui->stackedWidget->setCurrentIndex(page);
+		ui->streamKeyWidget->setVisible(true);
+		ui->streamKeyLabel->setVisible(true);
+		ui->connectAccount2->setVisible(can_auth);
+		auth.reset();
+
+		if (lastService.isEmpty())
+			lastService = service.c_str();
 	}
 #else
 	ui->connectAccount2->setVisible(false);

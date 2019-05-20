@@ -40,7 +40,7 @@ extern QCefCookieManager *panel_cookies;
 
 static Auth::Def caffeineDef = {
 	"Caffeine",
-	Auth::Type::OAuth_StreamKey,
+	Auth::Type::Custom_StreamKey,
 	true
 };
 
