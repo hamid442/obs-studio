@@ -1254,33 +1254,102 @@ void OBSBasicSettings::ResetDownscales(uint32_t cx, uint32_t cy)
 			QString::number(out_cy);
 	}
 
+	/* base canvas resolutions */
 	for (size_t idx = 0; idx < numVals; idx++) {
-		uint32_t downscaleCX = uint32_t(double(cx) / vals[idx]);
-		uint32_t downscaleCY = uint32_t(double(cy) / vals[idx]);
 		uint32_t outDownscaleCX = uint32_t(double(out_cx) / vals[idx]);
 		uint32_t outDownscaleCY = uint32_t(double(out_cy) / vals[idx]);
 
-		downscaleCX &= 0xFFFFFFFC;
-		downscaleCY &= 0xFFFFFFFE;
 		outDownscaleCX &= 0xFFFFFFFE;
 		outDownscaleCY &= 0xFFFFFFFE;
 
-		string res = ResString(downscaleCX, downscaleCY);
 		string outRes = ResString(outDownscaleCX, outDownscaleCY);
-		ui->outputResolution->addItem(res.c_str());
+
 		ui->advOutRescale->addItem(outRes.c_str());
 		ui->advOutRecRescale->addItem(outRes.c_str());
 		ui->advOutFFRescale->addItem(outRes.c_str());
+	}
 
-		/* always try to find the closest output resolution to the
-		 * previously set output resolution */
-		int newPixelCount = int(downscaleCX * downscaleCY);
-		int oldPixelCount = int(out_cx * out_cy);
-		int diff = abs(newPixelCount - oldPixelCount);
+	struct resolution {
+		uint32_t cx;
+		uint32_t cy;
+	};
 
-		if (diff < bestPixelDiff) {
-			bestScale = res;
-			bestPixelDiff = diff;
+	DARRAY(resolution) scaled_resolutions;
+	OBSService currentService = main->GetService();
+	std::string service_type = obs_service_get_output_type(currentService);
+	darray *output_resolutions = obs_output_get_scaled_resolutions_by_id(
+			service_type.c_str(), cx, cy);
+	std::vector<resolution> resolution_vector;
+
+	auto addRes = [&resolution_vector, cx, cy](struct resolution item) {
+		if (item.cx > cx || item.cy > cy)
+			return;
+		auto it = std::find_if(resolution_vector.begin(),
+			resolution_vector.end(), [&item](struct resolution &res) {
+			return item.cx == res.cx && item.cy == res.cy;
+		});
+		if (it == resolution_vector.end())
+			resolution_vector.push_back(item);
+	};
+
+	/* downscale resolutions */
+	if (output_resolutions) {
+		resolution_vector.reserve(output_resolutions->num);
+		scaled_resolutions.da = *output_resolutions;
+
+		addRes({cx, cy});
+		for (size_t i = 0; i < scaled_resolutions.num; i++)
+			addRes(scaled_resolutions.array[i]);
+		
+		std::sort(resolution_vector.begin(), resolution_vector.end(),
+			[](const resolution &l, const resolution &r) {
+			return l.cx > r.cx;
+		});
+		for (size_t i = 0; i < resolution_vector.size(); i++) {
+			uint32_t downscaleCX = resolution_vector[i].cx;
+			uint32_t downscaleCY = resolution_vector[i].cy;
+			downscaleCX &= 0xFFFFFFFC;
+			downscaleCY &= 0xFFFFFFFE;
+
+			string res = ResString(downscaleCX, downscaleCY);
+
+			ui->outputResolution->addItem(res.c_str());
+
+			/* always try to find the closest output resolution to the
+			 * previously set output resolution */
+			int newPixelCount = int(downscaleCX * downscaleCY);
+			int oldPixelCount = int(out_cx * out_cy);
+			int diff = abs(newPixelCount - oldPixelCount);
+
+			if (diff < bestPixelDiff) {
+				bestScale = res;
+				bestPixelDiff = diff;
+			}
+		}
+		darray_free(output_resolutions);
+	} else {
+		/* output resolution */
+		for (size_t idx = 0; idx < numVals; idx++) {
+			uint32_t downscaleCX = uint32_t(double(cx) / vals[idx]);
+			uint32_t downscaleCY = uint32_t(double(cy) / vals[idx]);
+
+			downscaleCX &= 0xFFFFFFFC;
+			downscaleCY &= 0xFFFFFFFE;
+
+			string res = ResString(downscaleCX, downscaleCY);
+
+			ui->outputResolution->addItem(res.c_str());
+
+			/* always try to find the closest output resolution to the
+			 * previously set output resolution */
+			int newPixelCount = int(downscaleCX * downscaleCY);
+			int oldPixelCount = int(out_cx * out_cy);
+			int diff = abs(newPixelCount - oldPixelCount);
+
+			if (diff < bestPixelDiff) {
+				bestScale = res;
+				bestPixelDiff = diff;
+			}
 		}
 	}
 

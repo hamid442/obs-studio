@@ -613,7 +613,6 @@ bool AutoConfigTestPage::TestSoftwareEncoding()
 	DARRAY(resolution) scaled_resolutions;
 
 	OBSData service_settings = obs_data_create();
-	obs_data_release(service_settings);
 	obs_service_t *tService = obs_service_create("rtmp_common",
 		"temp_service", nullptr, nullptr);
 	std::string key = wiz->key;
@@ -623,13 +622,20 @@ bool AutoConfigTestPage::TestSoftwareEncoding()
 	obs_data_set_bool(service_settings, "bwtest", true);
 	obs_service_update(tService, service_settings);
 
-	obs_output_t *tOutput = obs_output_create(
-		obs_service_get_output_type(tService),"temp_output", nullptr,
-		nullptr);
-
-	darray *output_resolutions = obs_output_get_scaled_resolutions(tOutput,
-			baseCX, baseCY);
+	darray *output_resolutions = obs_output_get_scaled_resolutions_by_id(
+			obs_service_get_output_type(tService), baseCX, baseCY);
 	std::vector<resolution> resolution_vector;
+
+	auto addRes = [&resolution_vector, baseCX, baseCY](struct resolution item) {
+		if (item.cx > baseCX || item.cy > baseCY)
+			return;
+		auto it = std::find_if(resolution_vector.begin(),
+			resolution_vector.end(), [&item](struct resolution &res) {
+			return item.cx == res.cx && item.cy == res.cy;
+		});
+		if (it == resolution_vector.end())
+			resolution_vector.push_back(item);
+	};
 	/* Pick closest of service specified resolutions (if any) */
 	if (output_resolutions) {
 		resolution_vector.reserve(output_resolutions->num);
@@ -638,21 +644,23 @@ bool AutoConfigTestPage::TestSoftwareEncoding()
 		uint32_t out_cx = baseCX;
 		uint32_t out_cy = baseCY;
 		int ocount = int(out_cx * out_cy);
-		for (size_t i = 0; i < scaled_resolutions.num; i++) {
-			resolution sresolution = scaled_resolutions.array[i];
+		addRes({out_cx, out_cy});
+		for (size_t i = 0; i < scaled_resolutions.num; i++)
+			addRes(scaled_resolutions.array[i]);
+		for (size_t i = 0; i < resolution_vector.size(); i++) {
+			resolution sresolution = resolution_vector[i];
 			int ncount = int(sresolution.cx * sresolution.cy);
 			int diff = abs(ncount - ocount);
 
 			if (diff < bestPixelDiff) {
-				baseCX = (int)scaled_resolutions.array[i].cx;
-				baseCY = (int)scaled_resolutions.array[i].cy;
+				baseCX = (int)resolution_vector[i].cx;
+				baseCY = (int)resolution_vector[i].cy;
 				bestPixelDiff = diff;
 			}
-			resolution_vector.push_back(sresolution);
 		}
+		darray_free(output_resolutions);
 	}
 
-	obs_output_release(tOutput);
 	obs_service_release(tService);
 
 	/* -----------------------------------*/
@@ -762,16 +770,7 @@ bool AutoConfigTestPage::TestSoftwareEncoding()
 			double div = scales[i];
 			int cx = int((long double)baseCX / div);
 			int cy = int((long double)baseCY / div);
-			resolution test = { cx, cy };
-			bool found = false;
-			std::for_each(resolution_vector.begin(),
-				resolution_vector.end(),
-				[&found, &cx, &cy](resolution res) {
-				if (res.cx == cx && res.cy == cy)
-					found = true;
-			});
-			if (!found)
-				resolution_vector.push_back(test);
+			addRes({ (uint32_t)cx, (uint32_t)cy });
 		}
 	}
 
@@ -854,6 +853,13 @@ void AutoConfigTestPage::FindIdealHardwareResolution()
 
 	vector<Result> results;
 
+	struct resolution {
+		uint32_t cx;
+		uint32_t cy;
+	};
+
+	vector<resolution> resolution_vector;
+
 	int pcores = os_get_physical_cores();
 	int maxDataRate;
 	if (pcores >= 4) {
@@ -862,11 +868,21 @@ void AutoConfigTestPage::FindIdealHardwareResolution()
 		maxDataRate = 1280 * 720 * 30 + 1000;
 	}
 
-	auto testRes = [&] (long double div, int fps_num, int fps_den,
-			bool force)
-	{
-		if (results.size() >= 3)
+	auto addRes = [&resolution_vector, baseCX, baseCY](struct resolution item) {
+		if (item.cx > baseCX || item.cy > baseCY)
 			return;
+		auto it = std::find_if(resolution_vector.begin(),
+			resolution_vector.end(), [&item](struct resolution &res) {
+			return item.cx == res.cx && item.cy == res.cy;
+		});
+		if (it == resolution_vector.end())
+			resolution_vector.push_back(item);
+	};
+
+	auto testRes = [&](int index, int fps_num, int fps_den,
+		bool force) {
+		if (results.size() >= 3)
+			return false;
 
 		if (!fps_num || !fps_den) {
 			fps_num = wiz->specificFPSNum;
@@ -875,12 +891,12 @@ void AutoConfigTestPage::FindIdealHardwareResolution()
 
 		long double fps = ((long double)fps_num / (long double)fps_den);
 
-		int cx = int((long double)baseCX / div);
-		int cy = int((long double)baseCY / div);
+		int cx = int(resolution_vector[index].cx);
+		int cy = int(resolution_vector[index].cy);
 
 		long double rate = (long double)cx * (long double)cy * fps;
 		if (!force && rate > maxDataRate)
-			return;
+			return true;
 
 		AutoConfig::Encoder encType = wiz->streamingEncoder;
 		bool nvenc = encType == AutoConfig::Encoder::NVENC;
@@ -897,25 +913,78 @@ void AutoConfigTestPage::FindIdealHardwareResolution()
 			force = true;
 		if (force || wiz->idealBitrate >= minBitrate)
 			results.emplace_back(cx, cy, fps_num, fps_den);
+		return true;
 	};
 
+	DARRAY(resolution) scaled_resolutions;
+	OBSData service_settings = obs_data_create();
+	obs_service_t *tService = obs_service_create("rtmp_common",
+		"temp_service", nullptr, nullptr);
+	std::string key = wiz->key;
+	obs_data_set_string(service_settings, "service",
+		wiz->serviceName.c_str());
+	obs_data_set_string(service_settings, "key", key.c_str());
+	obs_data_set_bool(service_settings, "bwtest", true);
+	obs_service_update(tService, service_settings);
+	obs_data_release(service_settings);
+
+	darray *output_resolutions = obs_output_get_scaled_resolutions_by_id(
+		obs_service_get_output_type(tService), baseCX, baseCY);
+	
+	if (output_resolutions) {
+		resolution_vector.reserve(output_resolutions->num);
+		int bestPixelDiff = 0x7FFFFFFF;
+		scaled_resolutions.da = *output_resolutions;
+		uint32_t out_cx = baseCX;
+		uint32_t out_cy = baseCY;
+		int ocount = int(out_cx * out_cy);
+		addRes({ out_cx, out_cy });
+		for (size_t i = 0; i < scaled_resolutions.num; i++)
+			addRes(scaled_resolutions.array[i]);
+		for (size_t i = 0; i < resolution_vector.size(); i++) {
+			resolution sresolution = resolution_vector[i];
+			int ncount = int(sresolution.cx * sresolution.cy);
+			int diff = abs(ncount - ocount);
+
+			if (diff < bestPixelDiff) {
+				baseCX = (int)resolution_vector[i].cx;
+				baseCY = (int)resolution_vector[i].cy;
+				bestPixelDiff = diff;
+			}
+		}
+		darray_free(output_resolutions);
+	}
+	obs_service_release(tService);
+
+	std::vector<double> scales = { 1.0, 1.5, 1.0 / 0.6, 2.0, 2.25 };
+	if (!resolution_vector.size()) {
+		for (size_t i = 0; i < scales.size(); i++) {
+			double div = scales[i];
+			int cx = int((long double)baseCX / div);
+			int cy = int((long double)baseCY / div);
+			addRes({ (uint32_t)cx, (uint32_t)cy });
+		}
+	}
+
+	std::sort(resolution_vector.begin(), resolution_vector.end(),
+		[=](resolution &l, resolution &r) {
+		return (r.cx * r.cy) < (l.cx * l.cy);
+	});
+
 	if (wiz->specificFPSNum && wiz->specificFPSDen) {
-		testRes(1.0, 0, 0, false);
-		testRes(1.5, 0, 0, false);
-		testRes(1.0 / 0.6, 0, 0, false);
-		testRes(2.0, 0, 0, false);
-		testRes(2.25, 0, 0, true);
+		for (int i = 0; i < resolution_vector.size(); i++) {
+			if (!testRes(i, 0, 0,
+				(resolution_vector.size() - 1) >= i))
+				break;
+		}
 	} else {
-		testRes(1.0, 60, 1, false);
-		testRes(1.0, 30, 1, false);
-		testRes(1.5, 60, 1, false);
-		testRes(1.5, 30, 1, false);
-		testRes(1.0 / 0.6, 60, 1, false);
-		testRes(1.0 / 0.6, 30, 1, false);
-		testRes(2.0, 60, 1, false);
-		testRes(2.0, 30, 1, false);
-		testRes(2.25, 60, 1, false);
-		testRes(2.25, 30, 1, true);
+		for (int i = 0; i < resolution_vector.size(); i++) {
+			if (!testRes(i, 60, 1, false))
+				break;
+			if (!testRes(i, 30, 1,
+				(resolution_vector.size()-1) >= i))
+				break;
+		}
 	}
 
 	int minArea = 960 * 540 + 1000;

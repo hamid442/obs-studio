@@ -424,29 +424,15 @@ static struct resolution {
 
 static struct darray *caffeine_scaled_resolutions(uint32_t cx, uint32_t cy)
 {
+	static uint32_t const HEIGHTS[] = { 360, 480, 720, 1440, 2160, NULL };
+
 	struct darray *d = bmalloc(sizeof(struct darray));
 	darray_init(d);
-	double aspect = 1.0;
-	if (cy > 0)
-		aspect = (double)cx / (double)cy;
-
-	struct resolution res;
-	res.cy = cy;
-	res.cx = cx;
-	darray_push_back(sizeof(struct resolution), d, &res);
-	/* Upscales of 720 */
-	for (int i = 3; i > 0; i--) {
-		res.cy = (720 * i);
-		res.cx = aspect * (720 * i);
-		if (cy >= res.cy)
-			darray_push_back(sizeof(struct resolution), d, &res);
-	}
-	/* Downscales of 720 */
-	for (int i = 2; i < 5; i += 2) {
-		res.cy = (720 / i);
-		res.cx = aspect * (720 / i);
-		if (cy >= res.cy)
-			darray_push_back(sizeof(struct resolution), d, &res);
+	for (uint32_t * height = HEIGHTS; *height; ++height) {
+		struct resolution res;
+		res.cy = *height;
+		res.cx = cx * (*height) / cy;
+		darray_push_back(sizeof(struct resolution), d, &res);
 	}
 	return d;
 }
