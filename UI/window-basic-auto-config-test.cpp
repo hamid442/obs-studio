@@ -1192,6 +1192,10 @@ void AutoConfigTestPage::FinalizeResults()
 		new QLabel(scaleRes, ui->finishPage));
 	form->addRow(newLabel("Basic.Settings.Video.FPS"),
 		new QLabel(fpsStr, ui->finishPage));
+
+	QTimer::singleShot(0, [this]() {
+		wiz->adjustSize();
+	});
 }
 
 #define STARTING_SEPARATOR \

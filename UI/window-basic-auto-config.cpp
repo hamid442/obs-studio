@@ -333,7 +333,9 @@ bool AutoConfigStreamPage::validatePage()
 	obs_service_release(service);
 
 	int bitrate = 10000;
-	if (!ui->doBandwidthTest->isChecked()) {
+	bool doBandwidthTest = ui->doBandwidthTest->isChecked() &&
+		ui->doBandwidthTest->isEnabled();
+	if (!doBandwidthTest) {
 		bitrate = ui->bitrate->value();
 		wiz->idealBitrate = bitrate;
 	}
@@ -351,7 +353,7 @@ bool AutoConfigStreamPage::validatePage()
 		wiz->server = QT_TO_UTF8(ui->server->currentData().toString());
 	}
 
-	wiz->bandwidthTest = ui->doBandwidthTest->isChecked();
+	wiz->bandwidthTest = doBandwidthTest;
 	wiz->startingBitrate = (int)obs_data_get_int(settings, "bitrate");
 	wiz->idealBitrate = wiz->startingBitrate;
 	wiz->regionUS = ui->regionUS->isChecked();
@@ -359,8 +361,10 @@ bool AutoConfigStreamPage::validatePage()
 	wiz->regionAsia = ui->regionAsia->isChecked();
 	wiz->regionOther = ui->regionOther->isChecked();
 	wiz->serviceName = QT_TO_UTF8(ui->service->currentText());
-	if (ui->preferHardware)
-		wiz->preferHardware = ui->preferHardware->isChecked();
+	if (ui->preferHardware) {
+		wiz->preferHardware = ui->preferHardware->isChecked() &&
+			ui->preferHardware->isEnabled();
+	}
 	wiz->key = QT_TO_UTF8(ui->key->text());
 
 	if (!wiz->customServer) {
@@ -514,6 +518,38 @@ void AutoConfigStreamPage::ServiceChanged()
 			hidden_auth ? QTStr("Required") : QTStr("Optional"));
 	ui->connectAccount->setText(connectString);
 	ui->connectAccount2->setText(connectString);
+
+	
+	const char *service_id = wiz->customServer
+		? "rtmp_custom"
+		: "rtmp_common";
+	OBSData settings = obs_data_create();
+	obs_data_release(settings);
+
+	if (!wiz->customServer)
+		obs_data_set_string(settings, "service", service.c_str());
+
+	OBSService tService = obs_service_create(service_id,
+		"temp_service", settings, nullptr);
+	uint32_t flags = obs_get_output_flags(
+			obs_service_get_output_type(tService));
+	obs_service_release(tService);
+	if (ui->preferHardware) {
+		if (flags & OBS_OUTPUT_HARDWARE_ENCODING_DISABLED) {
+			ui->preferHardware->setDisabled(true);
+			ui->preferHardware->setVisible(false);
+		} else {
+			ui->preferHardware->setDisabled(false);
+			ui->preferHardware->setVisible(true);
+		}
+	}
+	if (flags & OBS_OUTPUT_BANDWIDTH_TEST_DISABLED) {
+		ui->doBandwidthTest->setDisabled(true);
+		ui->doBandwidthTest->setVisible(false);
+	} else {
+		ui->doBandwidthTest->setDisabled(false);
+		ui->doBandwidthTest->setVisible(true);
+	}
 
 	if (lastService != service.c_str()) {
 		int page = can_auth || hidden_auth
