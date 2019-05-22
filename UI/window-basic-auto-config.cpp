@@ -701,6 +701,10 @@ void AutoConfigStreamPage::UpdateCompleted()
 				ui->regionOther->isChecked();
 		}
 	}
+
+	QTimer::singleShot(0, [this]() {
+		wiz->adjustSize();
+	});
 	emit completeChanged();
 }
 
