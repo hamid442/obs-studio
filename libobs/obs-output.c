@@ -2250,21 +2250,12 @@ const char *obs_output_get_supported_audio_codecs(const obs_output_t *output)
 		output->info.encoded_audio_codecs : NULL;
 }
 
-struct darray *obs_output_get_scaled_resolutions_by_id(const char *id,
+struct darray obs_output_get_scaled_resolutions(const char *id,
 	uint32_t cx, uint32_t cy)
 {
 	const struct obs_output_info *info = find_output(id);
 	if (info && info->get_scaled_resolutions)
 		return info->get_scaled_resolutions(cx, cy);
-	return NULL;
-}
-
-struct darray *obs_output_get_scaled_resolutions(const obs_output_t *output,
-	uint32_t cx, uint32_t cy)
-{
-	if (!obs_output_valid(output, "obs_output_get_scaled_resolutions"))
-		return NULL;
-	if (output->info.get_scaled_resolutions)
-		return output->info.get_scaled_resolutions(cx, cy);
-	return NULL;
+	struct darray d = { 0 };
+	return d;
 }

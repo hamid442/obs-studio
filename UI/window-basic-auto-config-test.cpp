@@ -524,6 +524,11 @@ static void CalcBaseRes(int &baseCX, int &baseCY)
 	}
 }
 
+static struct resolution {
+	uint32_t cx;
+	uint32_t cy;
+};
+
 bool AutoConfigTestPage::TestSoftwareEncoding()
 {
 	TestMode testMode;
@@ -605,10 +610,6 @@ bool AutoConfigTestPage::TestSoftwareEncoding()
 	int baseCX = wiz->baseResolutionCX;
 	int baseCY = wiz->baseResolutionCY;
 	CalcBaseRes(baseCX, baseCY);
-	struct resolution {
-		uint32_t cx;
-		uint32_t cy;
-	};
 
 	DARRAY(resolution) scaled_resolutions;
 
@@ -622,7 +623,7 @@ bool AutoConfigTestPage::TestSoftwareEncoding()
 	obs_data_set_bool(service_settings, "bwtest", true);
 	obs_service_update(tService, service_settings);
 
-	darray *output_resolutions = obs_output_get_scaled_resolutions_by_id(
+	scaled_resolutions.da = obs_output_get_scaled_resolutions(
 			obs_service_get_output_type(tService), baseCX, baseCY);
 	std::vector<resolution> resolution_vector;
 
@@ -637,10 +638,10 @@ bool AutoConfigTestPage::TestSoftwareEncoding()
 			resolution_vector.push_back(item);
 	};
 	/* Pick closest of service specified resolutions (if any) */
-	if (output_resolutions) {
-		resolution_vector.reserve(output_resolutions->num);
+	if (scaled_resolutions.array) {
+		resolution_vector.reserve(scaled_resolutions.num);
 		int bestPixelDiff = 0x7FFFFFFF;
-		scaled_resolutions.da = *output_resolutions;
+
 		uint32_t out_cx = baseCX;
 		uint32_t out_cy = baseCY;
 		int ocount = int(out_cx * out_cy);
@@ -658,7 +659,7 @@ bool AutoConfigTestPage::TestSoftwareEncoding()
 				bestPixelDiff = diff;
 			}
 		}
-		darray_free(output_resolutions);
+		darray_free(&scaled_resolutions.da);
 	}
 
 	obs_service_release(tService);
@@ -852,12 +853,6 @@ void AutoConfigTestPage::FindIdealHardwareResolution()
 	CalcBaseRes(baseCX, baseCY);
 
 	vector<Result> results;
-
-	struct resolution {
-		uint32_t cx;
-		uint32_t cy;
-	};
-
 	vector<resolution> resolution_vector;
 
 	int pcores = os_get_physical_cores();
@@ -928,13 +923,13 @@ void AutoConfigTestPage::FindIdealHardwareResolution()
 	obs_service_update(tService, service_settings);
 	obs_data_release(service_settings);
 
-	darray *output_resolutions = obs_output_get_scaled_resolutions_by_id(
+	scaled_resolutions.da = obs_output_get_scaled_resolutions(
 		obs_service_get_output_type(tService), baseCX, baseCY);
 	
-	if (output_resolutions) {
-		resolution_vector.reserve(output_resolutions->num);
+	if (scaled_resolutions.array) {
+		resolution_vector.reserve(scaled_resolutions.num);
 		int bestPixelDiff = 0x7FFFFFFF;
-		scaled_resolutions.da = *output_resolutions;
+
 		uint32_t out_cx = baseCX;
 		uint32_t out_cy = baseCY;
 		int ocount = int(out_cx * out_cy);
@@ -952,7 +947,7 @@ void AutoConfigTestPage::FindIdealHardwareResolution()
 				bestPixelDiff = diff;
 			}
 		}
-		darray_free(output_resolutions);
+		darray_free(&scaled_resolutions.da);
 	}
 	obs_service_release(tService);
 

@@ -78,7 +78,7 @@ struct obs_output_info {
 	void (*raw_audio2)(void *data, size_t idx, struct audio_data *frames);
 
 	/* callback to get recommended resolutions given a base resolution */
-	struct darray* (*get_scaled_resolutions)(uint32_t cx, uint32_t cy);
+	struct darray (*get_scaled_resolutions)(uint32_t cx, uint32_t cy);
 };
 
 EXPORT void obs_register_output_s(const struct obs_output_info *info,

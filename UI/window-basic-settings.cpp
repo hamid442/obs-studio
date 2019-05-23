@@ -1277,7 +1277,7 @@ void OBSBasicSettings::ResetDownscales(uint32_t cx, uint32_t cy)
 	DARRAY(resolution) scaled_resolutions;
 	OBSService currentService = main->GetService();
 	std::string service_type = obs_service_get_output_type(currentService);
-	darray *output_resolutions = obs_output_get_scaled_resolutions_by_id(
+	scaled_resolutions.da = obs_output_get_scaled_resolutions(
 			service_type.c_str(), cx, cy);
 	std::vector<resolution> resolution_vector;
 
@@ -1293,9 +1293,8 @@ void OBSBasicSettings::ResetDownscales(uint32_t cx, uint32_t cy)
 	};
 
 	/* downscale resolutions */
-	if (output_resolutions) {
-		resolution_vector.reserve(output_resolutions->num);
-		scaled_resolutions.da = *output_resolutions;
+	if (scaled_resolutions.array) {
+		resolution_vector.reserve(scaled_resolutions.num);
 
 		addRes({cx, cy});
 		for (size_t i = 0; i < scaled_resolutions.num; i++)
@@ -1326,7 +1325,7 @@ void OBSBasicSettings::ResetDownscales(uint32_t cx, uint32_t cy)
 				bestPixelDiff = diff;
 			}
 		}
-		darray_free(output_resolutions);
+		darray_free(&scaled_resolutions.da);
 	} else {
 		/* output resolution */
 		for (size_t idx = 0; idx < numVals; idx++) {
