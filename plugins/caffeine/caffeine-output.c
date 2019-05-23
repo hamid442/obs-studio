@@ -417,22 +417,22 @@ static float caffeine_get_congestion(void * data)
 	}
 }
 
-static struct resolution {
+struct resolution {
 	uint32_t cx;
 	uint32_t cy;
 };
 
-static struct darray *caffeine_scaled_resolutions(uint32_t cx, uint32_t cy)
+static struct darray caffeine_scaled_resolutions(uint32_t cx, uint32_t cy)
 {
-	static uint32_t const HEIGHTS[] = { 360, 480, 720, 1440, 2160, NULL };
+	static uint32_t const HEIGHTS[] = { 360, 480, 540, 720, 1440, 2160,
+		NULL };
 
-	struct darray *d = bmalloc(sizeof(struct darray));
-	darray_init(d);
+	struct darray d = { 0 };
 	for (uint32_t * height = HEIGHTS; *height; ++height) {
 		struct resolution res;
 		res.cy = *height;
 		res.cx = cx * (*height) / cy;
-		darray_push_back(sizeof(struct resolution), d, &res);
+		darray_push_back(sizeof(struct resolution), &d, &res);
 	}
 	return d;
 }
