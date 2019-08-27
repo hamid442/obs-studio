@@ -75,6 +75,11 @@ void set_paths(VST3PluginFormat &f, StringArray p)
 
 const volatile int obs_max_channels = get_max_obs_channels();
 
+static void free_type_data(void *vptr)
+{
+	vptr = 0;
+}
+
 bool obs_module_load(void)
 {
 	MessageManager::getInstance();
@@ -90,10 +95,9 @@ bool obs_module_load(void)
 	vst3_filter.filter_audio           = PluginHost<VST3PluginFormat>::Filter_Audio;
 	vst3_filter.get_properties         = PluginHost<VST3PluginFormat>::Properties;
 	vst3_filter.save                   = PluginHost<VST3PluginFormat>::Save;
-	/*
 	vst3_filter.type_data              = (void *)true;
 	vst3_filter.free_type_data         = free_type_data;
-	*/
+
 	struct obs_source_info vst_filter = {0};
 	vst_filter.id                     = "vst_filter_juce_2x";
 	vst_filter.type                   = OBS_SOURCE_TYPE_FILTER;
@@ -105,28 +109,26 @@ bool obs_module_load(void)
 	vst_filter.filter_audio           = PluginHost<VSTPluginFormat>::Filter_Audio;
 	vst_filter.get_properties         = PluginHost<VSTPluginFormat>::Properties;
 	vst_filter.save                   = PluginHost<VSTPluginFormat>::Save;
-	/*
 	vst_filter.type_data              = (void *)true;
 	vst_filter.free_type_data         = free_type_data;
-	*/
+	
 	int version = (JUCE_MAJOR_VERSION << 16) | (JUCE_MINOR_VERSION << 8) | JUCE_BUILDNUMBER;
 	blog(LOG_INFO, "JUCE Version: (%i) %i.%i.%i", version, JUCE_MAJOR_VERSION, JUCE_MINOR_VERSION,
 			JUCE_BUILDNUMBER);
 
-	/*
 	char *iconPath = obs_module_file("obs-studio.ico");
 	juce::String iconStr  = iconPath;
 	juce::File   iconFile = juce::File(iconStr);
 	if (iconStr.length() > 0)
 		windowIcon = ImageFileFormat::loadFrom(iconFile);
 	bfree(iconPath);
-	*/
+	
 	blog(LOG_INFO, "%i", sizeof(vst3_filter));
 
 	obs_register_source(&vst3_filter);
 	obs_register_source(&vst_filter);
 	//#define DEBUG_JUCE_VST 1
-	if (true) {
+	if (vst3_filter.free_type_data) {
 		auto rescan_vst3 = [](void * = nullptr) {
 			if (vst3format.canScanForPlugins())
 				paths = vst3format.searchPathsForPlugins(search, true, true);
@@ -145,7 +147,7 @@ bool obs_module_load(void)
 #endif
 	}
 
-	if (true) {
+	if (vst_filter.free_type_data) {
 		auto rescan_vst2 = [](void * = nullptr) {
 			if (vst2format.canScanForPlugins())
 				paths_2x = vst2format.searchPathsForPlugins(search_2x, true, true);
