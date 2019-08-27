@@ -39,16 +39,23 @@ public:
 			removeFromDesktop();
 		*/
 
-			/*
-		auto o = _owner.lock();
-		if (o)
-			o->gui_window_close();
-		delete this;
-		*/
+		/*
+	auto o = _owner.lock();
+	if (o)
+		o->gui_window_close();
+	delete this;
+	*/
 	}
 };
 
-template<class PluginFormat> class PluginHost : private AudioProcessorListener {
+#define SHAREDPTR
+
+template<class PluginFormat>
+class PluginHost : private AudioProcessorListener
+#ifdef SHAREDPTR
+	, public std::enable_shared_from_this<PluginHost<PluginFormat>>
+#endif
+{
 private:
 	juce::AudioBuffer<float> buffer;
 	juce::MidiBuffer         midi;
@@ -76,7 +83,7 @@ private:
 
 	bool swap         = false;
 	bool updating     = false;
-	bool asynchronous = false;
+	bool asynchronous = true;
 
 	PluginFormat plugin_format;
 
@@ -199,7 +206,7 @@ private:
 			return;
 		updating = true;
 #ifdef SHAREDPTR
-		std::weak_ptr<PluginHost<PluginFormat>> tmp_self = weak_from_this();
+		std::weak_ptr<PluginHost<PluginFormat>> tmp_self = shared_from_this(); // self; // weak_from_this();
 
 		auto tmp_keep = tmp_self.lock();
 		if (!tmp_keep) {
@@ -302,19 +309,16 @@ private:
 						}
 					}
 #ifdef SHAREDPTR
-					auto callback = [state, change_vst, tmp_self, file, vst_processor, vst_saved](
+					auto callback = [state, tmp_self, file, vst_processor, vst_saved](
 									AudioPluginInstance *inst,
 									const juce::String & err) {
-
 						auto myself = tmp_self.lock();
 						if (myself)
 							myself->change_vst(inst, err, state, file, vst_processor,
 									vst_saved);
-
 					};
 #else
-					auto callback = [=](AudioPluginInstance *inst,
-									const juce::String &err) {
+					auto callback = [=](AudioPluginInstance *inst, const juce::String &err) {
 						this->change_vst(inst, err, state, file, vst_processor, vst_saved);
 					};
 #endif
@@ -531,7 +535,7 @@ public:
 		}
 #else
 		PluginHost<PluginFormat> *plugin = static_cast<PluginHost<PluginFormat> *>(vptr);
-		if (plugin){
+		if (plugin) {
 			if (plugin->old_gui()) {
 				plugin->gui_close();
 			}
@@ -673,8 +677,8 @@ public:
 		PluginHost<PluginFormat> *ptr = new PluginHost<PluginFormat>(settings, source);
 		if (ptr)
 			ptr->update(settings);
-		return ptr;
 #endif
+		return ptr;
 	}
 
 	static void Save(void *vptr, obs_data_t *settings)
