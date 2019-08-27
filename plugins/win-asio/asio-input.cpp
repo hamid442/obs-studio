@@ -23,14 +23,10 @@ along with this program.  If not, see <http://www.gnu.org/licenses/>.
  */
 
 #include <util/bmem.h>
-#include <util/dstr.h>
 #include <util/platform.h>
-#include <util/threading.h>
 #include <obs-module.h>
 #include <obs-frontend-api.h>
 #include <vector>
-#include <stdio.h>
-#include <windows.h>
 #include <JuceHeader.h>
 
 OBS_DECLARE_MODULE()
@@ -669,7 +665,6 @@ static bool fill_out_channels_modified(obs_properties_t *props, obs_property_t *
 	return true;
 }
 
-// main callback when a device is switched; takes care of the logic for updating the clients (listeners)
 static bool asio_device_changed(obs_properties_t *props, obs_property_t *list, obs_data_t *settings)
 {
 	size_t                        i;
