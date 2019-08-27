@@ -7,8 +7,9 @@ template<class PluginFormat> class VSTWindow;
 template<class PluginFormat> class PluginHost;
 
 template<class PluginFormat>
-class VSTWindow : public DialogWindow, public std::enable_shared_from_this<VSTWindow<PluginFormat>> {
-	std::weak_ptr<PluginHost<PluginFormat>> _owner;
+class VSTWindow : public DialogWindow {
+	std::weak_ptr<PluginHost<PluginFormat>>  _owner;
+	//std::shared_ptr<VSTWindow<PluginFormat>> self;
 
 public:
 	VSTWindow(const String &name, Colour backgroundColour, bool escapeKeyTriggersCloseButton,
@@ -16,6 +17,7 @@ public:
 		: DialogWindow(name, backgroundColour, escapeKeyTriggersCloseButton, addToDesktop)
 	{
 		_owner = owner->shared_from_this();
+		//self.reset(this);
 		setVisible(false);
 		setOpaque(true);
 		setUsingNativeTitleBar(true);
@@ -25,17 +27,18 @@ public:
 	~VSTWindow()
 	{
 	}
+	/*
 	std::shared_ptr<DialogWindow> get()
 	{
-		return shared_from_this();
+		return self;
 	}
+	*/
 	void closeButtonPressed()
 	{
 		auto o = _owner.lock();
 		if (o)
-			o->gui_close();
-		else
-			delete this;
+			o->gui_window_close();
+		delete this;
 	}
 };
 
@@ -61,13 +64,14 @@ private:
 	MidiMessageCollector midi_collector;
 	MidiInput *          midi_input = nullptr;
 
-	std::shared_ptr<VSTWindow<PluginFormat>> dialog;
+	// std::shared_ptr<VSTWindow<PluginFormat>> dialog;
+	VSTWindow<PluginFormat> *dialog = nullptr;
 
 	juce::AudioProcessorParameter *param = nullptr;
 
 	bool swap         = false;
 	bool updating     = false;
-	bool asynchronous = true;
+	bool asynchronous = false;
 
 	PluginFormat plugin_format;
 
@@ -233,7 +237,7 @@ private:
 					break;
 			}
 			MidiInput *nextdevice = MidiInput::openDevice(deviceindex, &midi_collector);
-			//if we haven't reset, make absolute certain we have
+			// if we haven't reset, make absolute certain we have
 			if (current_sample_rate == 0.0) {
 				midi_collector.reset(48000.0);
 				current_sample_rate = 48000.0;
@@ -400,7 +404,6 @@ public:
 		}
 
 		obs_data_release(vst_settings);
-		gui_close();
 
 		close_vst(old_vst_instance);
 		close_vst(new_vst_instance);
@@ -410,9 +413,14 @@ public:
 	bool old_gui()
 	{
 		if (vst_instance) {
+			if (dialog) {
+				return current_name.compare(dialog->getName()) != 0;
+			}
+			/*
 			auto d = dialog;
 			if (d)
 				return current_name.compare(d->getName()) != 0;
+				*/
 		} else {
 			return current_name.compare("") != 0;
 		}
@@ -422,7 +430,12 @@ public:
 	{
 		if (has_gui()) {
 			if (!gui_open()) {
-				dialog = std::make_shared<VSTWindow<PluginFormat>>(
+				/*
+				VSTWindow<PluginFormat> *w = new VSTWindow<PluginFormat>(
+						desc.name, juce::Colour(255, 255, 255), false, this);
+				dialog = w->get();
+				*/
+				dialog = new VSTWindow<PluginFormat>(
 						desc.name, juce::Colour(255, 255, 255), false, this);
 			}
 			if (dialog) {
@@ -449,7 +462,7 @@ public:
 	{
 		auto d = dialog;
 		if (d) {
-			void *h = obs_frontend_get_main_window_handle();
+			// void *h = obs_frontend_get_main_window_handle();
 			d->setOpaque(true);
 			d->setName(current_name);
 			if (!d->isOnDesktop()) {
@@ -457,7 +470,7 @@ public:
 				f |= (ComponentPeer::StyleFlags::windowHasCloseButton |
 						ComponentPeer::StyleFlags::windowHasTitleBar |
 						ComponentPeer::StyleFlags::windowIsResizable);
-				d->addToDesktop(f, h);
+				d->addToDesktop(f);
 				d->setTopLeftPosition(40, 40);
 			}
 			if (!d->isVisible())
@@ -467,7 +480,14 @@ public:
 
 	void gui_close()
 	{
-		dialog.reset();
+		// dialog.reset();
+		delete dialog;
+		dialog = nullptr;
+	}
+
+	void gui_window_close()
+	{
+		dialog = nullptr;
 	}
 
 	bool has_gui()
@@ -477,7 +497,7 @@ public:
 
 	bool gui_open()
 	{
-		return dialog.use_count();
+		return dialog; // dialog.use_count();
 	}
 
 	static bool vst_gui_clicked(obs_properties_t *props, obs_property_t *property, void *vptr)
