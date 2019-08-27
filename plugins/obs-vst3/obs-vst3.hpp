@@ -6,18 +6,17 @@ static Image windowIcon = Image();
 template<class PluginFormat> class VSTWindow;
 template<class PluginFormat> class PluginHost;
 
-template<class PluginFormat>
-class VSTWindow : public DialogWindow {
-	std::weak_ptr<PluginHost<PluginFormat>>  _owner;
-	//std::shared_ptr<VSTWindow<PluginFormat>> self;
+template<class PluginFormat> class VSTWindow : public DialogWindow {
+	std::weak_ptr<PluginHost<PluginFormat>> _owner;
+	// std::shared_ptr<VSTWindow<PluginFormat>> self;
 
 public:
 	VSTWindow(const String &name, Colour backgroundColour, bool escapeKeyTriggersCloseButton,
 			PluginHost<PluginFormat> *owner, bool addToDesktop = false)
 		: DialogWindow(name, backgroundColour, escapeKeyTriggersCloseButton, addToDesktop)
 	{
-		_owner = owner->shared_from_this();
-		//self.reset(this);
+		//_owner = owner->shared_from_this();
+		// self.reset(this);
 		setVisible(false);
 		setOpaque(true);
 		setUsingNativeTitleBar(true);
@@ -26,24 +25,30 @@ public:
 	}
 	~VSTWindow()
 	{
+		/*
+		auto o = _owner.lock();
+		if (o)
+			o->gui_window_close();
+			*/
 	}
-	/*
-	std::shared_ptr<DialogWindow> get()
-	{
-		return self;
-	}
-	*/
 	void closeButtonPressed()
 	{
+		setVisible(false);
+		/*
+		if (isOnDesktop())
+			removeFromDesktop();
+		*/
+
+			/*
 		auto o = _owner.lock();
 		if (o)
 			o->gui_window_close();
 		delete this;
+		*/
 	}
 };
 
-template<class PluginFormat>
-class PluginHost : private AudioProcessorListener, public std::enable_shared_from_this<PluginHost<PluginFormat>> {
+template<class PluginFormat> class PluginHost : private AudioProcessorListener {
 private:
 	juce::AudioBuffer<float> buffer;
 	juce::MidiBuffer         midi;
@@ -192,7 +197,8 @@ private:
 	{
 		if (swap || updating)
 			return;
-		updating                                         = true;
+		updating = true;
+#ifdef SHAREDPTR
 		std::weak_ptr<PluginHost<PluginFormat>> tmp_self = weak_from_this();
 
 		auto tmp_keep = tmp_self.lock();
@@ -200,7 +206,7 @@ private:
 			blog(LOG_INFO, "?");
 			return;
 		}
-
+#endif
 		close_vst(old_vst_instance);
 		old_vst_instance = nullptr;
 
@@ -295,16 +301,23 @@ private:
 							}
 						}
 					}
-
-					auto callback = [state, tmp_self, file, vst_processor, vst_saved](
+#ifdef SHAREDPTR
+					auto callback = [state, change_vst, tmp_self, file, vst_processor, vst_saved](
 									AudioPluginInstance *inst,
 									const juce::String & err) {
+
 						auto myself = tmp_self.lock();
 						if (myself)
 							myself->change_vst(inst, err, state, file, vst_processor,
 									vst_saved);
-					};
 
+					};
+#else
+					auto callback = [=](AudioPluginInstance *inst,
+									const juce::String &err) {
+						this->change_vst(inst, err, state, file, vst_processor, vst_saved);
+					};
+#endif
 					bool found = false;
 					for (int i = 0; i < descs.size(); i++) {
 						if (plugin.compare(descs[i]->name) == 0) {
@@ -402,6 +415,8 @@ public:
 			delete midi_input;
 			midi_input = nullptr;
 		}
+		if (dialog)
+			delete dialog;
 
 		obs_data_release(vst_settings);
 
@@ -481,7 +496,8 @@ public:
 	void gui_close()
 	{
 		// dialog.reset();
-		delete dialog;
+		if (dialog)
+			delete dialog;
 		dialog = nullptr;
 	}
 
@@ -502,6 +518,7 @@ public:
 
 	static bool vst_gui_clicked(obs_properties_t *props, obs_property_t *property, void *vptr)
 	{
+#ifdef SHAREDPTR
 		std::shared_ptr<PluginHost<PluginFormat>> *plugin =
 				static_cast<std::shared_ptr<PluginHost<PluginFormat>> *>(vptr);
 		if (plugin) {
@@ -512,6 +529,15 @@ public:
 				tmp->gui_clicked();
 			}
 		}
+#else
+		PluginHost<PluginFormat> *plugin = static_cast<PluginHost<PluginFormat> *>(vptr);
+		if (plugin){
+			if (plugin->old_gui()) {
+				plugin->gui_close();
+			}
+			plugin->gui_clicked();
+		}
+#endif
 		return false;
 	}
 
@@ -555,10 +581,13 @@ public:
 
 	static obs_properties_t *Properties(void *vptr)
 	{
-		static PluginFormat                        f;
+		static PluginFormat f;
+#ifdef SHAREDPTR
 		std::shared_ptr<PluginHost<PluginFormat>> *plugin =
 				static_cast<std::shared_ptr<PluginHost<PluginFormat>> *>(vptr);
-
+#else
+		PluginHost<PluginFormat> *plugin = static_cast<PluginHost<PluginFormat> *>(vptr);
+#endif
 		obs_properties_t *props;
 		props = obs_properties_create();
 
@@ -602,6 +631,7 @@ public:
 
 	static void Update(void *vptr, obs_data_t *settings)
 	{
+#ifdef SHAREDPTR
 		std::shared_ptr<PluginHost<PluginFormat>> *plugin =
 				static_cast<std::shared_ptr<PluginHost<PluginFormat>> *>(vptr);
 		if (plugin) {
@@ -610,6 +640,11 @@ public:
 			if (tmp)
 				tmp->update(settings);
 		}
+#else
+		PluginHost<PluginFormat> *plugin = static_cast<PluginHost<PluginFormat> *>(vptr);
+		if (plugin)
+			plugin->update(settings);
+#endif
 	}
 
 	static void Defaults(obs_data_t *settings)
@@ -630,14 +665,21 @@ public:
 
 	static void *Create(obs_data_t *settings, obs_source_t *source)
 	{
+#ifdef SHAREDPTR
 		std::shared_ptr<PluginHost<PluginFormat>> *ptr = new std::shared_ptr<PluginHost<PluginFormat>>;
 		*ptr = std::make_shared<PluginHost<PluginFormat>>(settings, source);
 		ptr->get()->update(settings);
+#else
+		PluginHost<PluginFormat> *ptr = new PluginHost<PluginFormat>(settings, source);
+		if (ptr)
+			ptr->update(settings);
 		return ptr;
+#endif
 	}
 
 	static void Save(void *vptr, obs_data_t *settings)
 	{
+#ifdef SHAREDPTR
 		std::shared_ptr<PluginHost<PluginFormat>> *plugin =
 				static_cast<std::shared_ptr<PluginHost<PluginFormat>> *>(vptr);
 		if (plugin) {
@@ -645,24 +687,41 @@ public:
 			if (tmp)
 				tmp->save(settings);
 		}
+#else
+		PluginHost<PluginFormat> *plugin = static_cast<PluginHost<PluginFormat> *>(vptr);
+		if (plugin)
+			plugin->save(settings);
+#endif
 	}
 
 	static void Destroy(void *vptr)
 	{
+#ifdef SHAREDPTR
 		std::shared_ptr<PluginHost<PluginFormat>> *plugin =
 				static_cast<std::shared_ptr<PluginHost<PluginFormat>> *>(vptr);
 		if (plugin)
 			plugin->reset();
 		delete plugin;
 		plugin = nullptr;
+#else
+		PluginHost<PluginFormat> *plugin = static_cast<PluginHost<PluginFormat> *>(vptr);
+		if (plugin)
+			delete plugin;
+#endif
 	}
 
 	static struct obs_audio_data *Filter_Audio(void *vptr, struct obs_audio_data *audio)
 	{
+#ifdef SHAREDPTR
 		std::shared_ptr<PluginHost<PluginFormat>> *plugin =
 				static_cast<std::shared_ptr<PluginHost<PluginFormat>> *>(vptr);
 
 		plugin->get()->filter_audio(audio);
+#else
+		PluginHost<PluginFormat> *plugin = static_cast<PluginHost<PluginFormat> *>(vptr);
+		if (plugin)
+			plugin->filter_audio(audio);
+#endif
 		return audio;
 	}
 };
