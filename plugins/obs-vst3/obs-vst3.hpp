@@ -20,7 +20,7 @@ public:
 		setOpaque(true);
 		setUsingNativeTitleBar(true);
 		/* Currently not working? */
-		//setIcon(windowIcon);
+		// setIcon(windowIcon);
 	}
 	~VSTWindow()
 	{
@@ -44,11 +44,12 @@ class PluginHost : private AudioProcessorListener, public std::enable_shared_fro
 private:
 	juce::AudioBuffer<float> buffer;
 	juce::MidiBuffer         midi;
+	double                   current_sample_rate = 0.0;
 
-	AudioPluginInstance *    vst_instance     = nullptr;
-	AudioPluginInstance *    new_vst_instance = nullptr;
-	AudioPluginInstance *    old_vst_instance = nullptr;
-	PluginDescription        desc;
+	AudioPluginInstance *vst_instance     = nullptr;
+	AudioPluginInstance *new_vst_instance = nullptr;
+	AudioPluginInstance *old_vst_instance = nullptr;
+	PluginDescription    desc;
 
 	obs_source_t *    context = nullptr;
 	juce::MemoryBlock vst_state;
@@ -200,8 +201,7 @@ private:
 		old_vst_instance = nullptr;
 
 		obs_audio_info aoi;
-		aoi.samples_per_sec = 48000;
-		bool got_audio      = obs_get_audio_info(&aoi);
+		bool           got_audio = obs_get_audio_info(&aoi);
 
 		juce::String file       = obs_data_get_string(settings, "effect");
 		juce::String plugin     = obs_data_get_string(settings, "desc");
@@ -215,8 +215,13 @@ private:
 			}
 		};
 
-		if (mididevice.compare("") == 0)
-		{
+		double sps = (double)aoi.samples_per_sec;
+		if (got_audio && current_sample_rate != sps) {
+			midi_collector.reset(sps);
+			current_sample_rate = sps;
+		}
+
+		if (mididevice.compare("") == 0) {
 			midi_stop();
 		} else if (mididevice.compare(current_midi) != 0) {
 			midi_stop();
@@ -228,12 +233,14 @@ private:
 					break;
 			}
 			MidiInput *nextdevice = MidiInput::openDevice(deviceindex, &midi_collector);
-			
+			//if we haven't reset, make absolute certain we have
+			if (current_sample_rate == 0.0) {
+				midi_collector.reset(48000.0);
+				current_sample_rate = 48000.0;
+			}
 			midi_input = nextdevice;
 			if (midi_input)
 				midi_input->start();
-
-			midi_collector.reset((double)aoi.samples_per_sec);
 		}
 
 		juce::String err;
@@ -353,8 +360,13 @@ private:
 			struct obs_audio_info aoi;
 			bool                  audio_info = obs_get_audio_info(&aoi);
 			double                sps        = (double)aoi.samples_per_sec;
-			if (audio_info)
+
+			if (audio_info) {
 				vst_instance->prepareToPlay(sps, audio->frames);
+				if (current_sample_rate != sps)
+					midi_collector.reset(sps);
+				current_sample_rate = sps;
+			}
 
 			midi_collector.removeNextBlockOfMessages(midi, audio->frames);
 			buffer.setDataToReferTo((float **)audio->data, chs, audio->frames);
@@ -366,9 +378,6 @@ private:
 				vst_instance->processBlock(buffer, midi);
 
 			midi.clear();
-
-			if (audio_info)
-				midi_collector.reset(sps);
 		}
 	}
 
