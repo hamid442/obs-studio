@@ -431,18 +431,10 @@ public:
 
 	bool old_gui()
 	{
-		if (vst_instance) {
-			if (dialog) {
-				return current_name.compare(dialog->getName()) != 0;
-			}
-			/*
-			auto d = dialog;
-			if (d)
-				return current_name.compare(d->getName()) != 0;
-				*/
-		} else {
+		if (vst_instance && dialog)
+			return current_name.compare(dialog->getName()) != 0;
+		else
 			return current_name.compare("") != 0;
-		}
 	}
 
 	void gui_clicked()
