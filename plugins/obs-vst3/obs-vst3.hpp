@@ -27,32 +27,24 @@ public:
 	}
 };
 
-//#define SHAREDPTR
+#define SHAREDPTR
 
 template<class PluginFormat>
 class PluginHost : private AudioProcessorListener
 #ifdef SHAREDPTR
-	, public std::enable_shared_from_this<PluginHost<PluginFormat>>
+	,
+		   public std::enable_shared_from_this<PluginHost<PluginFormat>>
 #endif
 {
 private:
-	juce::AudioBuffer<float> buffer;
-	juce::MidiBuffer         midi;
-	double                   current_sample_rate = 0.0;
-	/*
-	AudioPluginInstance *vst_instance     = nullptr;
-	AudioPluginInstance *new_vst_instance = nullptr;
-	AudioPluginInstance *old_vst_instance = nullptr;
-
-	std::shared_ptr<AudioPluginInstance> vst_instance;
-	std::shared_ptr<AudioPluginInstance> new_vst_instance;
-	std::shared_ptr<AudioPluginInstance> old_vst_instance;
-	*/
+	juce::AudioBuffer<float>             buffer;
+	juce::MidiBuffer                     midi;
+	double                               current_sample_rate = 0.0;
 	std::unique_ptr<AudioPluginInstance> vst_instance;
 	std::unique_ptr<AudioPluginInstance> new_vst_instance;
-	//std::unique_ptr<AudioPluginInstance> old_vst_instance;
-	
-	PluginDescription    desc;
+	juce::CriticalSection menu_lock;
+
+	PluginDescription desc;
 
 	obs_source_t *    context = nullptr;
 	juce::MemoryBlock vst_state;
@@ -70,7 +62,7 @@ private:
 
 	bool swap         = false;
 	bool updating     = false;
-	bool asynchronous = false;
+	bool asynchronous = true;
 
 	PluginFormat plugin_format;
 
@@ -151,8 +143,8 @@ private:
 	void change_vst(AudioPluginInstance *inst, juce::String err, juce::String state, juce::String file,
 			juce::String vst_processor, std::vector<std::pair<int, float>> vstsaved)
 	{
-		updating         = true;
-		//new_vst_instance = inst;
+		updating = true;
+		// new_vst_instance = inst;
 		new_vst_instance.reset(inst);
 		if (err.toStdString().length() > 0) {
 			blog(LOG_WARNING, "failed to load! %s", err.toStdString().c_str());
@@ -194,9 +186,11 @@ private:
 		/* Save the new vst's state */
 		save_state(new_vst_instance.get());
 
+		menu_lock.enter();
 		current_file = file;
 		swap         = true;
 		updating     = false;
+		menu_lock.exit();
 	}
 
 	void update(obs_data_t *settings)
@@ -214,8 +208,8 @@ private:
 		}
 #endif
 		;
-		//close_vst(old_vst_instance);
-		//old_vst_instance = nullptr;
+		// close_vst(old_vst_instance);
+		// old_vst_instance = nullptr;
 
 		obs_audio_info aoi;
 		bool           got_audio = obs_get_audio_info(&aoi);
@@ -365,9 +359,13 @@ private:
 
 	void filter_audio(struct obs_audio_data *audio)
 	{
-		if (swap) {
-			vst_instance.swap(new_vst_instance);
-			swap = false;
+		//const ScopedTryLock lock(menu_lock);
+		if (menu_lock.tryEnter()) {
+			if (swap) {
+				vst_instance.swap(new_vst_instance);
+				swap = false;
+			}
+			menu_lock.exit();
 		}
 
 		/*Process w/ VST*/
