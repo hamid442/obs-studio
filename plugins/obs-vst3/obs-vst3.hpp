@@ -328,7 +328,7 @@ public:
 
 	PluginHost(obs_data_t *settings, obs_source_t *source) : context(source)
 	{
-		// update(settings);
+		update(settings);
 	}
 
 	~PluginHost()
