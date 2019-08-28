@@ -1,4 +1,6 @@
 #pragma once
+#include <obs-module.h>
+#include <obs-frontend-api.h>
 #include <JuceHeader.h>
 
 static Image windowIcon = Image();
@@ -7,48 +9,25 @@ template<class PluginFormat> class VSTWindow;
 template<class PluginFormat> class PluginHost;
 
 template<class PluginFormat> class VSTWindow : public DialogWindow {
-	std::weak_ptr<PluginHost<PluginFormat>> _owner;
-	// std::shared_ptr<VSTWindow<PluginFormat>> self;
-
 public:
 	VSTWindow(const String &name, Colour backgroundColour, bool escapeKeyTriggersCloseButton,
 			PluginHost<PluginFormat> *owner, bool addToDesktop = false)
 		: DialogWindow(name, backgroundColour, escapeKeyTriggersCloseButton, addToDesktop)
 	{
-		//_owner = owner->shared_from_this();
-		// self.reset(this);
 		setVisible(false);
 		setOpaque(true);
 		setUsingNativeTitleBar(true);
-		/* Currently not working? */
-		// setIcon(windowIcon);
 	}
 	~VSTWindow()
 	{
-		/*
-		auto o = _owner.lock();
-		if (o)
-			o->gui_window_close();
-			*/
 	}
 	void closeButtonPressed()
 	{
 		setVisible(false);
-		/*
-		if (isOnDesktop())
-			removeFromDesktop();
-		*/
-
-		/*
-	auto o = _owner.lock();
-	if (o)
-		o->gui_window_close();
-	delete this;
-	*/
 	}
 };
 
-#define SHAREDPTR
+//#define SHAREDPTR
 
 template<class PluginFormat>
 class PluginHost : private AudioProcessorListener
@@ -60,10 +39,19 @@ private:
 	juce::AudioBuffer<float> buffer;
 	juce::MidiBuffer         midi;
 	double                   current_sample_rate = 0.0;
-
+	/*
 	AudioPluginInstance *vst_instance     = nullptr;
 	AudioPluginInstance *new_vst_instance = nullptr;
 	AudioPluginInstance *old_vst_instance = nullptr;
+
+	std::shared_ptr<AudioPluginInstance> vst_instance;
+	std::shared_ptr<AudioPluginInstance> new_vst_instance;
+	std::shared_ptr<AudioPluginInstance> old_vst_instance;
+	*/
+	std::unique_ptr<AudioPluginInstance> vst_instance;
+	std::unique_ptr<AudioPluginInstance> new_vst_instance;
+	std::unique_ptr<AudioPluginInstance> old_vst_instance;
+	
 	PluginDescription    desc;
 
 	obs_source_t *    context = nullptr;
@@ -76,14 +64,13 @@ private:
 	MidiMessageCollector midi_collector;
 	MidiInput *          midi_input = nullptr;
 
-	// std::shared_ptr<VSTWindow<PluginFormat>> dialog;
 	VSTWindow<PluginFormat> *dialog = nullptr;
 
 	juce::AudioProcessorParameter *param = nullptr;
 
 	bool swap         = false;
 	bool updating     = false;
-	bool asynchronous = true;
+	bool asynchronous = false;
 
 	PluginFormat plugin_format;
 
@@ -137,7 +124,7 @@ private:
 
 		save_processor(processor);
 	}
-
+	/*
 	void close_vst(AudioPluginInstance *inst)
 	{
 		if (inst) {
@@ -149,12 +136,24 @@ private:
 			delete inst;
 		}
 	}
-
+	*/
+	void close_vst(std::unique_ptr<AudioPluginInstance> &inst)
+	{
+		if (inst) {
+			inst->removeListener(this);
+			AudioProcessorEditor *e = inst->getActiveEditor();
+			if (e)
+				delete e;
+			inst->releaseResources();
+			inst.reset();
+		}
+	}
 	void change_vst(AudioPluginInstance *inst, juce::String err, juce::String state, juce::String file,
 			juce::String vst_processor, std::vector<std::pair<int, float>> vstsaved)
 	{
 		updating         = true;
-		new_vst_instance = inst;
+		//new_vst_instance = inst;
+		new_vst_instance.reset(inst);
 		if (err.toStdString().length() > 0) {
 			blog(LOG_WARNING, "failed to load! %s", err.toStdString().c_str());
 		}
@@ -193,7 +192,7 @@ private:
 		}
 
 		/* Save the new vst's state */
-		save_state(new_vst_instance);
+		save_state(new_vst_instance.get());
 
 		current_file = file;
 		swap         = true;
@@ -214,8 +213,9 @@ private:
 			return;
 		}
 #endif
-		close_vst(old_vst_instance);
-		old_vst_instance = nullptr;
+		;
+		//close_vst(old_vst_instance);
+		//old_vst_instance = nullptr;
 
 		obs_audio_info aoi;
 		bool           got_audio = obs_get_audio_info(&aoi);
@@ -358,7 +358,7 @@ private:
 	void save(obs_data_t *settings)
 	{
 		if (vst_instance)
-			save_state(vst_instance);
+			save_state(vst_instance.get());
 		if (settings && vst_settings)
 			obs_data_apply(settings, vst_settings);
 	}
@@ -366,10 +366,17 @@ private:
 	void filter_audio(struct obs_audio_data *audio)
 	{
 		if (swap) {
+			old_vst_instance.swap(vst_instance);
+			vst_instance.swap(new_vst_instance);
+			new_vst_instance.reset();
+			//old_vst_instance.swap(vst_instance);
+			//new_vst_instance.reset();
+			/*
 			old_vst_instance = vst_instance;
 			vst_instance     = new_vst_instance;
 			new_vst_instance = nullptr;
 			swap             = false;
+			*/
 		}
 
 		/*Process w/ VST*/
@@ -423,10 +430,11 @@ public:
 			delete dialog;
 
 		obs_data_release(vst_settings);
-
+		/*
 		close_vst(old_vst_instance);
 		close_vst(new_vst_instance);
 		close_vst(vst_instance);
+		*/
 	}
 
 	bool old_gui()
@@ -441,11 +449,6 @@ public:
 	{
 		if (has_gui()) {
 			if (!gui_open()) {
-				/*
-				VSTWindow<PluginFormat> *w = new VSTWindow<PluginFormat>(
-						desc.name, juce::Colour(255, 255, 255), false, this);
-				dialog = w->get();
-				*/
 				dialog = new VSTWindow<PluginFormat>(
 						desc.name, juce::Colour(255, 255, 255), false, this);
 			}
@@ -491,7 +494,6 @@ public:
 
 	void gui_close()
 	{
-		// dialog.reset();
 		if (dialog)
 			delete dialog;
 		dialog = nullptr;
@@ -509,7 +511,7 @@ public:
 
 	bool gui_open()
 	{
-		return dialog; // dialog.use_count();
+		return dialog;
 	}
 
 	static bool vst_gui_clicked(obs_properties_t *props, obs_property_t *property, void *vptr)

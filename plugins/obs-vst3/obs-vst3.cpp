@@ -15,8 +15,6 @@ You should have received a copy of the GNU General Public License
 along with this program.  If not, see <http://www.gnu.org/licenses/>.
 */
 
-#include <obs-module.h>
-#include <obs-frontend-api.h>
 #include "obs-vst3.hpp"
 
 OBS_DECLARE_MODULE()
