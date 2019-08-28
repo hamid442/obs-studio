@@ -50,7 +50,7 @@ private:
 	*/
 	std::unique_ptr<AudioPluginInstance> vst_instance;
 	std::unique_ptr<AudioPluginInstance> new_vst_instance;
-	std::unique_ptr<AudioPluginInstance> old_vst_instance;
+	//std::unique_ptr<AudioPluginInstance> old_vst_instance;
 	
 	PluginDescription    desc;
 
@@ -366,17 +366,8 @@ private:
 	void filter_audio(struct obs_audio_data *audio)
 	{
 		if (swap) {
-			old_vst_instance.swap(vst_instance);
 			vst_instance.swap(new_vst_instance);
-			new_vst_instance.reset();
-			//old_vst_instance.swap(vst_instance);
-			//new_vst_instance.reset();
-			/*
-			old_vst_instance = vst_instance;
-			vst_instance     = new_vst_instance;
-			new_vst_instance = nullptr;
-			swap             = false;
-			*/
+			swap = false;
 		}
 
 		/*Process w/ VST*/
@@ -417,6 +408,8 @@ public:
 
 	PluginHost<PluginFormat>(obs_data_t *settings = nullptr, obs_source_t *source = nullptr) : context(source)
 	{
+		vst_instance.reset();
+		new_vst_instance.reset();
 	}
 
 	~PluginHost<PluginFormat>()
@@ -430,6 +423,8 @@ public:
 			delete dialog;
 
 		obs_data_release(vst_settings);
+		close_vst(vst_instance);
+		close_vst(new_vst_instance);
 		/*
 		close_vst(old_vst_instance);
 		close_vst(new_vst_instance);
