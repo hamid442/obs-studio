@@ -9,6 +9,7 @@ include_directories(
 )
 
 set(obs-vst3_HEADERS
+	obs-vst3.hpp
 	)
 set(obs-vst3_SOURCES
 	obs-vst3.cpp
