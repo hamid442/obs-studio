@@ -89,6 +89,8 @@ private:
 	juce::String         current_midi        = "";
 	double               current_sample_rate = 0.0;
 
+	CriticalSection menu_update;
+
 	PluginDescription desc;
 
 	bool was_open = false;
@@ -205,12 +207,12 @@ private:
 			juce::OwnedArray<juce::PluginDescription> descs;
 			plugin_format.findAllTypesForFile(descs, file);
 			if (descs.size() > 0) {
-				blog(LOG_INFO, "%s", descs[0]->name.toStdString().c_str());
 				// desc = *descs[0];
 				if (got_audio) {
 					String state    = obs_data_get_string(settings, "state");
 					auto   callback = [state, this, &aoi, file](AudioPluginInstance *inst,
                                                                         const juce::String &           err) {
+                                                const ScopedLock s1(menu_update);
                                                 new_vst_instance = inst;
                                                 if (err.toStdString().length() > 0) {
                                                         blog(LOG_WARNING, "failed to load! %s",
@@ -234,10 +236,10 @@ private:
 
                                                         save_state(new_vst_instance);
                                                         new_vst_instance->addListener(this);
-							current_name = new_vst_instance->getName();
-						} else {
-							current_name = "";
-						}
+                                                        current_name = new_vst_instance->getName();
+                                                } else {
+                                                        current_name = "";
+                                                }
                                                 current_file = file;
                                                 swap         = true;
 					};
@@ -255,6 +257,10 @@ private:
 								callback);
 					else
 						clear_vst();
+
+					return;
+				} else {
+					clear_vst();
 				}
 			} else {
 				clear_vst();
@@ -269,15 +275,18 @@ private:
 
 	void filter_audio(struct obs_audio_data *audio)
 	{
-		if (swap) {
-			old_vst_instance = vst_instance;
-			vst_instance     = new_vst_instance;
-			new_vst_instance = nullptr;
-			if (old_vst_instance)
-				old_vst_instance->removeListener(this);
-			if (was_open)
-				host_clicked();
-			swap = false;
+		if (menu_update.tryEnter()) {
+			if (swap) {
+				old_vst_instance = vst_instance;
+				vst_instance     = new_vst_instance;
+				new_vst_instance = nullptr;
+				if (old_vst_instance)
+					old_vst_instance->removeListener(this);
+				if (was_open)
+					host_clicked();
+				swap = false;
+			}
+			menu_update.exit();
 		}
 
 		/*Process w/ VST*/
@@ -319,7 +328,7 @@ public:
 
 	PluginHost(obs_data_t *settings, obs_source_t *source) : context(source)
 	{
-		update(settings);
+		// update(settings);
 	}
 
 	~PluginHost()
@@ -440,7 +449,7 @@ public:
 		obs_property_t *vst_host_button;
 		obs_property_t *bypass;
 		vst_list = obs_properties_add_list(
-				props, "effect", "vsts", OBS_COMBO_TYPE_LIST, OBS_COMBO_FORMAT_STRING);
+				props, "effect", obs_module_text("File"), OBS_COMBO_TYPE_LIST, OBS_COMBO_FORMAT_STRING);
 		obs_property_set_modified_callback2(vst_list, vst_selected_modified, plugin);
 
 		desc_list = obs_properties_add_list(
@@ -509,7 +518,8 @@ public:
 	static void Destroy(void *vptr)
 	{
 		PluginHost *plugin = static_cast<PluginHost *>(vptr);
-		delete plugin;
+		if (plugin)
+			delete plugin;
 		plugin = nullptr;
 	}
 
