@@ -65,7 +65,7 @@ public:
 	}
 };
 
-template<class PluginFormat> class PluginHost : private AudioProcessorListener {
+template<class PluginFormat> class PluginHost : private AudioProcessorListener, public ReferenceCountedObject {
 private:
 	juce::AudioBuffer<float> buffer;
 	juce::MidiBuffer         midi;
@@ -84,12 +84,12 @@ private:
 
 	juce::AudioProcessorParameter *param = nullptr;
 
+	CriticalSection *menu_update = nullptr;
+
 	MidiMessageCollector midi_collector;
 	MidiInput *          midi_input          = nullptr;
 	juce::String         current_midi        = "";
 	double               current_sample_rate = 0.0;
-
-	CriticalSection menu_update;
 
 	PluginDescription desc;
 
@@ -134,6 +134,38 @@ private:
 			delete inst;
 			inst = nullptr;
 		}
+	}
+
+	void change_vst(AudioPluginInstance *inst, juce::String err, obs_audio_info aoi, juce::String file,
+			juce::String state)
+	{
+		menu_update->enter();
+		new_vst_instance = inst;
+		if (err.toStdString().length() > 0)
+			blog(LOG_WARNING, "failed to load! %s", err.toStdString().c_str());
+		if (new_vst_instance) {
+			host_close();
+			new_vst_instance->setNonRealtime(false);
+			new_vst_instance->prepareToPlay((double)aoi.samples_per_sec, 2 * obs_output_frames);
+
+			if (!vst_settings) {
+				juce::MemoryBlock m;
+				m.fromBase64Encoding(state);
+				new_vst_instance->setStateInformation(m.getData(), m.getSize());
+				vst_settings = obs_data_create();
+			} else {
+				obs_data_clear(vst_settings);
+			}
+
+			save_state(new_vst_instance);
+			new_vst_instance->addListener(this);
+			current_name = new_vst_instance->getName();
+		} else {
+			current_name = "";
+		}
+		current_file = file;
+		swap         = true;
+		menu_update->exit();
 	}
 
 	void update(obs_data_t *settings)
@@ -191,7 +223,6 @@ private:
 		auto clear_vst = [this]() {
 			close_vst(new_vst_instance);
 			new_vst_instance = nullptr;
-			desc             = PluginDescription();
 			current_name     = "";
 			swap             = true;
 		};
@@ -207,57 +238,30 @@ private:
 			juce::OwnedArray<juce::PluginDescription> descs;
 			plugin_format.findAllTypesForFile(descs, file);
 			if (descs.size() > 0) {
-				// desc = *descs[0];
 				if (got_audio) {
 					String state    = obs_data_get_string(settings, "state");
 					auto   callback = [state, this, &aoi, file](AudioPluginInstance *inst,
                                                                         const juce::String &           err) {
-                                                const ScopedLock s1(menu_update);
-                                                new_vst_instance = inst;
-                                                if (err.toStdString().length() > 0) {
-                                                        blog(LOG_WARNING, "failed to load! %s",
-                                                                        err.toStdString().c_str());
-                                                }
-                                                if (new_vst_instance) {
-                                                        host_close();
-                                                        new_vst_instance->setNonRealtime(false);
-                                                        new_vst_instance->prepareToPlay((double)aoi.samples_per_sec,
-                                                                        2 * obs_output_frames);
-
-                                                        if (!vst_settings) {
-                                                                juce::MemoryBlock m;
-                                                                m.fromBase64Encoding(state);
-                                                                new_vst_instance->setStateInformation(
-                                                                                m.getData(), m.getSize());
-                                                                vst_settings = obs_data_create();
-                                                        } else {
-                                                                obs_data_clear(vst_settings);
-                                                        }
-
-                                                        save_state(new_vst_instance);
-                                                        new_vst_instance->addListener(this);
-                                                        current_name = new_vst_instance->getName();
-                                                } else {
-                                                        current_name = "";
-                                                }
-                                                current_file = file;
-                                                swap         = true;
+                                                change_vst(inst, err, aoi, file, state);
+                                                decReferenceCount();
 					};
 
-					for (int i = 0; i < descs.size(); i++) {
+					int i = 0;
+					for (; i < descs.size(); i++) {
 						if (plugin.compare(descs[i]->name) == 0) {
-							desc  = *descs[i];
 							found = true;
 							break;
 						}
 					}
-					if (found)
-						plugin_format.createPluginInstanceAsync(desc,
+					if (found) {
+						//ensure the lifetime of this until after callback completes
+						incReferenceCount();
+						plugin_format.createPluginInstanceAsync(*descs[i],
 								(double)aoi.samples_per_sec, 2 * obs_output_frames,
 								callback);
-					else
+					} else {
 						clear_vst();
-
+					}
 					return;
 				} else {
 					clear_vst();
@@ -275,7 +279,7 @@ private:
 
 	void filter_audio(struct obs_audio_data *audio)
 	{
-		if (menu_update.tryEnter()) {
+		if (menu_update && menu_update->tryEnter()) {
 			if (swap) {
 				old_vst_instance = vst_instance;
 				vst_instance     = new_vst_instance;
@@ -286,7 +290,7 @@ private:
 					host_clicked();
 				swap = false;
 			}
-			menu_update.exit();
+			menu_update->exit();
 		}
 
 		/*Process w/ VST*/
@@ -328,7 +332,7 @@ public:
 
 	PluginHost(obs_data_t *settings, obs_source_t *source) : context(source)
 	{
-		update(settings);
+		menu_update = new CriticalSection();
 	}
 
 	~PluginHost()
@@ -505,29 +509,34 @@ public:
 
 	static void *Create(obs_data_t *settings, obs_source_t *source)
 	{
-		return new PluginHost(settings, source);
+		PluginHost *plugin = new PluginHost(settings, source);
+		if (plugin) {
+			plugin->incReferenceCount();
+			plugin->update(settings);
+		}
+		return plugin;
 	}
 
 	static void Save(void *vptr, obs_data_t *settings)
 	{
 		PluginHost *plugin = static_cast<PluginHost *>(vptr);
-		if (plugin)
+		if (plugin) {
 			plugin->save(settings);
+		}
 	}
 
 	static void Destroy(void *vptr)
 	{
 		PluginHost *plugin = static_cast<PluginHost *>(vptr);
 		if (plugin)
-			delete plugin;
-		plugin = nullptr;
+			plugin->decReferenceCount();
 	}
 
 	static struct obs_audio_data *Filter_Audio(void *vptr, struct obs_audio_data *audio)
 	{
 		PluginHost *plugin = static_cast<PluginHost *>(vptr);
-		plugin->filter_audio(audio);
-
+		if (plugin && plugin->getReferenceCount())
+			plugin->filter_audio(audio);
 		return audio;
 	}
 };

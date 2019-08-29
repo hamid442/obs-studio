@@ -29,11 +29,6 @@ OBS_MODULE_USE_DEFAULT_LOCALE("obs-vst3", "en-US")
 
 #define blog(level, msg, ...) blog(level, "obs-vst3: " msg, ##__VA_ARGS__)
 
-static void free_type_data(void *type_data)
-{
-	type_data = 0;
-}
-
 using VST3Host = PluginHost<VST3PluginFormat>;
 using VSTHost  = PluginHost<VSTPluginFormat>;
 
@@ -81,13 +76,12 @@ void set_search_paths(VST3PluginFormat &f, FileSearchPath p)
 	search = p;
 }
 
-
 bool obs_module_load(void)
 {
 	MessageManager::getInstance();
 
 	struct obs_source_info vst3_filter = {};
-	vst3_filter.id                     = "vst_filter3";
+	vst3_filter.id                     = "vst_filter_juce_3x";
 	vst3_filter.type                   = OBS_SOURCE_TYPE_FILTER;
 	vst3_filter.output_flags           = OBS_SOURCE_AUDIO;
 	vst3_filter.get_name               = VST3Host::Name;
@@ -97,11 +91,9 @@ bool obs_module_load(void)
 	vst3_filter.filter_audio           = VST3Host::Filter_Audio;
 	vst3_filter.get_properties         = VST3Host::Properties;
 	vst3_filter.save                   = VST3Host::Save;
-	vst3_filter.type_data              = (void *)true;
-	vst3_filter.free_type_data         = free_type_data;
 
 	struct obs_source_info vst_filter = {};
-	vst_filter.id                     = "vst_filter3";
+	vst_filter.id                     = "vst_filter_juce_2x";
 	vst_filter.type                   = OBS_SOURCE_TYPE_FILTER;
 	vst_filter.output_flags           = OBS_SOURCE_AUDIO;
 	vst_filter.get_name               = VSTHost::Name;
@@ -111,16 +103,15 @@ bool obs_module_load(void)
 	vst_filter.filter_audio           = VSTHost::Filter_Audio;
 	vst_filter.get_properties         = VSTHost::Properties;
 	vst_filter.save                   = VSTHost::Save;
-	vst_filter.type_data              = (void *)true;
-	vst_filter.free_type_data         = free_type_data;
 
 	int version = (JUCE_MAJOR_VERSION << 16) | (JUCE_MINOR_VERSION << 8) | JUCE_BUILDNUMBER;
 	blog(LOG_INFO, "JUCE Version: (%i) %i.%i.%i", version, JUCE_MAJOR_VERSION, JUCE_MINOR_VERSION,
 			JUCE_BUILDNUMBER);
 
 	obs_register_source(&vst3_filter);
+	obs_register_source(&vst_filter);
 
-	if (vst3_filter.free_type_data) {
+	if (true) {
 		auto rescan_vst3 = [](void * = nullptr) {
 			if (vst3format.canScanForPlugins())
 				paths = vst3format.searchPathsForPlugins(search, true, true);
@@ -129,7 +120,7 @@ bool obs_module_load(void)
 		rescan_vst3();
 	}
 
-	if (vst_filter.free_type_data) {
+	if (true) {
 		auto rescan_vst2 = [](void * = nullptr) {
 			if (vst2format.canScanForPlugins())
 				paths_2x = vst2format.searchPathsForPlugins(search_2x, true, true);
@@ -138,5 +129,9 @@ bool obs_module_load(void)
 		rescan_vst2();
 	}
 
-	return vst3_filter.type_data || vst_filter.type_data;
+	return true;
+}
+
+void obs_module_unload()
+{
 }
