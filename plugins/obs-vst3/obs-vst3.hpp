@@ -80,8 +80,7 @@ private:
 	juce::String          current_file = "";
 	juce::String          current_name = "";
 
-	PluginWindow *dialog = nullptr;
-
+	PluginWindow *                 dialog = nullptr;
 	juce::AudioProcessorParameter *param = nullptr;
 
 	CriticalSection *menu_update = nullptr;
@@ -160,6 +159,8 @@ private:
 			save_state(new_vst_instance);
 			new_vst_instance->addListener(this);
 			current_name = new_vst_instance->getName();
+			if (was_open)
+				host_clicked(new_vst_instance);
 		} else {
 			current_name = "";
 		}
@@ -233,7 +234,7 @@ private:
 				return;
 			}
 
-			was_open = host_open();
+			was_open = host_showing();
 
 			juce::OwnedArray<juce::PluginDescription> descs;
 			plugin_format.findAllTypesForFile(descs, file);
@@ -286,8 +287,6 @@ private:
 				new_vst_instance = nullptr;
 				if (old_vst_instance)
 					old_vst_instance->removeListener(this);
-				if (was_open)
-					host_clicked();
 				swap = false;
 			}
 			menu_update->exit();
@@ -344,14 +343,15 @@ public:
 		close_vst(new_vst_instance);
 	}
 
-	void host_clicked()
+	void host_clicked(AudioPluginInstance *inst = nullptr)
 	{
-		if (has_gui()) {
+		if (!inst)
+			inst = vst_instance;
+		if (has_gui(inst)) {
 			if (!dialog)
 				dialog = new PluginWindow("", Colour(255, 255, 255), false, false);
-			dialog->setName(vst_instance->getName());
-
-			editor = vst_instance->createEditorIfNeeded();
+			dialog->setName(inst->getName());
+			editor = inst->createEditorIfNeeded();
 
 			if (dialog) {
 				if (editor)
@@ -382,14 +382,21 @@ public:
 		}
 	}
 
-	bool has_gui()
+	bool has_gui(AudioPluginInstance *inst = nullptr)
 	{
-		return !swap && vst_instance && vst_instance->hasEditor();
+		if (!inst)
+			inst = vst_instance;
+		return !swap && inst && inst->hasEditor();
 	}
 
 	bool host_open()
 	{
 		return dialog;
+	}
+
+	bool host_showing()
+	{
+		return dialog && dialog->isOnDesktop() && dialog->isVisible();
 	}
 
 	static bool vst_host_clicked(obs_properties_t *props, obs_property_t *property, void *vptr)
