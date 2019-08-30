@@ -8,6 +8,10 @@
 #include <obs-frontend-api.h>
 #include <vector>
 #include <stdio.h>
+#include <QMainWindow>
+#include <QApplication>
+#include <QDesktopWidget>
+#include <QCursor>
 #include <JuceHeader.h>
 #include <juce_audio_processors/juce_audio_processors.h>
 
@@ -48,6 +52,22 @@ void set_paths(VST3PluginFormat &f, StringArray p);
 void set_search_paths(VSTPluginFormat &f, FileSearchPath p);
 void set_search_paths(VST3PluginFormat &f, FileSearchPath p);
 
+template<typename ValueType>
+Point<ValueType> physicalToLogical(
+		Point<ValueType> point, const juce::Displays::Display *useScaleFactorOfDisplay = nullptr)
+{
+	auto &display = useScaleFactorOfDisplay != nullptr
+			? *useScaleFactorOfDisplay
+			: Desktop::getInstance().getDisplays().findDisplayForPoint(point.roundToInt(), true);
+
+	auto globalScale = Desktop::getInstance().getGlobalScaleFactor();
+
+	Point<ValueType> logicalTopLeft(display.totalArea.getX(), display.totalArea.getY());
+	Point<ValueType> physicalTopLeft(display.topLeftPhysical.getX(), display.topLeftPhysical.getY());
+
+	return ((point - physicalTopLeft) / (display.scale / globalScale)) + (logicalTopLeft * globalScale);
+}
+
 class PluginWindow : public DialogWindow {
 public:
 	PluginWindow(const String &name, Colour backgroundColour, bool escapeKeyTriggersCloseButton,
@@ -81,9 +101,9 @@ private:
 	juce::String          current_name = "";
 
 	PluginWindow *                 dialog = nullptr;
-	juce::AudioProcessorParameter *param = nullptr;
+	juce::AudioProcessorParameter *param  = nullptr;
 
-	CriticalSection *menu_update = nullptr;
+	CriticalSection menu_update;
 
 	MidiMessageCollector midi_collector;
 	MidiInput *          midi_input          = nullptr;
@@ -138,7 +158,7 @@ private:
 	void change_vst(AudioPluginInstance *inst, juce::String err, obs_audio_info aoi, juce::String file,
 			juce::String state)
 	{
-		menu_update->enter();
+		menu_update.enter();
 		new_vst_instance = inst;
 		if (err.toStdString().length() > 0)
 			blog(LOG_WARNING, "failed to load! %s", err.toStdString().c_str());
@@ -166,7 +186,7 @@ private:
 		}
 		current_file = file;
 		swap         = true;
-		menu_update->exit();
+		menu_update.exit();
 	}
 
 	void update(obs_data_t *settings)
@@ -255,7 +275,7 @@ private:
 						}
 					}
 					if (found) {
-						//ensure the lifetime of this until after callback completes
+						// ensure the lifetime of this until after callback completes
 						incReferenceCount();
 						plugin_format.createPluginInstanceAsync(*descs[i],
 								(double)aoi.samples_per_sec, 2 * obs_output_frames,
@@ -280,7 +300,7 @@ private:
 
 	void filter_audio(struct obs_audio_data *audio)
 	{
-		if (menu_update && menu_update->tryEnter()) {
+		if (menu_update.tryEnter()) {
 			if (swap) {
 				old_vst_instance = vst_instance;
 				vst_instance     = new_vst_instance;
@@ -289,7 +309,7 @@ private:
 					old_vst_instance->removeListener(this);
 				swap = false;
 			}
-			menu_update->exit();
+			menu_update.exit();
 		}
 
 		/*Process w/ VST*/
@@ -331,10 +351,9 @@ public:
 
 	PluginHost(obs_data_t *settings, obs_source_t *source) : context(source)
 	{
-		menu_update = new CriticalSection();
 	}
 
-	~PluginHost()
+	~PluginHost() override
 	{
 		obs_data_release(vst_settings);
 		host_close();
@@ -345,6 +364,7 @@ public:
 
 	void host_clicked(AudioPluginInstance *inst = nullptr)
 	{
+		QPoint mouse = QCursor::pos();
 		if (!inst)
 			inst = vst_instance;
 		if (has_gui(inst)) {
@@ -354,8 +374,10 @@ public:
 			editor = inst->createEditorIfNeeded();
 
 			if (dialog) {
-				if (editor)
+				juce::Point<double> mouse_point(mouse.x(), mouse.y());
+				if (editor) {
 					editor->setOpaque(true);
+				}
 				dialog->setContentNonOwned(editor, true);
 				if (!dialog->isOnDesktop()) {
 					dialog->setOpaque(true);
@@ -364,12 +386,21 @@ public:
 									ComponentPeer::StyleFlags::
 											windowHasMinimiseButton,
 							nullptr);
-
-					dialog->setTopLeftPosition(40, 40);
 				}
 				dialog->setVisible(editor);
-				if (editor)
+				if (editor) {
+					juce::Point<double> mouse_double  = physicalToLogical(mouse_point);
+					juce::Point<int>    logical_mouse = mouse_double.roundToInt();
+
+					logical_mouse.x -= (dialog->getWidth() / 2);
+					logical_mouse.y += 20;
+
 					editor->setVisible(true);
+
+					dialog->setTopLeftPosition(logical_mouse);
+
+					editor->grabKeyboardFocus();
+				}
 			}
 		}
 	}
@@ -386,7 +417,7 @@ public:
 	{
 		if (!inst)
 			inst = vst_instance;
-		return !swap && inst && inst->hasEditor();
+		return inst && inst->hasEditor();
 	}
 
 	bool host_open()
@@ -458,7 +489,7 @@ public:
 		obs_property_t *midi_list;
 
 		obs_property_t *vst_host_button;
-		obs_property_t *bypass;
+
 		vst_list = obs_properties_add_list(
 				props, "effect", obs_module_text("File"), OBS_COMBO_TYPE_LIST, OBS_COMBO_FORMAT_STRING);
 		obs_property_set_modified_callback2(vst_list, vst_selected_modified, plugin);
@@ -482,6 +513,7 @@ public:
 				set_paths(plugin_format, paths);
 			}
 
+			obs_property_list_add_string(vst_list, "", "");
 			for (int i = 0; i < paths.size(); i++) {
 				juce::String name = plugin_format.getNameOfPluginFromIdentifier(paths[i]);
 				obs_property_list_add_string(
@@ -527,9 +559,8 @@ public:
 	static void Save(void *vptr, obs_data_t *settings)
 	{
 		PluginHost *plugin = static_cast<PluginHost *>(vptr);
-		if (plugin) {
+		if (plugin)
 			plugin->save(settings);
-		}
 	}
 
 	static void Destroy(void *vptr)
@@ -542,7 +573,7 @@ public:
 	static struct obs_audio_data *Filter_Audio(void *vptr, struct obs_audio_data *audio)
 	{
 		PluginHost *plugin = static_cast<PluginHost *>(vptr);
-		if (plugin && plugin->getReferenceCount())
+		if (plugin)
 			plugin->filter_audio(audio);
 		return audio;
 	}

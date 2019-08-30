@@ -1,5 +1,5 @@
 /*
-Copyright (C) 2018 by pkv <pkv.stream@gmail.com>, andersama <anderson.john.alexander@gmail.com>
+Copyright (C) 2019 andersama <anderson.john.alexander@gmail.com>
 
 This program is free software: you can redistribute it and/or modify
 it under the terms of the GNU General Public License as published by
@@ -80,7 +80,7 @@ bool obs_module_load(void)
 {
 	MessageManager::getInstance();
 
-	struct obs_source_info vst3_filter = {};
+	struct obs_source_info vst3_filter = {0};
 	vst3_filter.id                     = "vst_filter_juce_3x";
 	vst3_filter.type                   = OBS_SOURCE_TYPE_FILTER;
 	vst3_filter.output_flags           = OBS_SOURCE_AUDIO;
@@ -92,7 +92,7 @@ bool obs_module_load(void)
 	vst3_filter.get_properties         = VST3Host::Properties;
 	vst3_filter.save                   = VST3Host::Save;
 
-	struct obs_source_info vst_filter = {};
+	struct obs_source_info vst_filter = {0};
 	vst_filter.id                     = "vst_filter_juce_2x";
 	vst_filter.type                   = OBS_SOURCE_TYPE_FILTER;
 	vst_filter.output_flags           = OBS_SOURCE_AUDIO;
@@ -111,23 +111,19 @@ bool obs_module_load(void)
 	obs_register_source(&vst3_filter);
 	obs_register_source(&vst_filter);
 
-	if (true) {
-		auto rescan_vst3 = [](void * = nullptr) {
-			if (vst3format.canScanForPlugins())
-				paths = vst3format.searchPathsForPlugins(search, true, true);
-		};
-		obs_frontend_add_tools_menu_item("Rescan VST3", rescan_vst3, nullptr);
-		rescan_vst3();
-	}
+	auto rescan_vst3 = [](void * = nullptr) {
+		if (vst3format.canScanForPlugins())
+			paths = vst3format.searchPathsForPlugins(search, true, true);
+	};
+	obs_frontend_add_tools_menu_item("Rescan VST3", rescan_vst3, nullptr);
+	rescan_vst3();
 
-	if (true) {
-		auto rescan_vst2 = [](void * = nullptr) {
-			if (vst2format.canScanForPlugins())
-				paths_2x = vst2format.searchPathsForPlugins(search_2x, true, true);
-		};
-		obs_frontend_add_tools_menu_item("Rescan VST", rescan_vst2, nullptr);
-		rescan_vst2();
-	}
+	auto rescan_vst2 = [](void * = nullptr) {
+		if (vst2format.canScanForPlugins())
+			paths_2x = vst2format.searchPathsForPlugins(search_2x, true, true);
+	};
+	obs_frontend_add_tools_menu_item("Rescan VST", rescan_vst2, nullptr);
+	rescan_vst2();
 
 	return true;
 }
