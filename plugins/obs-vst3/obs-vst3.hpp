@@ -13,6 +13,7 @@
 #include <QDesktopWidget>
 #include <QCursor>
 #include <JuceHeader.h>
+//#include <juce_audio_devices/midi_io/juce_MidiDevices.h>
 #include <juce_audio_processors/juce_audio_processors.h>
 
 int get_max_obs_channels()
@@ -90,11 +91,12 @@ private:
 	juce::AudioBuffer<float> buffer;
 	juce::MidiBuffer         midi;
 
-	AudioPluginInstance * vst_instance     = nullptr;
-	AudioPluginInstance * new_vst_instance = nullptr;
-	AudioPluginInstance * old_vst_instance = nullptr;
-	AudioProcessorEditor *editor           = nullptr;
-	obs_source_t *        context          = nullptr;
+	std::unique_ptr<AudioPluginInstance> vst_instance;
+	std::unique_ptr<AudioPluginInstance> new_vst_instance;
+
+	// AudioPluginInstance * old_vst_instance = nullptr;
+	AudioProcessorEditor *editor  = nullptr;
+	obs_source_t *        context = nullptr;
 	juce::MemoryBlock     vst_state;
 	obs_data_t *          vst_settings = nullptr;
 	juce::String          current_file = "";
@@ -105,10 +107,11 @@ private:
 
 	CriticalSection menu_update;
 
-	MidiMessageCollector midi_collector;
-	MidiInput *          midi_input          = nullptr;
-	juce::String         current_midi        = "";
-	double               current_sample_rate = 0.0;
+	MidiMessageCollector       midi_collector;
+	std::unique_ptr<MidiInput> midi_input;
+	juce::String               current_midi        = "";
+	double                     current_sample_rate = 0.0;
+	bool                       dpi_aware           = true;
 
 	PluginDescription desc;
 
@@ -142,7 +145,7 @@ private:
 		save_state(processor);
 	}
 
-	void close_vst(AudioPluginInstance *inst)
+	void close_vst(std::unique_ptr<AudioPluginInstance> &inst)
 	{
 		if (inst) {
 			inst->removeListener(this);
@@ -150,18 +153,22 @@ private:
 			if (e)
 				delete e;
 			inst->releaseResources();
-			delete inst;
-			inst = nullptr;
+			inst.reset();
 		}
 	}
 
-	void change_vst(AudioPluginInstance *inst, juce::String err, obs_audio_info aoi, juce::String file,
-			juce::String state)
+	void change_vst(std::unique_ptr<AudioPluginInstance> &inst, juce::String err, obs_audio_info aoi,
+			juce::String file, juce::String state)
 	{
 		menu_update.enter();
-		new_vst_instance = inst;
+		// new_vst_instance = inst;
+		close_vst(new_vst_instance);
+		new_vst_instance.swap(inst);
+		// new_vst_instance.reset()
+		// new_vst_instance = inst;
+
 		if (err.toStdString().length() > 0)
-			blog(LOG_WARNING, "failed to load! %s", err.toStdString().c_str());
+			blog(LOG_WARNING, "Couldn't create plugin! %s", err.toStdString().c_str());
 		if (new_vst_instance) {
 			host_close();
 			new_vst_instance->setNonRealtime(false);
@@ -176,12 +183,14 @@ private:
 				obs_data_clear(vst_settings);
 			}
 
-			save_state(new_vst_instance);
+			save_state(new_vst_instance.get());
 			new_vst_instance->addListener(this);
 			current_name = new_vst_instance->getName();
 			if (was_open)
-				host_clicked(new_vst_instance);
+				host_clicked(new_vst_instance.get());
 		} else {
+			AlertWindow::showMessageBoxAsync(
+					AlertWindow::WarningIcon, TRANS("Couldn't create plugin"), err);
 			current_name = "";
 		}
 		current_file = file;
@@ -193,20 +202,26 @@ private:
 	{
 		static PluginFormat plugin_format;
 
-		close_vst(old_vst_instance);
-		old_vst_instance = nullptr;
-
-		obs_audio_info aoi        = {0};
-		bool           got_audio  = obs_get_audio_info(&aoi);
-		juce::String   file       = obs_data_get_string(settings, "effect");
-		juce::String   plugin     = obs_data_get_string(settings, "desc");
-		juce::String   mididevice = obs_data_get_string(settings, "midi");
+		obs_audio_info aoi           = {0};
+		bool           got_audio     = obs_get_audio_info(&aoi);
+		juce::String   file          = obs_data_get_string(settings, "effect");
+		juce::String   plugin        = obs_data_get_string(settings, "desc");
+		juce::String   mididevice    = obs_data_get_string(settings, "midi");
+		bool           dpi_awareness = obs_data_get_bool(settings, "dpi_aware");
+		bool           was_showing   = host_showing();
+		bool           was_open      = host_open();
+		if (dpi_awareness != dpi_aware) {
+			host_close();
+			if (editor)
+				delete editor;
+			editor = nullptr;
+		}
+		dpi_aware = dpi_awareness;
 
 		auto midi_stop = [this]() {
 			if (midi_input) {
 				midi_input->stop();
-				delete midi_input;
-				midi_input = nullptr;
+				midi_input.reset();
 			}
 		};
 
@@ -227,13 +242,13 @@ private:
 				if (devices[deviceindex].compare(mididevice) == 0)
 					break;
 			}
-			MidiInput *nextdevice = MidiInput::openDevice(deviceindex, &midi_collector);
+			std::unique_ptr<MidiInput> nextdevice = MidiInput::openDevice(deviceindex, &midi_collector);
 			// if we haven't reset, make absolute certain we have
 			if (current_sample_rate == 0.0) {
 				midi_collector.reset(48000.0);
 				current_sample_rate = 48000.0;
 			}
-			midi_input = nextdevice;
+			midi_input.swap(nextdevice);
 			if (midi_input)
 				midi_input->start();
 		}
@@ -261,11 +276,14 @@ private:
 			if (descs.size() > 0) {
 				if (got_audio) {
 					String state    = obs_data_get_string(settings, "state");
-					auto   callback = [state, this, &aoi, file](AudioPluginInstance *inst,
-                                                                        const juce::String &           err) {
-                                                change_vst(inst, err, aoi, file, state);
-                                                decReferenceCount();
+					auto   callback = [state, this, &aoi, file](
+                                                                        std::unique_ptr<AudioPluginInstance> inst,
+                                                                        const juce::String &                 err) {
+						change_vst(inst, err, aoi, file, state);
+						decReferenceCount();
 					};
+
+					// juce::AudioPluginFormat::PluginCreationCallback
 
 					int i = 0;
 					for (; i < descs.size(); i++) {
@@ -279,7 +297,7 @@ private:
 						incReferenceCount();
 						plugin_format.createPluginInstanceAsync(*descs[i],
 								(double)aoi.samples_per_sec, 2 * obs_output_frames,
-								callback);
+								std::move(callback));
 					} else {
 						clear_vst();
 					}
@@ -291,6 +309,9 @@ private:
 				clear_vst();
 			}
 		}
+
+		if (was_open)
+			host_clicked();
 	}
 
 	void save(obs_data_t *settings)
@@ -302,11 +323,9 @@ private:
 	{
 		if (menu_update.tryEnter()) {
 			if (swap) {
-				old_vst_instance = vst_instance;
-				vst_instance     = new_vst_instance;
-				new_vst_instance = nullptr;
-				if (old_vst_instance)
-					old_vst_instance->removeListener(this);
+				vst_instance.swap(new_vst_instance);
+				if (new_vst_instance)
+					new_vst_instance->removeListener(this);
 				swap = false;
 			}
 			menu_update.exit();
@@ -357,7 +376,7 @@ public:
 	{
 		obs_data_release(vst_settings);
 		host_close();
-		close_vst(old_vst_instance);
+		delete editor;
 		close_vst(vst_instance);
 		close_vst(new_vst_instance);
 	}
@@ -366,12 +385,24 @@ public:
 	{
 		QPoint mouse = QCursor::pos();
 		if (!inst)
-			inst = vst_instance;
+			inst = vst_instance.get();
 		if (has_gui(inst)) {
 			if (!dialog)
 				dialog = new PluginWindow("", Colour(255, 255, 255), false, false);
 			dialog->setName(inst->getName());
+
+#if JUCE_WINDOWS && JUCE_WIN_PER_MONITOR_DPI_AWARE
+			delete editor;
+			std::unique_ptr<ScopedDPIAwarenessDisabler> disableDPIAwareness;
+			if (!dpi_aware && (!current_name.contains("Kontakt") || !current_name.contains("BIAS"))) {
+				disableDPIAwareness.reset(new ScopedDPIAwarenessDisabler());
+				editor = inst->createEditorIfNeeded();
+			} else {
+				editor = inst->createEditorIfNeeded();
+			}
+#else
 			editor = inst->createEditorIfNeeded();
+#endif
 
 			if (dialog) {
 				juce::Point<double> mouse_point(mouse.x(), mouse.y());
@@ -416,7 +447,7 @@ public:
 	bool has_gui(AudioPluginInstance *inst = nullptr)
 	{
 		if (!inst)
-			inst = vst_instance;
+			inst = vst_instance.get();
 		return inst && inst->hasEditor();
 	}
 
@@ -489,6 +520,7 @@ public:
 		obs_property_t *midi_list;
 
 		obs_property_t *vst_host_button;
+		obs_property_t *dpi_aware;
 
 		vst_list = obs_properties_add_list(
 				props, "effect", obs_module_text("File"), OBS_COMBO_TYPE_LIST, OBS_COMBO_FORMAT_STRING);
@@ -502,6 +534,8 @@ public:
 		obs_property_set_modified_callback2(midi_list, midi_selected_modified, nullptr);
 
 		vst_host_button = obs_properties_add_button2(props, "vst_button", "Show", vst_host_clicked, plugin);
+
+		dpi_aware = obs_properties_add_bool(props, "dpi_aware", obs_module_text("DPI Aware"));
 
 		/*Add VSTs to list*/
 		bool scannable = plugin_format.canScanForPlugins();
@@ -536,6 +570,7 @@ public:
 		/*Setup Defaults*/
 		obs_data_set_default_string(settings, "effect", "None");
 		obs_data_set_default_double(settings, "enable", true);
+		obs_data_set_default_bool(settings, "dpi_aware", true);
 	}
 
 	static const char *Name(void *unused)
