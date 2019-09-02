@@ -34,15 +34,33 @@ int get_max_obs_channels()
 const int          obs_output_frames = AUDIO_OUTPUT_FRAMES;
 const volatile int obs_max_channels  = get_max_obs_channels();
 
-StringArray    get_paths(VSTPluginFormat &f);
-StringArray    get_paths(VST3PluginFormat &f);
-FileSearchPath get_search_paths(VSTPluginFormat &f);
-FileSearchPath get_search_paths(VST3PluginFormat &f);
+#if JUCE_PLUGINHOST_LADSPA && JUCE_LINUX
+StringArray get_paths(LADSPAPluginFormat &f);
+FileSearchPath get_search_paths(LADSPAPluginFormat &f);
+void set_paths(LADSPAPluginFormat &f, StringArray p);
+void set_search_paths(LADSPAPluginFormat &f, FileSearchPath p);
+#endif
 
-void set_paths(VSTPluginFormat &f, StringArray p);
-void set_paths(VST3PluginFormat &f, StringArray p);
-void set_search_paths(VSTPluginFormat &f, FileSearchPath p);
-void set_search_paths(VST3PluginFormat &f, FileSearchPath p);
+#if JUCE_PLUGINHOST_VST && (JUCE_MAC || JUCE_WINDOWS || JUCE_LINUX || JUCE_IOS)
+StringArray    get_paths(VSTPluginFormat &f);
+FileSearchPath get_search_paths(VSTPluginFormat &f);
+void           set_paths(VSTPluginFormat &f, StringArray p);
+void           set_search_paths(VSTPluginFormat &f, FileSearchPath p);
+#endif
+
+#if JUCE_PLUGINHOST_VST3 && (JUCE_MAC || JUCE_WINDOWS)
+StringArray    get_paths(VST3PluginFormat &f);
+FileSearchPath get_search_paths(VST3PluginFormat &f);
+void           set_paths(VST3PluginFormat &f, StringArray p);
+void           set_search_paths(VST3PluginFormat &f, FileSearchPath p);
+#endif
+
+#if JUCE_PLUGINHOST_AU && (JUCE_MAC || JUCE_IOS)
+StringArray    get_paths(AudioUnitPluginFormat &f);
+FileSearchPath get_search_paths(AudioUnitPluginFormat &f);
+void           set_paths(AudioUnitPluginFormat &f, StringArray p);
+void           set_search_paths(AudioUnitPluginFormat &f, FileSearchPath p);
+#endif
 
 template<typename ValueType>
 Point<ValueType> physicalToLogical(

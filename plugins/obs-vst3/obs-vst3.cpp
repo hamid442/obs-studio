@@ -29,58 +29,98 @@ OBS_MODULE_USE_DEFAULT_LOCALE("obs-vst3", "en-US")
 
 #define blog(level, msg, ...) blog(level, "obs-vst3: " msg, ##__VA_ARGS__)
 
-using VST3Host = PluginHost<VST3PluginFormat>;
-using VSTHost  = PluginHost<VSTPluginFormat>;
 
-static FileSearchPath search;
-StringArray           paths;
-
-static FileSearchPath search_2x;
-StringArray           paths_2x;
-
+#if JUCE_PLUGINHOST_VST && (JUCE_MAC || JUCE_WINDOWS || JUCE_LINUX || JUCE_IOS)
+static FileSearchPath search_vst;
+StringArray           paths_vst;
 StringArray get_paths(VSTPluginFormat &f)
 {
 	UNUSED_PARAMETER(f);
-	return paths_2x;
+	return paths_vst;
 }
-
-StringArray get_paths(VST3PluginFormat &f)
-{
-	UNUSED_PARAMETER(f);
-	return paths;
-}
-
 FileSearchPath get_search_paths(VSTPluginFormat &f)
 {
 	UNUSED_PARAMETER(f);
-	return search_2x;
+	return search_vst;
 }
+void set_paths(VSTPluginFormat &f, StringArray p)
+{
+	paths_vst = p;
+}
+void set_search_paths(VSTPluginFormat &f, FileSearchPath p)
+{
+	search_vst = p;
+}
+#endif
 
+#if JUCE_PLUGINHOST_VST3 && (JUCE_MAC || JUCE_WINDOWS)
+static FileSearchPath search_vst3;
+StringArray           paths_vst3;
+StringArray get_paths(VST3PluginFormat &f)
+{
+	UNUSED_PARAMETER(f);
+	return paths_vst3;
+}
 FileSearchPath get_search_paths(VST3PluginFormat &f)
 {
 	UNUSED_PARAMETER(f);
-	return search;
+	return search_vst3;
 }
-
-void set_paths(VSTPluginFormat &f, StringArray p)
-{
-	paths_2x = p;
-}
-
 void set_paths(VST3PluginFormat &f, StringArray p)
 {
-	paths = p;
+	paths_vst3 = p;
 }
-
-void set_search_paths(VSTPluginFormat &f, FileSearchPath p)
-{
-	search_2x = p;
-}
-
 void set_search_paths(VST3PluginFormat &f, FileSearchPath p)
 {
-	search = p;
+	search_vst3 = p;
 }
+#endif
+
+#if JUCE_PLUGINHOST_LADSPA && JUCE_LINUX
+static FileSearchPath search_ladspa;
+StringArray           paths_ladspa;
+StringArray           get_paths(LADSPAPluginFormat &f)
+{
+	UNUSED_PARAMETER(f);
+	return paths_ladspa;
+}
+FileSearchPath get_search_paths(LADSPAPluginFormat &f)
+{
+	UNUSED_PARAMETER(f);
+	return search_ladspa;
+}
+void set_paths(LADSPAPluginFormat &f, StringArray p)
+{
+	paths_ladspa = p;
+}
+void set_search_paths(LADSPAPluginFormat &f, FileSearchPath p)
+{
+	search_ladspa = p;
+}
+#endif
+
+#if JUCE_PLUGINHOST_AU && (JUCE_MAC || JUCE_IOS)
+static FileSearchPath search_au;
+StringArray           paths_au;
+StringArray           get_paths(AudioUnitPluginFormat &f)
+{
+	UNUSED_PARAMETER(f);
+	return paths_au;
+}
+FileSearchPath get_search_paths(AudioUnitPluginFormat &f)
+{
+	UNUSED_PARAMETER(f);
+	return search_au;
+}
+void set_paths(AudioUnitPluginFormat &f, StringArray p)
+{
+	paths_au = p;
+}
+void set_search_paths(AudioUnitPluginFormat &f, FileSearchPath p)
+{
+	search_au = p;
+}
+#endif
 
 template<class _T> void register_plugin(const char *id)
 {
@@ -121,9 +161,17 @@ bool obs_module_load(void)
 			JUCE_BUILDNUMBER);
 
 	MessageManager::getInstance();
-#if WIN32
-	register_plugin<VST3PluginFormat>("vst_filter_juce_3x");
-	register_plugin<VSTPluginFormat>("vst_filter_juce_2x");
+#if JUCE_PLUGINHOST_VST3 && (JUCE_MAC || JUCE_WINDOWS)
+	register_plugin<VST3PluginFormat>("vst_filter_juce_vst3");
+#endif
+#if JUCE_PLUGINHOST_VST && (JUCE_MAC || JUCE_WINDOWS || JUCE_LINUX || JUCE_IOS)
+	register_plugin<VSTPluginFormat>("vst_filter_juce_vst2");
+#endif
+#if JUCE_PLUGINHOST_LADSPA && JUCE_LINUX
+	register_plugin<LADSPAPluginFormat>("vst_filter_juce_ladspa");
+#endif
+#if JUCE_PLUGINHOST_AU && (JUCE_MAC || JUCE_IOS)
+	register_plugin<AudioUnitPluginFormat>("vst_filter_juce_au");
 #endif
 	return true;
 }
