@@ -304,6 +304,7 @@ public:
 		int target_size   = AUDIO_OUTPUT_FRAMES * 2;
 		int count         = std::max(8, target_size / buf_size);
 		int ch_count      = device->getActiveInputChannels().countNumberOfSetBits();
+		_write_index      = 0;
 
 		if (buffers.size() < count)
 			buffers.reserve(count);
