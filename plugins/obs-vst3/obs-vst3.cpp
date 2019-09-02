@@ -32,6 +32,12 @@ OBS_MODULE_USE_DEFAULT_LOCALE("obs-vst3", "en-US")
 using VST3Host = PluginHost<VST3PluginFormat>;
 using VSTHost  = PluginHost<VSTPluginFormat>;
 
+static FileSearchPath search;
+StringArray           paths;
+
+static FileSearchPath search_2x;
+StringArray           paths_2x;
+
 StringArray get_paths(VSTPluginFormat &f)
 {
 	UNUSED_PARAMETER(f);
@@ -80,6 +86,9 @@ bool obs_module_load(void)
 {
 	MessageManager::getInstance();
 
+	VST3PluginFormat vst3format;
+	VSTPluginFormat  vst2format;
+
 	struct obs_source_info vst3_filter = {0};
 	vst3_filter.id                     = "vst_filter_juce_3x";
 	vst3_filter.type                   = OBS_SOURCE_TYPE_FILTER;
@@ -90,7 +99,7 @@ bool obs_module_load(void)
 	vst3_filter.update                 = VST3Host::Update;
 	vst3_filter.filter_audio           = VST3Host::Filter_Audio;
 	vst3_filter.get_properties         = VST3Host::Properties;
-	vst3_filter.save                   = VST3Host::Save;
+	//vst3_filter.save                   = VST3Host::Save;
 
 	struct obs_source_info vst_filter = {0};
 	vst_filter.id                     = "vst_filter_juce_2x";
@@ -102,7 +111,7 @@ bool obs_module_load(void)
 	vst_filter.update                 = VSTHost::Update;
 	vst_filter.filter_audio           = VSTHost::Filter_Audio;
 	vst_filter.get_properties         = VSTHost::Properties;
-	vst_filter.save                   = VSTHost::Save;
+	//vst_filter.save                   = VSTHost::Save;
 
 	int version = (JUCE_MAJOR_VERSION << 16) | (JUCE_MINOR_VERSION << 8) | JUCE_BUILDNUMBER;
 	blog(LOG_INFO, "JUCE Version: (%i) %i.%i.%i", version, JUCE_MAJOR_VERSION, JUCE_MINOR_VERSION,
@@ -112,17 +121,21 @@ bool obs_module_load(void)
 	obs_register_source(&vst_filter);
 
 	auto rescan_vst3 = [](void * = nullptr) {
-		if (vst3format.canScanForPlugins())
-			paths = vst3format.searchPathsForPlugins(search, true, true);
+		VST3PluginFormat format;
+		if (format.canScanForPlugins())
+			paths = format.searchPathsForPlugins(search, true, true);
 	};
 	obs_frontend_add_tools_menu_item("Rescan VST3", rescan_vst3, nullptr);
+	search = vst3format.getDefaultLocationsToSearch();
 	rescan_vst3();
 
 	auto rescan_vst2 = [](void * = nullptr) {
-		if (vst2format.canScanForPlugins())
-			paths_2x = vst2format.searchPathsForPlugins(search_2x, true, true);
+		VSTPluginFormat format;
+		if (format.canScanForPlugins())
+			paths_2x = format.searchPathsForPlugins(search_2x, true, true);
 	};
 	obs_frontend_add_tools_menu_item("Rescan VST", rescan_vst2, nullptr);
+	search_2x = vst2format.getDefaultLocationsToSearch();
 	rescan_vst2();
 
 	return true;

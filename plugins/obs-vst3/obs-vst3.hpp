@@ -14,7 +14,7 @@
 #include <QCursor>
 #include <JuceHeader.h>
 //#include <juce_audio_devices/midi_io/juce_MidiDevices.h>
-#include <juce_audio_processors/juce_audio_processors.h>
+//#include <juce_audio_processors/juce_audio_processors.h>
 
 int get_max_obs_channels()
 {
@@ -33,15 +33,6 @@ int get_max_obs_channels()
 
 const int          obs_output_frames = AUDIO_OUTPUT_FRAMES;
 const volatile int obs_max_channels  = get_max_obs_channels();
-
-static VST3PluginFormat vst3format;
-static VSTPluginFormat  vst2format;
-
-static FileSearchPath search = vst3format.getDefaultLocationsToSearch();
-StringArray           paths;
-
-static FileSearchPath search_2x = vst2format.getDefaultLocationsToSearch();
-StringArray           paths_2x;
 
 StringArray    get_paths(VSTPluginFormat &f);
 StringArray    get_paths(VST3PluginFormat &f);
@@ -94,7 +85,6 @@ private:
 	std::unique_ptr<AudioPluginInstance> vst_instance;
 	std::unique_ptr<AudioPluginInstance> new_vst_instance;
 
-	// AudioPluginInstance * old_vst_instance = nullptr;
 	AudioProcessorEditor *editor  = nullptr;
 	obs_source_t *        context = nullptr;
 	juce::MemoryBlock     vst_state;
@@ -112,8 +102,6 @@ private:
 	juce::String               current_midi        = "";
 	double                     current_sample_rate = 0.0;
 	bool                       dpi_aware           = true;
-
-	PluginDescription desc;
 
 	bool was_open = false;
 	bool enabled  = true;
@@ -161,11 +149,8 @@ private:
 			juce::String file, juce::String state)
 	{
 		menu_update.enter();
-		// new_vst_instance = inst;
 		close_vst(new_vst_instance);
 		new_vst_instance.swap(inst);
-		// new_vst_instance.reset()
-		// new_vst_instance = inst;
 
 		if (err.toStdString().length() > 0)
 			blog(LOG_WARNING, "Couldn't create plugin! %s", err.toStdString().c_str());
@@ -253,6 +238,8 @@ private:
 				midi_input->start();
 		}
 
+		save(settings);
+
 		juce::String err;
 		bool         found = false;
 
@@ -283,8 +270,6 @@ private:
 						decReferenceCount();
 					};
 
-					// juce::AudioPluginFormat::PluginCreationCallback
-
 					int i = 0;
 					for (; i < descs.size(); i++) {
 						if (plugin.compare(descs[i]->name) == 0) {
@@ -301,6 +286,7 @@ private:
 					} else {
 						clear_vst();
 					}
+					descs.clear(false);
 					return;
 				} else {
 					clear_vst();
@@ -308,6 +294,7 @@ private:
 			} else {
 				clear_vst();
 			}
+			descs.clear(false);
 		}
 
 		if (was_open)
@@ -316,7 +303,10 @@ private:
 
 	void save(obs_data_t *settings)
 	{
-		obs_data_set_string(settings, "state", obs_data_get_string(vst_settings, "state"));
+		if (vst_settings)
+			obs_data_set_string(settings, "state", obs_data_get_string(vst_settings, "state"));
+		else
+			obs_data_set_string(settings, "state", "");
 	}
 
 	void filter_audio(struct obs_audio_data *audio)
@@ -374,9 +364,11 @@ public:
 
 	~PluginHost() override
 	{
-		obs_data_release(vst_settings);
+		if (vst_settings)
+			obs_data_release(vst_settings);
 		host_close();
-		delete editor;
+		if (editor)
+			delete editor;
 		close_vst(vst_instance);
 		close_vst(new_vst_instance);
 	}
@@ -420,8 +412,12 @@ public:
 				}
 				dialog->setVisible(editor);
 				if (editor) {
-					juce::Point<double> mouse_double  = physicalToLogical(mouse_point);
-					juce::Point<int>    logical_mouse = mouse_double.roundToInt();
+#if JUCE_DEBUG
+					juce::Point<double> mouse_double(20, 20);
+#else
+					juce::Point<double> mouse_double = physicalToLogical(mouse_point);
+#endif
+					juce::Point<int> logical_mouse = mouse_double.roundToInt();
 
 					logical_mouse.x -= (dialog->getWidth() / 2);
 					logical_mouse.y += 20;
@@ -490,7 +486,7 @@ public:
 		}
 
 		obs_property_set_enabled(desc_list, has_options);
-
+		descs.clear(false);
 		return true;
 	}
 
@@ -590,14 +586,14 @@ public:
 		}
 		return plugin;
 	}
-
+	/*
 	static void Save(void *vptr, obs_data_t *settings)
 	{
 		PluginHost *plugin = static_cast<PluginHost *>(vptr);
 		if (plugin)
 			plugin->save(settings);
 	}
-
+	*/
 	static void Destroy(void *vptr)
 	{
 		PluginHost *plugin = static_cast<PluginHost *>(vptr);
