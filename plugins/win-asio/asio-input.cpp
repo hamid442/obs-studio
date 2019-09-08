@@ -83,7 +83,7 @@ class AudioCB : public juce::AudioIODeviceCallback {
 private:
 	AudioIODevice *  _device      = nullptr;
 	char *           _name        = nullptr;
-	int              _write_index = 0;
+	std::atomic<int> _write_index;
 	double           sample_rate;
 	TimeSliceThread *_thread = nullptr;
 
@@ -95,7 +95,7 @@ public:
 
 	int write_index()
 	{
-		return _write_index;
+		return _write_index.load();
 	}
 
 private:
@@ -117,7 +117,7 @@ public:
 		size_t   silent_buffer_size = 0;
 		uint8_t *silent_buffer      = nullptr;
 
-		bool set_data(AudioBufferInfo *info, obs_source_audio &out, const std::vector<short> &route,
+		inline bool set_data(AudioBufferInfo *info, obs_source_audio &out, const std::vector<short> &route,
 				int *sample_rate)
 		{
 			out.speakers        = in.speakers;
@@ -155,6 +155,8 @@ public:
 	public:
 		AudioListener(obs_source_t *source, AudioCB *cb) : source(source), callback(cb)
 		{
+			silent_buffer_size = 2 * AUDIO_OUTPUT_FRAMES * sizeof(float);
+			silent_buffer = (uint8_t *)bzalloc(silent_buffer_size);
 			active = true;
 		}
 
@@ -254,6 +256,7 @@ public:
 
 	AudioCB(AudioIODevice *device, const char *name)
 	{
+		_write_index.store(0);
 		_device = device;
 		_name   = bstrdup(name);
 	}
@@ -273,7 +276,7 @@ public:
 		buffers[_write_index].out.timestamp       = ts;
 		buffers[_write_index].out.frames          = numSamples;
 		buffers[_write_index].out.samples_per_sec = (uint32_t)sample_rate;
-		_write_index                              = (_write_index + 1) % buffers.size();
+		_write_index.store((_write_index.load() + 1) % buffers.size());
 
 		UNUSED_PARAMETER(numOutputChannels);
 		UNUSED_PARAMETER(outputChannelData);
