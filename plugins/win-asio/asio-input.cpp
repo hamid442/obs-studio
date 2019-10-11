@@ -81,11 +81,12 @@ static std::vector<std::string> known_layouts_str = {"Mono", "Stereo", "2.1", "4
 
 class AudioCB : public juce::AudioIODeviceCallback {
 private:
-	AudioIODevice *  _device      = nullptr;
-	char *           _name        = nullptr;
+	AudioIODevice *  _device = nullptr;
+	char *           _name   = nullptr;
 	std::atomic<int> _write_index;
 	double           sample_rate;
 	TimeSliceThread *_thread = nullptr;
+	CriticalSection  _output_lock;
 
 public:
 	struct AudioBufferInfo {
@@ -100,6 +101,7 @@ public:
 
 private:
 	std::vector<AudioBufferInfo> buffers;
+	AudioBufferInfo              out_buffer;
 
 public:
 	class AudioListener : public TimeSliceClient {
@@ -156,8 +158,8 @@ public:
 		AudioListener(obs_source_t *source, AudioCB *cb) : source(source), callback(cb)
 		{
 			silent_buffer_size = 2 * AUDIO_OUTPUT_FRAMES * sizeof(float);
-			silent_buffer = (uint8_t *)bzalloc(silent_buffer_size);
-			active = true;
+			silent_buffer      = (uint8_t *)bzalloc(silent_buffer_size);
+			active             = true;
 		}
 
 		~AudioListener()
@@ -266,11 +268,24 @@ public:
 		bfree(_name);
 	}
 
+	static inline uint64_t conv_frames_to_time(const size_t sample_rate, const size_t frames)
+	{
+		if (!sample_rate)
+			return 0;
+
+		return (uint64_t)frames * 1000000000ULL / (uint64_t)sample_rate;
+	}
+
+	static inline size_t conv_time_to_frames(const size_t sample_rate, const uint64_t duration)
+	{
+		return (size_t)(duration * (uint64_t)sample_rate / 1000000000ULL);
+	}
+
 	void audioDeviceIOCallback(const float **inputChannelData, int numInputChannels, float **outputChannelData,
 			int numOutputChannels, int numSamples)
 	{
+		//Input
 		uint64_t ts = os_gettime_ns();
-
 		for (int i = 0; i < numInputChannels; i++)
 			buffers[_write_index].buffer.copyFrom(i, 0, inputChannelData[i], numSamples);
 		buffers[_write_index].out.timestamp       = ts;
@@ -278,8 +293,57 @@ public:
 		buffers[_write_index].out.samples_per_sec = (uint32_t)sample_rate;
 		_write_index.store((_write_index.load() + 1) % buffers.size());
 
-		UNUSED_PARAMETER(numOutputChannels);
-		UNUSED_PARAMETER(outputChannelData);
+		//Output
+		const ScopedLock lock_here(_output_lock);
+
+		uint64_t nxt_ts = ts + conv_frames_to_time(sample_rate, numSamples);
+		uint64_t diff   = ts - out_buffer.out.timestamp;
+		uint64_t offset = conv_time_to_frames(sample_rate, diff);
+		uint64_t remainder = out_buffer.buffer.getNumSamples() - offset;
+		int      buf_width = out_buffer.buffer.getNumSamples();
+
+		size_t end = std::min(offset + numSamples, (unsigned long long)out_buffer.buffer.getNumSamples());
+		int    count = numSamples;
+		for (int ch = 0; ch < numOutputChannels; ch++) {
+			float *f = out_buffer.buffer.getWritePointer(ch);
+			int          to = 0;
+			//copy
+			for (int i = offset; i < end; i++) {
+				outputChannelData[ch][to] = f[i];
+				to++;
+			}
+			for (int i = 0; to < numSamples; i++) {
+				outputChannelData[ch][to] = f[i];
+				to++;
+			}
+			to = 0;
+			//shift
+			for (int i = offset; i < buf_width; i++)
+				f[to] = f[i];
+			//zero out last
+			for (; to < buf_width; to++)
+				f[to] = 0.0f;
+		}
+		
+		out_buffer.out.timestamp = nxt_ts;
+	}
+
+	//frames must not be null
+	void write_out(struct audio_data *frames, std::vector<uint16_t> route, speaker_layout speakers)
+	{
+		float ** in    = out_buffer.buffer.getArrayOfWritePointers();
+		float ** out    = (float**)frames->data;
+		if (frames->timestamp >= out_buffer.out.timestamp) {
+			const ScopedLock lock_here(_output_lock);
+			uint64_t diff   = frames->timestamp - out_buffer.out.timestamp;
+			uint64_t offset = conv_time_to_frames(sample_rate, diff);
+
+			int channels = out_buffer.buffer.getNumChannels();
+			for (int i = 0; i < route.size(); i++) {
+				if (route[i] < channels)
+					FloatVectorOperations::add(in[route[i]] + offset, out[i], frames->frames);
+			}
+		}
 	}
 
 	void add_client(AudioListener *client)
@@ -307,6 +371,7 @@ public:
 		int target_size   = AUDIO_OUTPUT_FRAMES * 2;
 		int count         = std::max(8, target_size / buf_size);
 		int ch_count      = device->getActiveInputChannels().countNumberOfSetBits();
+		int o_ch_count    = device->getActiveOutputChannels().countNumberOfSetBits();
 		_write_index      = 0;
 
 		if (buffers.size() < count)
@@ -324,6 +389,17 @@ public:
 			inf.out.samples_per_sec = sample_rate;
 			buffers.push_back(inf);
 		}
+
+		// preallocate massive buffer
+		out_buffer.buffer = AudioBuffer<float>(o_ch_count, buf_size * count);
+		float **out = out_buffer.buffer.getArrayOfWritePointers();
+		for (int ch = 0; ch < o_ch_count; ch++)
+			FloatVectorOperations::fill(out[ch], 0.0f, out_buffer.buffer.getNumSamples());
+
+		//out_buffer.buffer.clear();
+		out_buffer.out.format          = AUDIO_FORMAT_FLOAT_PLANAR;
+		out_buffer.out.samples_per_sec = sample_rate;
+		out_buffer.out.timestamp = os_gettime_ns();
 
 		if (!_thread) {
 			_thread = new TimeSliceThread(name);
@@ -359,8 +435,11 @@ class ASIOPlugin {
 private:
 	AudioIODevice *         _device   = nullptr;
 	AudioCB::AudioListener *_listener = nullptr;
-	std::vector<uint16_t>   _route;
-	speaker_layout          _speakers;
+	std::vector<uint16_t>   _route    = {};
+	speaker_layout          _speakers = SPEAKERS_UNKNOWN;
+	AudioCB *               _callback = nullptr;
+	CriticalSection         _menu_lock;
+	bool                    _is_input = false;
 
 public:
 	AudioIODevice *getDevice()
@@ -369,8 +448,14 @@ public:
 	}
 
 	ASIOPlugin::ASIOPlugin(obs_data_t *settings, obs_source_t *source)
+		: _speakers(SPEAKERS_UNKNOWN), _is_input(true)
 	{
 		_listener = new AudioCB::AudioListener(source, nullptr);
+	}
+
+	ASIOPlugin::ASIOPlugin(obs_data_t *settings, obs_output_t *output)
+		: _speakers(SPEAKERS_UNKNOWN), _is_input(false)
+	{
 	}
 
 	ASIOPlugin::~ASIOPlugin()
@@ -387,6 +472,43 @@ public:
 		ASIOPlugin *plugin = new ASIOPlugin(settings, source);
 		plugin->update(settings);
 		return plugin;
+	}
+
+	static void *Create(obs_data_t *settings, obs_output_t *output)
+	{
+		ASIOPlugin *plugin = new ASIOPlugin(settings, output);
+		plugin->update(settings);
+		return plugin;
+	}
+
+	static bool Start(void *vptr)
+	{
+		return true;
+	}
+
+	static void Stop(void *vptr, uint64_t ts)
+	{
+	}
+
+	static void RawAudio(void *vptr, struct audio_data *frames)
+	{
+		ASIOPlugin *plugin = static_cast<ASIOPlugin *>(vptr);
+		plugin->raw_audio(frames);
+	}
+
+	static void RawAudio2(void *vptr, size_t mix_idx, struct audio_data *frames)
+	{
+		ASIOPlugin *plugin = static_cast<ASIOPlugin *>(vptr);
+		plugin->raw_audio(frames);
+	}
+
+	void raw_audio(struct audio_data *frames)
+	{
+		/*merge w/ out buffer data*/
+		if (_callback && frames) {
+			const ScopedLock lock_here(_menu_lock);
+			_callback->write_out(frames, _route, _speakers);
+		}
 	}
 
 	static void Destroy(void *vptr)
@@ -409,7 +531,7 @@ public:
 		props   = obs_properties_create();
 		devices = obs_properties_add_list(props, "device_id", obs_module_text("Device"), OBS_COMBO_TYPE_LIST,
 				OBS_COMBO_FORMAT_STRING);
-		//obs_property_set_modified_callback(devices, asio_device_changed);
+		// obs_property_set_modified_callback(devices, asio_device_changed);
 		obs_property_set_modified_callback2(devices, asio_device_changed, vptr);
 		fill_out_devices(devices);
 		obs_property_set_long_description(devices, obs_module_text("ASIO Devices"));
@@ -463,14 +585,22 @@ public:
 			}
 		}
 
+		auto bail = [this, &callback](bool is_input) {
+			if (!is_input) {
+				_callback = nullptr;
+			} else {
+				AudioCB *cb = _listener->getCallback();
+
+				_listener->setCurrentCallback(callback);
+				_listener->disconnect();
+
+				if (cb)
+					cb->remove_client(_listener);
+			}
+		};
+
 		if (selected_device == nullptr) {
-			AudioCB *cb = _listener->getCallback();
-
-			_listener->setCurrentCallback(callback);
-			_listener->disconnect();
-
-			if (cb)
-				cb->remove_client(_listener);
+			bail(_is_input);
 			return;
 		}
 
@@ -488,58 +618,67 @@ public:
 					_device->getCurrentBufferSizeSamples());
 			if (!err.toStdString().empty()) {
 				blog(LOG_WARNING, "%s", err.toStdString().c_str());
-				AudioCB *cb = _listener->getCallback();
-
-				_listener->setCurrentCallback(callback);
-				_listener->disconnect();
-
-				if (cb)
-					cb->remove_client(_listener);
+				bail(_is_input);
 				return;
 			}
 		}
 
-		AudioCB *cb = _listener->getCallback();
-		_listener->setCurrentCallback(callback);
+		if (!_is_input) {
+			int                recorded_channels = get_audio_channels(layout);
+			int                max_channels      = get_max_obs_channels();
+			const ScopedLock   lock_here(_menu_lock);
+			_route.clear();
+			_route.reserve(max_channels);
+			for (int i = 0; i < recorded_channels; i++) {
+				std::string route_str = "route " + std::to_string(i);
+				_route.push_back(obs_data_get_int(settings, route_str.c_str()));
+			}
+			for (int i = recorded_channels; i < max_channels; i++) {
+				_route.push_back(-1);
+			}
+		} else {
+			AudioCB *cb = _listener->getCallback();
+			_listener->setCurrentCallback(callback);
 
-		if (_device->isOpen() && !_device->isPlaying() && callback)
-			_device->start(callback);
+			if (_device->isOpen() && !_device->isPlaying() && callback)
+				_device->start(callback);
 
-		if (callback) {
-			if (cb != callback) {
+			if (callback) {
+				if (cb != callback) {
+					_listener->disconnect();
+					if (cb)
+						cb->remove_client(_listener);
+				}
+
+				int                recorded_channels = get_audio_channels(layout);
+				int                max_channels      = get_max_obs_channels();
+				std::vector<short> r;
+				r.reserve(max_channels);
+
+				for (int i = 0; i < recorded_channels; i++) {
+					std::string route_str = "route " + std::to_string(i);
+					r.push_back(obs_data_get_int(settings, route_str.c_str()));
+				}
+				for (int i = recorded_channels; i < max_channels; i++) {
+					r.push_back(-1);
+				}
+
+				_listener->setRoute(r);
+
+				obs_source_audio out;
+				out.speakers = layout;
+				_listener->setOutput(out);
+
+				_listener->setCallback(callback);
+				if (cb != callback) {
+					_listener->reconnect();
+					callback->add_client(_listener);
+				}
+			} else {
 				_listener->disconnect();
 				if (cb)
 					cb->remove_client(_listener);
 			}
-
-			int                recorded_channels = get_audio_channels(layout);
-			int                max_channels      = get_max_obs_channels();
-			std::vector<short> r;
-			r.reserve(max_channels);
-
-			for (int i = 0; i < recorded_channels; i++) {
-				std::string route_str = "route " + std::to_string(i);
-				r.push_back(obs_data_get_int(settings, route_str.c_str()));
-			}
-			for (int i = recorded_channels; i < max_channels; i++) {
-				r.push_back(-1);
-			}
-
-			_listener->setRoute(r);
-
-			obs_source_audio out;
-			out.speakers = layout;
-			_listener->setOutput(out);
-
-			_listener->setCallback(callback);
-			if (cb != callback) {
-				_listener->reconnect();
-				callback->add_client(_listener);
-			}
-		} else {
-			_listener->disconnect();
-			if (cb)
-				cb->remove_client(_listener);
 		}
 	}
 
@@ -572,7 +711,13 @@ public:
 	static const char *Name(void *unused)
 	{
 		UNUSED_PARAMETER(unused);
-		return obs_module_text("ASIO");
+		return obs_module_text("Asio.Input");
+	}
+
+	static const char *Name_Output(void *unused)
+	{
+		UNUSED_PARAMETER(unused);
+		return obs_module_text("Asio.Output");
 	}
 };
 
@@ -634,7 +779,7 @@ static bool asio_device_changed(void *vptr, obs_properties_t *props, obs_propert
 	int                           max_channels = get_max_obs_channels();
 	std::vector<obs_property_t *> route(max_channels, nullptr);
 	speaker_layout                layout = (speaker_layout)obs_data_get_int(settings, "speaker_layout");
-	obs_property_t *panel =              obs_properties_get(props, "ctrl");
+	obs_property_t *              panel  = obs_properties_get(props, "ctrl");
 
 	int recorded_channels = get_audio_channels(layout);
 
@@ -736,7 +881,21 @@ bool obs_module_load(void)
 		callbacks.push_back(cb);
 	}
 
-	struct obs_source_info asio_input_capture = {};
+	struct obs_output_info asio_output = {0};
+	asio_output.id                     = "asio_output";
+	asio_output.flags                  = OBS_OUTPUT_AUDIO | OBS_OUTPUT_MULTI_TRACK;
+	asio_output.get_name               = ASIOPlugin::Name_Output;
+	asio_output.create                 = ASIOPlugin::Create;
+	asio_output.destroy                = ASIOPlugin::Destroy;
+	asio_output.update                 = ASIOPlugin::Update;
+	asio_output.get_defaults           = ASIOPlugin::Defaults;
+	asio_output.get_properties         = ASIOPlugin::Properties;
+	asio_output.raw_audio              = ASIOPlugin::RawAudio;
+	asio_output.raw_audio2             = ASIOPlugin::RawAudio2;
+	asio_output.start                  = ASIOPlugin::Start;
+	asio_output.stop                   = ASIOPlugin::Stop;
+
+	struct obs_source_info asio_input_capture = {0};
 	asio_input_capture.id                     = "asio_input_capture";
 	asio_input_capture.type                   = OBS_SOURCE_TYPE_INPUT;
 	asio_input_capture.output_flags           = OBS_SOURCE_AUDIO;
@@ -748,6 +907,7 @@ bool obs_module_load(void)
 	asio_input_capture.get_properties         = ASIOPlugin::Properties;
 
 	obs_register_source(&asio_input_capture);
+	obs_register_output(&asio_output);
 	return true;
 }
 
