@@ -142,9 +142,9 @@ template<class _T> void register_plugin(const char *id)
 
 	auto rescan = [](void * = nullptr) {
 		static _T      _f;
-		FileSearchPath s_path = get_search_paths(_f);
 		if (_f.canScanForPlugins()) {
-			StringArray p = _f.searchPathsForPlugins(search, true, true);
+			FileSearchPath s_path = get_search_paths(_f);
+			StringArray p = _f.searchPathsForPlugins(s_path, true, true);
 			set_paths(_f, p);
 		}
 	};

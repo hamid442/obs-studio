@@ -604,14 +604,14 @@ public:
 		}
 		return plugin;
 	}
-	/*
+	
 	static void Save(void *vptr, obs_data_t *settings)
 	{
 		PluginHost *plugin = static_cast<PluginHost *>(vptr);
 		if (plugin)
 			plugin->save(settings);
 	}
-	*/
+	
 	static void Destroy(void *vptr)
 	{
 		PluginHost *plugin = static_cast<PluginHost *>(vptr);
