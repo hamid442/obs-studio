@@ -12,6 +12,11 @@ if(MSVC)
 		w32-pthreads)
 endif()
 
+if(APPLE)
+	set(obs-scripting_PLATFORM_DEPS
+		objc)
+endif()
+
 option(DISABLE_LUA "Disable Lua scripting support" OFF)
 option(DISABLE_PYTHON "Disable Python scripting support" OFF)
 
@@ -75,6 +80,10 @@ set(SCRIPTING_ENABLED ON CACHE BOOL "Interal global cmake variable" FORCE)
 if(UI_ENABLED)
 	set(EXTRA_LIBS obs-frontend-api)
 	include_directories(SYSTEM "${CMAKE_SOURCE_DIR}/UI/obs-frontend-api")
+endif()
+
+IF(BUILD_CAPTIONS)
+	string(TOUPPER "${BUILD_CAPTIONS}" BUILD_CAPTIONS)
 endif()
 
 configure_file(

@@ -29,14 +29,15 @@ extern bool load_graphics_offsets(bool is32bit, const char *config_path);
 #define IS32BIT true
 #endif
 
+/* note, need to enable cache writing in load-graphics-offsets.c if you turn
+ * this back on*/
 #define USE_HOOK_ADDRESS_CACHE false
 
 static DWORD WINAPI init_hooks(LPVOID param)
 {
 	char *config_path = param;
 
-	if (USE_HOOK_ADDRESS_CACHE &&
-	    cached_versions_match() &&
+	if (USE_HOOK_ADDRESS_CACHE && cached_versions_match() &&
 	    load_cached_graphics_offsets(IS32BIT, config_path)) {
 
 		load_cached_graphics_offsets(!IS32BIT, config_path);
@@ -93,7 +94,8 @@ bool obs_module_load(void)
 
 	char *config_path = obs_module_config_path(NULL);
 
-	init_hooks_thread = CreateThread(NULL, 0, init_hooks, config_path, 0, NULL);
+	init_hooks_thread =
+		CreateThread(NULL, 0, init_hooks, config_path, 0, NULL);
 	obs_register_source(&game_capture_info);
 
 	return true;

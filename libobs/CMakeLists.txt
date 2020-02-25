@@ -110,7 +110,7 @@ if(WIN32)
 	endif()
 elseif(APPLE)
 	set(libobs_PLATFORM_SOURCES
-		obs-cocoa.c
+		obs-cocoa.m
 		util/threading-posix.c
 		util/pipe-posix.c
 		util/platform-nix.c
@@ -384,6 +384,7 @@ set(libobs_libobs_SOURCES
 	obs-view.c
 	obs-scene.c
 	obs-audio.c
+	obs-video-gpu-encode.c
 	obs-video.c)
 set(libobs_libobs_HEADERS
 	${libobs_PLATFORM_HEADERS}
@@ -453,7 +454,7 @@ if(UNIX AND NOT APPLE)
 		set(PRIVATE_LIBS "${PRIVATE_LIBS} -l${LIB}")
 	endforeach()
 	CONFIGURE_FILE("libobs.pc.in" "libobs.pc" @ONLY)
-	install(FILES "${CMAKE_CURRENT_BINARY_DIR}/libobs.pc" DESTINATION "${CMAKE_INSTALL_PREFIX}/lib/pkgconfig")
+	install(FILES "${CMAKE_CURRENT_BINARY_DIR}/libobs.pc" DESTINATION "${CMAKE_INSTALL_LIBDIR}/pkgconfig")
 endif()
 
 set_target_properties(libobs PROPERTIES
@@ -464,7 +465,12 @@ target_compile_definitions(libobs
 	PUBLIC
 		HAVE_OBSCONFIG_H)
 
-if(NOT MSVC)
+if(CMAKE_SYSTEM_PROCESSOR MATCHES "^(powerpc|ppc)64le")
+	target_compile_options(libobs
+		PUBLIC
+			-mvsx)
+	add_compile_definitions(NO_WARN_X86_INTRINSICS)
+elseif(NOT MSVC)
 	target_compile_options(libobs
 		PUBLIC
 			-mmmx
